@@ -14,9 +14,10 @@ Santralio, gelen ve giden aramaları karşılayan, kuyruğa alan, doğru kişiye
 | İlk dil | Türkçe |
 | İlk kanal | Ses (telefon görüşmesi) |
 | Yapay zekânın yeri | Karşılama, yönlendirme, temsilciye anlık destek, görüşme özeti |
+| Satış ve ürün lisansı | Vozyy |
 | Şu an depoda | Bu ürün çerçevesi |
 
-**English.** Santralio is a next-generation, AI-assisted contact center and PBX. It will handle inbound and outbound calls, queue and route them, and support human agents with transcription, suggestions, and post-call summaries. Implementation starts module by module after this product frame.
+**English.** Santralio is a next-generation, AI-assisted contact center and PBX. It will handle inbound and outbound calls, queue and route them, and support human agents with transcription, suggestions, and post-call summaries. Commercial licensing and sales stay in Vozyy: Vozyy issues the license, Santralio runs the tenant and the call center. Implementation starts module by module after this product frame.
 
 ## Ne işe yarar
 
@@ -43,6 +44,7 @@ Yapay zeka tekrarlayan karşılama ve yönlendirmeyi üstlenir. Temsilci, görü
 3. **Türkçe birinci dildir.** Karşılama, transkript, öneri ve özet Türkçe için tasarlanır.
 4. **Modül modül ilerleme.** Her yetenek ayrı çalışılır. Yeni parça, çalışan parçanın üzerine eklenir.
 5. **Kayıt ve kişisel veri tasarımın parçasıdır.** Arama kaydı, transkript ve müşteri verisi ürün akışının içinde, görünür kurallarla ele alınır.
+6. **Satış ve lisans Vozyy’de.** Paket, modül, plan, fiyat ve tahsilat Vozyy’dedir. Santralio, Vozyy’nin bastığı lisansla kiracıyı ve çağrı merkezini çalıştırır.
 
 ## Planlanan kapsam
 
@@ -106,6 +108,12 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 
 Kurulum, çalıştırma ve yapılandırma adımları ilk yazılım modülüyle birlikte bu dosyaya eklenecek.
 
-## Lisans
+## Lisanslama ve satış
 
-Lisans henüz seçilmedi.
+Santralio’nun ticari lisanslama ve satış mantığı Vozyy ile sağlanır. Müşteri lisansı [Vozyy mağazasından](https://vozyy.pro/Shop) çıkar: hazır ürün olarak tek fiyatla, ya da entegrasyon, modül ve lisans planı sırasıyla.
+
+Vozyy lisansı basar. Santralio o lisansın açtığı yetkilerle kiracıyı çalıştırır. Süresi dolmuş veya hiç açılmamış bir yetki, ilgili modülü kapalı tutar.
+
+Bu deponun kapsamı çağrı merkezi yazılımıdır. Satış ekranı, fiyat kataloğu, ödeme tahsilatı ve lisans basımı Vozyy’de kalır. Lisansın hangi uçtan, hangi alanlarla okunacağı Vozyy sözleşmesi netleşince yazılır. O sözleşme yazılmadan bu depoya geçici lisans anahtarı veya deneme ödeme akışı eklenmez.
+
+Kaynak kodun dağıtım lisansı ayrıca seçilecektir. Bu seçim, Vozyy üzerinden satılan ürün lisansından ayrıdır.
