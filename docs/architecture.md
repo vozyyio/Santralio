@@ -118,11 +118,13 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | `tenants` | Kiracı kimliği, önek (`t1`), ad, durum |
 | `licenses` | Kiracı başına yetkiler, kaynak (`vozyy`, `manual`), bitiş tarihi |
 | `trunks` | Operatör, sunucu, kullanıcı adı, `secret_enc`, `key_id`, kayıt ayarları |
-| `dids` | Numara ve hangi kiracıya, hangi hedefe bağlı olduğu |
+| `entry_points` | Kiracının giriş noktaları: kanal, adres (ses için DID) ve bağlı olduğu akış (bkz. Ek) |
 | `extensions` | Dahili numarası, şifreli SIP şifresi, durum |
 | `queues` | Kuyruk adı, strateji, zaman aşımı, anonslar |
 | `queue_members` | Kuyruk ve dahili eşleşmesi |
 | `operator_ip_ranges` | Operatör başına izinli sinyal IP aralıkları |
+| `interactions` | Kanaldan bağımsız konuşma kaydı: kiracı, kanal, giriş noktası, kuyruk, temsilci, sonuç |
+| `ai_providers` | Kiracı bazında STT/TTS/LLM sağlayıcısı ve şifreli API anahtarı (5. adımda kullanılır) |
 | `audit_log` | Kim, ne zaman, neyi değiştirdi |
 
 ## Depo yapısı
@@ -139,8 +141,8 @@ docs/architecture.md bu belge
 | --- | --- | --- |
 | A. Sunucu hazırlığı | DNS düzeltmesi, yeniden başlatma, 2 GB swap. `asterisk`, `postgresql` ve `certbot` kurulumu | Sunucu yeni çekirdekle açıldı, `sip.santralio.site` sunucunun IP'sini gösteriyor |
 | B. Temel Asterisk | Transport'lar, TLS, reject context'i. Henüz kiracı yok | Kimliği doğrulanmamış INVITE ve REGISTER istekleri reddediliyor |
-| C. Kontrol servisi | Şema, şifreleme, konfigürasyon üretici, AMI ile yeniden yükleme. CLI komutları: `tenant create`, `trunk set`, `did add`, `ext add`, `queue add` | Veritabanındaki kayıtlardan geçerli konfigürasyon üretiliyor, Asterisk hatasız yeniden yükleniyor |
-| D. Test kiracısı `t1` | Netgsm trunk'ı, DID, dahililer 1001 ve 1002, `t1_destek` kuyruğu | Netgsm kaydı `Registered` durumunda. DID aranınca anons duyuluyor, arama kuyruğa giriyor, 1001 ve 1002 çalıyor. Açılan çağrıda iki yönlü ses var |
+| C. Kontrol servisi | Şema, şifreleme, konfigürasyon üretici, AMI ile yeniden yükleme. CLI komutları: `tenant create`, `trunk set`, `entry add` (ses için DID), `ext add`, `queue add` | Veritabanındaki kayıtlardan geçerli konfigürasyon üretiliyor, Asterisk hatasız yeniden yükleniyor |
+| D. Test kiracısı `t1` | Netgsm trunk'ı, ses giriş noktası (DID), dahililer 1001 ve 1002, `t1_destek` kuyruğu | Netgsm kaydı `Registered` durumunda. DID aranınca anons duyuluyor, arama kuyruğa giriyor, 1001 ve 1002 çalıyor. Açılan çağrıda iki yönlü ses var |
 | E. İzolasyon testi | Kendi `1001`'i olan sahte bir `t2` kiracısı açılır, testten sonra silinir | `t1_1001`, `t2`'nin dahili ve kuyruklarına ulaşamıyor. Bilinmeyen DID'e gelen arama reddediliyor. Lisansı kapatılan kiracının trunk kaydı düşüyor |
 
 Bilerek sonraya bırakılanlar:
@@ -158,6 +160,58 @@ Büyüme sırası:
 3. Kiracılar birden fazla Asterisk sunucusuna dağıtılır.
 
 Kiracı önekleri ve veritabanı merkezli yapı bu geçişi baştan mümkün kılar.
+
+## Ek: Kanaldan bağımsız mimari
+
+README'deki ilk kanal sestir, ama yazılı kanallar da ileride gelecek. Çekirdek bu yüzden baştan kanala bağlı kurulmaz. 2. adımda yalnızca ses kanalı yazılır. Bu ek, o kodun hangi sınırlara uyacağını belirler.
+
+### Giriş noktaları (`entry_points`)
+
+Bir kiracıya ulaşılan her adres bir giriş noktasıdır. Numara, kanal ve akış birbirinden ayrı tutulur.
+
+| Alan | Örnek | Açıklama |
+| --- | --- | --- |
+| `tenant_id` | `t1` | Giriş noktasının sahibi olan kiracı |
+| `channel` | `voice` | `voice`, ileride `whatsapp` ve `webchat` |
+| `address` | `+90850xxxxxxx` | Kanala göre adres: ses için DID, WhatsApp için numara, web sohbeti için widget kimliği |
+| `trunk_id` | `t1_trunk` | Yalnızca ses kanalında: aramanın geldiği trunk |
+| `flow` | `queue:t1_destek` | Hedef akış: şimdilik bir kuyruk. 5. adımdan sonra yapay zekâ karşılaması, sonra kuyruk |
+| `enabled` | `true` | Lisans ve kiracı durumuna göre açık ya da kapalı |
+
+- Gelen aramada DID doğrulaması (bkz. "Gelen aramanın doğru kiracıya düşmesi") bu tablodan yapılır. Bir adres yalnızca bir kiracıya ait olabilir (`channel` ile `address` birlikte tekil).
+- `tN-inbound` dialplan'i bu tablodan üretilir. Kanal eklemek, ses kanalının koduna dokunmadan yeni bir kanal bağdaştırıcısı yazmak demektir.
+
+### Katmanlar
+
+```
+ Kanal bağdaştırıcıları     voice (Asterisk) │ whatsapp │ webchat   (ileride)
+            │  ortak olaylar: konuşma başladı, mesaj/ses parçası, aktarım, bitti
+            ▼
+ Konuşma çekirdeği          kiracı, giriş noktası, konuşma (interaction), akış, kuyruk, temsilci
+            │
+            ▼
+ Sağlayıcı arayüzleri       STT │ TTS │ LLM   (kiracı bazında seçilir, değiştirilebilir)
+```
+
+- **Kanal bağdaştırıcısı**, kanalın kendi protokolünü (SIP/RTP, WhatsApp API, WebSocket) ortak olaylara çevirir. Ses bağdaştırıcısı Asterisk ile ARI üzerinden konuşur. Yapay zekâya ses gerekince sesi `AudioSocket` ya da ARI `ExternalMedia` ile akıtır.
+- **Konuşma çekirdeği** kanalı bilmez. Bir konuşma kaydı (`interaction`) kanal, giriş noktası, kiracı ve sonuçla birlikte tutulur. Kuyruk, temsilciye aktarım, not, sonuç kodu ve rapor bu kayıt üzerinden yürür. Böylece 3. adımdaki temsilci masası ve 9. adımdaki raporlar her kanalda aynı çalışır.
+- **Kiracı izolasyonu** bütün katmanlarda aynı kuralla korunur. Her kayıt `tenant_id` taşır. Bir kiracının olayı, başka bir kiracının akışına ya da sağlayıcı hesabına gitmez.
+
+### Değiştirilebilir STT, TTS ve LLM
+
+Yapay zekâ sağlayıcıları koda sabit yazılmaz. Her biri bir arayüzün arkasında durur:
+
+| Arayüz | Girdi → çıktı | Not |
+| --- | --- | --- |
+| `SpeechToText` | Ses akışı (8 kHz G.711 ya da 16 kHz PCM) → ara ve kesin transkript | Akışlı çalışmalı. Türkçe birinci dil |
+| `TextToSpeech` | Metin → ses akışı | Akışlı çalışmalı. Kiracı bazında ses seçimi |
+| `LanguageModel` | Konuşma geçmişi, bilgi tabanı, araçlar → yanıt ve aksiyon (ör. "temsilciye aktar") | Aktarım her akışta bulunur (Ürün ilkesi 2) |
+
+- Sağlayıcı seçimi kiracı bazında `ai_providers` tablosunda tutulur: arayüz, sağlayıcı, model, ayarlar ve şifreli API anahtarı. API anahtarları trunk şifreleriyle aynı yöntemle saklanır (AES-256-GCM, `key_id`).
+- Her arayüz için bir yedek sağlayıcı tanımlanabilir. Sağlayıcı yanıt vermezse ya da zaman aşımına düşerse görüşme kesilmez. Arama kuyruğa, yani bir temsilciye düşer.
+- Kiracı kendi sağlayıcı hesabını getirebilir ya da Santralio'nun hesabını kullanabilir. Hangisinin açık olduğu lisanstaki yetkiyle belirlenir.
+- Sağlayıcıya gönderilen ses ve metin, kayıt ve kişisel veri kurallarına tabidir (Ürün ilkesi 5). Hangi kiracının verisinin hangi sağlayıcıya gittiği `audit_log`'a yazılır.
+- Sağlayıcı arayüzleri 5. adımda yazılır. 2. adımda yalnızca `entry_points` tablosu ve `interaction` kaydı bu sınırlara göre kurulur.
 
 ## Açık kararlar
 
