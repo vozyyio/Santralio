@@ -105,6 +105,7 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 | Yol | Durum |
 | --- | --- |
 | `README.md` | Ürün çerçevesi |
+| `docs/architecture.md` | Çağrı altyapısı mimarisi (öneri) |
 
 Kurulum, çalıştırma ve yapılandırma adımları ilk yazılım modülüyle birlikte bu dosyaya eklenecek.
 
