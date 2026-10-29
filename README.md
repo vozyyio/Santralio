@@ -106,6 +106,8 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 | --- | --- |
 | `README.md` | Ürün çerçevesi |
 | `docs/architecture.md` | Çağrı altyapısı mimarisi (öneri) |
+| `infra/asterisk/` | Ortak Asterisk ayarları, kurulum betiği (`deploy.sh`), sertifika kancası ve ret testi |
+| `infra/fail2ban/` | Asterisk için fail2ban jail'i |
 
 Kurulum, çalıştırma ve yapılandırma adımları ilk yazılım modülüyle birlikte bu dosyaya eklenecek.
 

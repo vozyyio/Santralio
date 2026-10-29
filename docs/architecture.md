@@ -107,7 +107,8 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | 10000–19999/udp | Herkes | RTP. Operatörlerin ses sunucuları sinyal sunucularından farklı IP'lerden gelebilir |
 | 80/443 | Herkes | Sertifika ve 3. adımdan itibaren temsilci masası ve WebRTC (WSS) |
 
-- Operatör IP listesi veritabanında (`operator_ip_ranges`) tutulur. Kontrol servisi bu listeyi nftables'ta bir küme olarak günceller.
+- Operatör IP listesi veritabanında (`operator_ip_ranges`) tutulur. Kontrol servisi bu listeyi `Santralio operatör: <ad>` açıklamalı ufw kuralları olarak günceller. Ayrı bir nftables kümesi kullanılmaz: ufw'nin engelleme kuralı, başka bir tablodaki izni geçersiz kılar.
+- 5060 portu, ilk operatör tanımlanana kadar hiçbir adrese açılmaz.
 - fail2ban'e bir Asterisk jail'i eklenir.
 - `sip.santralio.site` Cloudflare'de **DNS only (gri bulut)** olmalı ve `116.203.184.30` adresini göstermeli. SIP ve RTP Cloudflare proxy'sinden geçemez.
 
