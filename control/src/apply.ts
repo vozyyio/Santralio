@@ -41,6 +41,23 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       [tenantId],
     )
   ).rows;
+  const schedules = (await db.query("SELECT * FROM schedules WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows;
+  const hours = (
+    await db.query(
+      `SELECT h.schedule_id, h.weekdays, to_char(h.opens, 'HH24:MI') AS opens, to_char(h.closes, 'HH24:MI') AS closes
+         FROM schedule_hours h JOIN schedules s ON s.id = h.schedule_id WHERE s.tenant_id = $1 ORDER BY h.opens`,
+      [tenantId],
+    )
+  ).rows;
+  // Geçmiş tatiller üretilmez: dialplan yalnızca bugün ve sonrasını taşır.
+  const holidays = (
+    await db.query(
+      `SELECT h.schedule_id, to_char(h.day, 'YYYY-MM-DD') AS day
+         FROM schedule_holidays h JOIN schedules s ON s.id = h.schedule_id
+        WHERE s.tenant_id = $1 AND h.day >= (now() AT TIME ZONE s.timezone)::date ORDER BY h.day`,
+      [tenantId],
+    )
+  ).rows;
   const entries = (
     await db.query("SELECT * FROM entry_points WHERE tenant_id = $1 AND channel = 'voice' ORDER BY address", [tenantId])
   ).rows;
@@ -83,6 +100,14 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       maxTries: m.max_tries,
       defaultTarget: m.default_target,
       options: options.filter((o) => o.menu_id === m.id).map((o) => ({ digit: o.digit, target: o.target })),
+    })),
+    schedules: schedules.map((x) => ({
+      name: x.name,
+      timezone: x.timezone,
+      openTarget: x.open_target,
+      closedTarget: x.closed_target,
+      hours: hours.filter((h) => h.schedule_id === x.id).map((h) => ({ weekdays: h.weekdays, opens: h.opens, closes: h.closes })),
+      holidays: holidays.filter((h) => h.schedule_id === x.id).map((h) => h.day),
     })),
     entryPoints: entries.map((e) => ({ address: e.address, flow: e.flow, enabled: e.enabled })),
   };
@@ -137,6 +162,11 @@ async function writePrompts(db: Db, tenantId: number, prefix: string): Promise<s
   for (const q of queues) {
     const name = `queue-${q.name}-unavailable`;
     if (writePrompt(prefix, name, q.unavailable_text)) changed.push(`ses/${name}`);
+  }
+  const schedules = (await db.query("SELECT name, closed_text FROM schedules WHERE tenant_id = $1", [tenantId])).rows;
+  for (const x of schedules) {
+    const name = `schedule-${x.name}-closed`;
+    if (writePrompt(prefix, name, x.closed_text)) changed.push(`ses/${name}`);
   }
   return changed;
 }

@@ -23,9 +23,9 @@ const HELP = `santralio <komut>
                                            Trunk'ı kaydeder; şifre gizli girişle sorulur
                                            (ya da --password-stdin ile standart girdiden okunur)
   trunk enable|disable <önek>
-  entry add <önek> voice <numara> --flow queue:<kuyruk>|menu:<menü>
+  entry add <önek> voice <numara> --flow queue:|menu:|schedule:<ad>
                                            Ses giriş noktası (DID), ör. 908501234567
-  entry flow <önek> <numara> queue:<kuyruk>|menu:<menü>
+  entry flow <önek> <numara> queue:|menu:|schedule:<ad>
                                            Giriş noktasının hedefini değiştirir
   ext add <önek> <numara> [--name "Ad"]    Dahili açar ve SIP şifresini bir kez gösterir
   ext secret <önek> <numara>               Dahilinin SIP bilgilerini gösterir
@@ -34,6 +34,13 @@ const HELP = `santralio <komut>
   menu add <önek> <ad> --text "anons" [--invalid "anons"] [--default hedef] [--timeout 5] [--tries 3]
                                            Tuşlamalı menü; anons metinden üretilir. Varsa günceller
   menu option <önek> <menü> <tuş> <hedef>  Tuşu hedefe bağlar (hedef: queue:<ad> ya da menu:<ad>)
+  schedule add <önek> <ad> --open <hedef> --closed-text "anons" [--closed <hedef>] [--tz Europe/Istanbul]
+                                           Çalışma saatleri; mesai dışında anons çalar. Varsa günceller
+  schedule hours <önek> <zamanlama> <günler> <HH:MM-HH:MM>
+                                           Açık aralık ekler, ör. mon-fri 09:00-18:00 ya da sat 10:00-14:00
+  schedule holiday <önek> <zamanlama> <YYYY-AA-GG> [--note metin]
+                                           Tam gün kapalı tarih (resmî tatil, bayram)
+  schedule show <önek> <zamanlama>         Aralıkları ve tatilleri listeler
   operator ip add <operatör> <cidr> [--note metin]
   apply                                    Konfigürasyonu üretir ve Asterisk'i yeniden yükler
   status [<önek>]                          Trunk kaydı ve dahililerin durumu
@@ -127,6 +134,10 @@ async function main() {
       default: { type: "string" },
       timeout: { type: "string" },
       tries: { type: "string" },
+      open: { type: "string" },
+      closed: { type: "string" },
+      "closed-text": { type: "string" },
+      tz: { type: "string" },
     },
   });
   const [cmd, sub, ...rest] = positionals;
@@ -318,6 +329,88 @@ async function main() {
         break;
       }
 
+      case "schedule add": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const name = rest[1];
+        if (!name || !/^[a-z0-9_]{1,32}$/.test(name)) fail("zamanlama adı küçük harf, rakam ve _ olmalı");
+        const open = values.open ?? fail("--open <hedef> gerekli (ör. menu:ana)");
+        const text = values["closed-text"] ?? fail('--closed-text "anons" gerekli');
+        await assertTarget(db, t, open);
+        if (values.closed) await assertTarget(db, t, values.closed);
+        const tz = values.tz ?? "Europe/Istanbul";
+        try {
+          new Intl.DateTimeFormat("tr", { timeZone: tz });
+        } catch {
+          fail(`geçersiz saat dilimi: ${tz}`);
+        }
+        await db.query(
+          `INSERT INTO schedules (tenant_id, name, timezone, open_target, closed_text, closed_target)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (tenant_id, name) DO UPDATE SET timezone = $3, open_target = $4, closed_text = $5, closed_target = $6`,
+          [t.id, name, tz, open, text, values.closed ?? null],
+        );
+        await audit(db, "schedule.add", t.id, { name, open, closed: values.closed, tz });
+        console.log(`${t.prefix}: zamanlama ${name} kaydedildi. Uygulamak için: santralio apply`);
+        break;
+      }
+
+      case "schedule hours": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const [name, days, range] = rest.slice(1);
+        const m = /^([0-2]\d:[0-5]\d)-([0-2]\d:[0-5]\d)$/.exec(range ?? "");
+        if (!name || !days || !m) fail("kullanım: schedule hours <önek> <zamanlama> mon-fri 09:00-18:00");
+        if (!/^(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?$/.test(days)) fail("günler: mon..sun ya da aralık (mon-fri)");
+        const sc = (await db.query("SELECT id FROM schedules WHERE tenant_id = $1 AND name = $2", [t.id, name])).rows[0];
+        if (!sc) fail(`${t.prefix}: zamanlama yok: ${name}`);
+        await db.query(
+          "INSERT INTO schedule_hours (schedule_id, weekdays, opens, closes) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+          [sc.id, days, m[1], m[2]],
+        ).catch((err) => {
+          if (err.code === "23514" || err.code === "22007" || err.code === "22008") fail(`geçersiz aralık: ${range}`);
+          throw err;
+        });
+        await audit(db, "schedule.hours", t.id, { name, days, range });
+        console.log(`${t.prefix}: ${name} ${days} ${range} açık. Uygulamak için: santralio apply`);
+        break;
+      }
+
+      case "schedule holiday": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const [name, day] = rest.slice(1);
+        if (!name || !day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) fail("kullanım: schedule holiday <önek> <zamanlama> YYYY-AA-GG");
+        const sc = (await db.query("SELECT id FROM schedules WHERE tenant_id = $1 AND name = $2", [t.id, name])).rows[0];
+        if (!sc) fail(`${t.prefix}: zamanlama yok: ${name}`);
+        await db.query(
+          "INSERT INTO schedule_holidays (schedule_id, day, note) VALUES ($1, $2, $3) ON CONFLICT (schedule_id, day) DO UPDATE SET note = $3",
+          [sc.id, day, values.note ?? null],
+        ).catch((err) => {
+          if (err.code === "22007" || err.code === "22008") fail(`geçersiz tarih: ${day}`);
+          throw err;
+        });
+        await audit(db, "schedule.holiday", t.id, { name, day, note: values.note });
+        console.log(`${t.prefix}: ${name} ${day} kapalı${values.note ? ` (${values.note})` : ""}. Uygulamak için: santralio apply`);
+        break;
+      }
+
+      case "schedule show": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const sc = (await db.query("SELECT * FROM schedules WHERE tenant_id = $1 AND name = $2", [t.id, rest[1]])).rows[0];
+        if (!sc) fail(`${t.prefix}: zamanlama yok: ${rest[1]}`);
+        console.log(`${t.prefix} ${sc.name} (${sc.timezone}): açıkken -> ${sc.open_target}, kapalıyken -> anons${sc.closed_target ? ` + ${sc.closed_target}` : ", kapat"}`);
+        for (const h of (
+          await db.query("SELECT weekdays, to_char(opens,'HH24:MI') o, to_char(closes,'HH24:MI') c FROM schedule_hours WHERE schedule_id = $1 ORDER BY opens", [sc.id])
+        ).rows) {
+          console.log(`  açık : ${h.weekdays} ${h.o}-${h.c}`);
+        }
+        for (const h of (
+          await db.query("SELECT to_char(day,'YYYY-MM-DD') d, note FROM schedule_holidays WHERE schedule_id = $1 AND day >= current_date ORDER BY day", [sc.id])
+        ).rows) {
+          console.log(`  tatil: ${h.d}${h.note ? ` ${h.note}` : ""}`);
+        }
+        console.log(`  kapalı anonsu: ${sc.closed_text}`);
+        break;
+      }
+
       case "ext add": {
         const t = await tenantByPrefix(db, rest[0]);
         const number = rest[1];
@@ -420,11 +513,12 @@ async function main() {
 
 // Hedef (queue:<ad> | menu:<ad>) aynı kiracıda var olmalı: başka kiracının nesnesine yönlendirilemez.
 async function assertTarget(db: Db, t: { id: number; prefix: string }, target: string) {
-  const m = /^(queue|menu):([a-z0-9_]{1,32})$/.exec(target);
-  if (!m) fail(`geçersiz hedef: ${target} (queue:<ad> ya da menu:<ad>)`);
-  const table = m[1] === "queue" ? "queues" : "menus";
+  const m = /^(queue|menu|schedule):([a-z0-9_]{1,32})$/.exec(target);
+  if (!m) fail(`geçersiz hedef: ${target} (queue:<ad>, menu:<ad> ya da schedule:<ad>)`);
+  const kinds = { queue: ["queues", "kuyruk"], menu: ["menus", "menü"], schedule: ["schedules", "zamanlama"] } as const;
+  const [table, label] = kinds[m[1] as keyof typeof kinds];
   const row = (await db.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND name = $2`, [t.id, m[2]])).rows[0];
-  if (!row) fail(`${t.prefix}: ${m[1] === "queue" ? "kuyruk" : "menü"} yok: ${m[2]}`);
+  if (!row) fail(`${t.prefix}: ${label} yok: ${m[2]}`);
 }
 
 function printSip(prefix: string, number: string, secret: string) {

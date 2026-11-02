@@ -34,6 +34,14 @@ export type TenantModel = {
     defaultTarget: string | null;
     options: { digit: string; target: string }[];
   }[];
+  schedules: {
+    name: string;
+    timezone: string;
+    openTarget: string;
+    closedTarget: string | null;
+    hours: { weekdays: string; opens: string; closes: string }[]; // "HH:MM"
+    holidays: string[]; // "YYYY-MM-DD"
+  }[];
   entryPoints: { address: string; flow: string; enabled: boolean }[];
 };
 
@@ -199,6 +207,24 @@ password=${e.secret}
 // Arayanın temsilciye bağlanamadığı Queue() sonuçları: müsait temsilci yok, kuyruk dolu ya da süre doldu.
 const QUEUE_FAILED = "^(TIMEOUT|FULL|JOINEMPTY|LEAVEEMPTY|JOINUNAVAIL|LEAVEUNAVAIL)$";
 
+// GotoIfTime aralığı uçları dahil sayar: 09:00-18:00, 18:00:59'a kadar açık demektir.
+// Kapanış dakikası bu yüzden bir dakika geri alınır: 09:00-17:59.
+export function timeRange(opens: string, closes: string): string {
+  const hm = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const a = hm.exec(opens);
+  const b = hm.exec(closes);
+  if (!a || !b) throw new Error(`geçersiz saat: ${opens}-${closes}`);
+  const end = Number(b[1]) * 60 + Number(b[2]) - 1;
+  if (end < Number(a[1]) * 60 + Number(a[2])) throw new Error(`kapanış açılıştan sonra olmalı: ${opens}-${closes}`);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${opens}-${pad(Math.floor(end / 60))}:${pad(end % 60)}`;
+}
+
+function weekdays(w: string): string {
+  if (!/^(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?$/.test(w)) throw new Error(`geçersiz gün: ${w}`);
+  return w;
+}
+
 // Asterisk değişkeni ya da fonksiyonu: v("EXTEN") -> ${EXTEN}
 const v = (s: string) => "${" + s + "}";
 
@@ -228,12 +254,14 @@ exten => i,1,Goto(reject,s,1)
 
   // Hedefler (queue:<ad>, menu:<ad>) yalnızca bu kiracının nesnelerine çözülür.
   const menus = new Set(t.menus.map((m) => m.name));
+  const schedules = new Set(t.schedules.map((x) => x.name));
   const target = (flow: string): string | null => {
-    const m = /^(queue|menu):([a-z0-9_]{1,32})$/.exec(flow);
+    const m = /^(queue|menu|schedule):([a-z0-9_]{1,32})$/.exec(flow);
     if (!m) return null;
     const [, kind, name] = m;
     if (kind === "queue" && queues.has(name)) return `${p}-queue-${name},s,1`;
     if (kind === "menu" && menus.has(name)) return `${p}-menu-${name},s,1`;
+    if (kind === "schedule" && schedules.has(name)) return `${p}-schedule-${name},s,1`;
     return null;
   };
 
@@ -245,6 +273,33 @@ exten => i,1,Goto(reject,s,1)
       assertId(d, "DID");
       out.push(`exten => ${d},1,Goto(${dest})\n`);
     }
+  }
+
+  // Çalışma saatleri: önce tatil günleri, sonra açık aralıklar kontrol edilir.
+  // Hiçbiri tutmazsa kapalı anonsu çalar, kapalı hedefine gider ya da kapatır.
+  for (const sc of t.schedules) {
+    assertId(sc.name, "zamanlama");
+    if (!/^[A-Za-z_]+(\/[A-Za-z_+-]+)*$/.test(sc.timezone)) throw new Error(`geçersiz saat dilimi: ${sc.timezone}`);
+    const open = target(sc.openTarget);
+    const closed = sc.closedTarget ? target(sc.closedTarget) : null;
+    out.push(`
+[${p}-schedule-${sc.name}]
+exten => s,1,Set(TODAY=${v(`STRFTIME(${v("EPOCH")},${sc.timezone},%F)`)})
+`);
+    for (const day of sc.holidays) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`geçersiz tarih: ${day}`);
+      out.push(` same => n,GotoIf($["${v("TODAY")}" = "${day}"]?closed)\n`);
+    }
+    if (open) {
+      for (const h of sc.hours) {
+        out.push(` same => n,GotoIfTime(${timeRange(h.opens, h.closes)},${weekdays(h.weekdays)},*,*,${sc.timezone}?${open})\n`);
+      }
+    }
+    out.push(` same => n(closed),Answer()
+ same => n,Wait(0.5)
+ same => n,Playback(${promptPath(p, `schedule-${sc.name}-closed`)})
+ same => n,${closed ? `Goto(${closed})` : "Hangup(16)"}
+`);
   }
 
   // Tuşlamalı menü: anons çalar, tuşa göre hedefe gider.

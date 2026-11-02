@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { aad, open, randomToken, seal } from "../src/crypto.ts";
-import { didVariants, renderTenant, type TenantModel } from "../src/render.ts";
+import { didVariants, renderTenant, timeRange, type TenantModel } from "../src/render.ts";
 
 function tenant(id: number, over: Partial<TenantModel> = {}): TenantModel {
   return {
@@ -41,6 +41,7 @@ function tenant(id: number, over: Partial<TenantModel> = {}): TenantModel {
       },
     ],
     menus: [],
+    schedules: [],
     entryPoints: [{ address: `90850000000${id}`, flow: "queue:destek", enabled: true }],
     ...over,
   };
@@ -177,4 +178,43 @@ test("kuyruğa bağlanılamazsa arayana anons çalınır, sonra kapatılır", ()
   const ext = renderTenant(tenant(1))["extensions.conf"];
   const q = ext.slice(ext.indexOf("[t1-queue-destek]"));
   assert.match(q, /ExecIf\(\$\[\$\{REGEX\("\^\(TIMEOUT\|FULL\|JOINEMPTY\|LEAVEEMPTY\|JOINUNAVAIL\|LEAVEUNAVAIL\)\$" \$\{QUEUESTATUS\}\)\}\]\?Playback\(\/var\/lib\/asterisk\/sounds\/santralio\/t1\/queue-destek-unavailable\)\)\n same => n,Hangup\(16\)/);
+});
+
+test("çalışma saatleri: tatil önce, sonra aralıklar; mesai dışı kapalı anonsu", () => {
+  const ext = renderTenant(
+    tenant(1, {
+      menus: [{ name: "ana", timeoutS: 5, maxTries: 3, defaultTarget: null, options: [] }],
+      schedules: [
+        {
+          name: "mesai",
+          timezone: "Europe/Istanbul",
+          openTarget: "menu:ana",
+          closedTarget: null,
+          hours: [
+            { weekdays: "mon-fri", opens: "09:00", closes: "12:30" },
+            { weekdays: "mon-fri", opens: "13:30", closes: "18:00" },
+          ],
+          holidays: ["2026-10-29"],
+        },
+      ],
+      entryPoints: [{ address: "908508404367", flow: "schedule:mesai", enabled: true }],
+    }),
+  )["extensions.conf"];
+  assert.ok(ext.includes("exten => 908508404367,1,Goto(t1-schedule-mesai,s,1)"));
+  const sc = ext.slice(ext.indexOf("[t1-schedule-mesai]"), ext.indexOf("[t1-menu-ana]"));
+  const lines = sc.split("\n");
+  const holiday = lines.findIndex((l) => l.includes('"2026-10-29"'));
+  const firstRange = lines.findIndex((l) => l.includes("GotoIfTime"));
+  assert.ok(holiday > 0 && holiday < firstRange, "tatil kontrolü aralıklardan önce olmalı");
+  assert.ok(sc.includes("GotoIfTime(09:00-12:29,mon-fri,*,*,Europe/Istanbul?t1-menu-ana,s,1)"));
+  assert.ok(sc.includes("GotoIfTime(13:30-17:59,mon-fri,*,*,Europe/Istanbul?t1-menu-ana,s,1)"));
+  assert.ok(sc.includes("STRFTIME(${EPOCH},Europe/Istanbul,%F)"));
+  assert.match(sc, /n\(closed\),Answer\(\)[\s\S]*Playback\(\/var\/lib\/asterisk\/sounds\/santralio\/t1\/schedule-mesai-closed\)\n same => n,Hangup\(16\)/);
+});
+
+test("timeRange kapanış dakikasını dışarıda bırakır", () => {
+  assert.equal(timeRange("09:00", "18:00"), "09:00-17:59");
+  assert.equal(timeRange("00:00", "00:01"), "00:00-00:00");
+  assert.throws(() => timeRange("18:00", "09:00"));
+  assert.throws(() => timeRange("9:00", "18:00"));
 });

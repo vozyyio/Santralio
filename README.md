@@ -149,6 +149,10 @@ santralio entry add t2 voice 908501234567 --flow queue:destek
 santralio menu add t2 ana --text "Örnek Otel'e hoş geldiniz. Rezervasyon için 1'e basınız." --default queue:destek
 santralio menu option t2 ana 1 queue:destek
 santralio entry flow t2 908501234567 menu:ana        # aramayı menüye bağlar
+santralio schedule add t2 mesai --open menu:ana --closed-text "Mesai saatlerimiz dışındasınız."
+santralio schedule hours t2 mesai mon-fri 09:00-18:00
+santralio schedule holiday t2 mesai 2027-01-01 --note Yılbaşı
+santralio entry flow t2 908501234567 schedule:mesai  # önce çalışma saatine bakar
 santralio apply
 ```
 
