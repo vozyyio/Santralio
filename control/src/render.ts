@@ -27,8 +27,19 @@ export type TenantModel = {
     maxWaitS: number;
     members: { number: string; penalty: number }[];
   }[];
+  menus: {
+    name: string;
+    timeoutS: number;
+    maxTries: number;
+    defaultTarget: string | null;
+    options: { digit: string; target: string }[];
+  }[];
   entryPoints: { address: string; flow: string; enabled: boolean }[];
 };
+
+// Kiracının anons dosyaları: /var/lib/asterisk/sounds/santralio/<önek>/<ad>.wav
+// Asterisk göreli yolları paketin dizininde (/usr/share/asterisk/sounds) aradığı için mutlak yol, uzantısız.
+export const promptPath = (prefix: string, name: string) => `/var/lib/asterisk/sounds/santralio/${prefix}/${name}`;
 
 export type RenderedFiles = Record<"pjsip.conf" | "extensions.conf" | "queues.conf" | "musiconhold.conf", string>;
 
@@ -212,25 +223,65 @@ exten => _[+0-9a-zA-Z].,1,NoOp(Santralio ${p} gelen: ${v("CALLERID(num)")} -> ${
 exten => i,1,Goto(reject,s,1)
 `);
 
+  // Hedefler (queue:<ad>, menu:<ad>) yalnızca bu kiracının nesnelerine çözülür.
+  const menus = new Set(t.menus.map((m) => m.name));
+  const target = (flow: string): string | null => {
+    const m = /^(queue|menu):([a-z0-9_]{1,32})$/.exec(flow);
+    if (!m) return null;
+    const [, kind, name] = m;
+    if (kind === "queue" && queues.has(name)) return `${p}-queue-${name},s,1`;
+    if (kind === "menu" && menus.has(name)) return `${p}-menu-${name},s,1`;
+    return null;
+  };
+
   out.push(`\n[${p}-did]\n`);
   for (const ep of t.entryPoints.filter((e) => e.enabled)) {
-    const queue = ep.flow.replace(/^queue:/, "");
-    if (!queues.has(queue)) continue;
+    const dest = target(ep.flow);
+    if (!dest) continue;
     for (const d of didVariants(ep.address)) {
       assertId(d, "DID");
-      out.push(`exten => ${d},1,Goto(${p}-queue-${queue},s,1)\n`);
+      out.push(`exten => ${d},1,Goto(${dest})\n`);
     }
+  }
+
+  // Tuşlamalı menü: anons çalar, tuşa göre hedefe gider.
+  // Tuşlama yoksa ya da geçersizse anons max_tries kez tekrarlanır, sonra varsayılan hedefe gidilir.
+  for (const m of t.menus) {
+    assertId(m.name, "menü");
+    const fallback = m.defaultTarget ? target(m.defaultTarget) : null;
+    const end = fallback ? `Goto(${fallback})` : "Hangup(16)";
+    const retry = `GotoIf($[${v("TRIES")} < ${m.maxTries}]?s,prompt)`;
+    out.push(`
+[${p}-menu-${m.name}]
+exten => s,1,Answer()
+ same => n,Wait(0.5)
+ same => n,Set(TRIES=0)
+ same => n(prompt),Set(TRIES=$[${v("TRIES")} + 1])
+ same => n,Background(${promptPath(p, `menu-${m.name}`)})
+ same => n,WaitExten(${m.timeoutS})
+`);
+    for (const o of m.options) {
+      if (!/^[0-9*#]$/.test(o.digit)) throw new Error(`geçersiz tuş: ${o.digit}`);
+      const dest = target(o.target);
+      if (dest) out.push(`exten => ${o.digit},1,Goto(${dest})\n`);
+    }
+    out.push(`exten => t,1,${retry}
+ same => n,${end}
+exten => i,1,Playback(${promptPath(p, `menu-${m.name}-invalid`)})
+ same => n,${retry}
+ same => n,${end}
+`);
   }
 
   for (const q of t.queues) {
     assertId(q.name, "kuyruk");
-    const welcome = `santralio/${p}/welcome`;
+    const welcome = promptPath(p, "welcome");
     out.push(`
 [${p}-queue-${q.name}]
 exten => s,1,Answer()
  same => n,Wait(0.5)
  same => n,Set(CHANNEL(musicclass)=${p})
- same => n,ExecIf($[${v(`STAT(e,/var/lib/asterisk/sounds/${welcome}.wav)`)}]?Playback(${welcome}))
+ same => n,ExecIf($[${v(`STAT(e,${welcome}.wav)`)}]?Playback(${welcome}))
  same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS})
  same => n,NoOp(Santralio ${p}_${q.name}: ${v("QUEUESTATUS")})
  same => n,Hangup(16)

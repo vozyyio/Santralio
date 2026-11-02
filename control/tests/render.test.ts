@@ -40,6 +40,7 @@ function tenant(id: number, over: Partial<TenantModel> = {}): TenantModel {
         ],
       },
     ],
+    menus: [],
     entryPoints: [{ address: `90850000000${id}`, flow: "queue:destek", enabled: true }],
     ...over,
   };
@@ -134,4 +135,40 @@ test("randomToken istenen uzunlukta ve alfabede", () => {
   const t = randomToken(24);
   assert.equal(t.length, 24);
   assert.match(t, /^[a-z2-9]+$/);
+});
+
+test("menü: tuşlar yalnızca kendi kiracısının hedeflerine gider", () => {
+  const t = tenant(1, {
+    queues: [
+      { name: "muhasebe", number: null, strategy: "ringall", ringS: 20, maxWaitS: 300, members: [{ number: "1001", penalty: 0 }] },
+      { name: "diger", number: null, strategy: "ringall", ringS: 20, maxWaitS: 300, members: [{ number: "1002", penalty: 0 }] },
+    ],
+    menus: [
+      {
+        name: "ana",
+        timeoutS: 5,
+        maxTries: 3,
+        defaultTarget: "queue:diger",
+        options: [
+          { digit: "1", target: "queue:muhasebe" },
+          { digit: "2", target: "queue:diger" },
+          { digit: "3", target: "queue:yok" },
+        ],
+      },
+    ],
+    entryPoints: [{ address: "908508404367", flow: "menu:ana", enabled: true }],
+  });
+  const ext = renderTenant(t)["extensions.conf"];
+  assert.ok(ext.includes("exten => 908508404367,1,Goto(t1-menu-ana,s,1)"));
+  assert.ok(ext.includes("exten => 1,1,Goto(t1-queue-muhasebe,s,1)"));
+  assert.ok(ext.includes("exten => 2,1,Goto(t1-queue-diger,s,1)"));
+  // Var olmayan kuyruğa giden tuş üretilmez.
+  assert.ok(!ext.includes("exten => 3,1"));
+  // Tuşlama olmazsa ya da geçersizse varsayılan hedefe gidilir.
+  assert.match(ext, /exten => t,1,GotoIf\(\$\[\$\{TRIES\} < 3\]\?s,prompt\)\n same => n,Goto\(t1-queue-diger,s,1\)/);
+  assert.ok(ext.includes("Background(/var/lib/asterisk/sounds/santralio/t1/menu-ana)"));
+  for (const n of names(ext)) {
+    if (SHARED.has(n)) continue;
+    assert.ok(n.startsWith("t1_") || n.startsWith("t1-") || n === "t1" || n === "s", `t1 dışı ad: ${n}`);
+  }
 });

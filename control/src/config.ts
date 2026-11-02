@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 export const PUBLIC_IP = process.env.SANTRALIO_PUBLIC_IP ?? "116.203.184.30";
 export const TENANTS_DIR = process.env.SANTRALIO_TENANTS_DIR ?? "/etc/asterisk/tenants";
+export const SOUNDS_DIR = process.env.SANTRALIO_SOUNDS_DIR ?? "/var/lib/asterisk/sounds/santralio";
 export const PG_DATABASE = process.env.SANTRALIO_PG_DATABASE ?? "santralio";
 export const PG_HOST = process.env.SANTRALIO_PG_HOST ?? "/var/run/postgresql";
 export const AMI_HOST = "127.0.0.1";

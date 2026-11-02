@@ -67,6 +67,8 @@ install -m 0755 "$REPO/control/santralio" /usr/local/bin/santralio
 
 # 6. Asterisk: tenants/ dizinini santralio-ctl'e verir, AMI kullanıcısını yükler.
 "$REPO/infra/asterisk/deploy.sh"
+# Kiracı anonsları: kontrol servisi yazar, Asterisk okur.
+install -d -m 2750 -o "$USER_NAME" -g asterisk /var/lib/asterisk/sounds/santralio
 asterisk -rx 'module reload manager' >/dev/null
 
 # 7. Şema

@@ -1,9 +1,10 @@
 // Santralio: veritabanından kiracı modellerini okur, dosyaları yazar ve Asterisk'i yeniden yükler.
 
+import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { aad, open } from "./crypto.ts";
-import { masterKey, TENANTS_DIR } from "./config.ts";
+import { masterKey, SOUNDS_DIR, TENANTS_DIR } from "./config.ts";
 import type { Db } from "./db.ts";
 import { renderTenant, type RenderedFiles, type TenantModel } from "./render.ts";
 
@@ -29,6 +30,14 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
          JOIN extensions e ON e.id = qm.extension_id
          JOIN queues q ON q.id = qm.queue_id
         WHERE q.tenant_id = $1 AND e.tenant_id = $1 ORDER BY e.number`,
+      [tenantId],
+    )
+  ).rows;
+  const menus = (await db.query("SELECT * FROM menus WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows;
+  const options = (
+    await db.query(
+      `SELECT o.menu_id, o.digit, o.target FROM menu_options o JOIN menus m ON m.id = o.menu_id
+        WHERE m.tenant_id = $1 ORDER BY o.digit`,
       [tenantId],
     )
   ).rows;
@@ -68,8 +77,52 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       maxWaitS: q.max_wait_s,
       members: members.filter((m) => m.queue_id === q.id).map((m) => ({ number: m.number, penalty: m.penalty })),
     })),
+    menus: menus.map((m) => ({
+      name: m.name,
+      timeoutS: m.timeout_s,
+      maxTries: m.max_tries,
+      defaultTarget: m.default_target,
+      options: options.filter((o) => o.menu_id === m.id).map((o) => ({ digit: o.digit, target: o.target })),
+    })),
     entryPoints: entries.map((e) => ({ address: e.address, flow: e.flow, enabled: e.enabled })),
   };
+}
+
+// Anons metninden 8 kHz, tek kanallı, 16 bit WAV üretir (Asterisk'in yerel biçimi).
+// Metin değişmedikçe dosya yeniden üretilmez; son üretilen metin yanındaki .txt dosyasında tutulur.
+export function writePrompt(prefix: string, name: string, text: string): boolean {
+  const dir = join(SOUNDS_DIR, prefix);
+  mkdirSync(dir, { recursive: true, mode: 0o2750 });
+  const wav = join(dir, `${name}.wav`);
+  const txt = join(dir, `${name}.txt`);
+  let current: string | null = null;
+  try {
+    current = readFileSync(txt, "utf8");
+  } catch {
+    current = null;
+  }
+  if (current === text) return false;
+
+  // Metin argüman olarak değil standart girdiden verilir: "-" ile başlayan metin seçenek sanılmaz.
+  // espeak-ng çıktısı diske yazılmadan doğrudan sox'a verilir.
+  const tts = spawnSync("espeak-ng", ["-v", "mb-tr2", "-s", "140", "--stdin", "--stdout"], { input: text, maxBuffer: 64 << 20 });
+  if (tts.status !== 0) throw new Error(`anons üretilemedi (${name}): ${tts.stderr.toString().trim()}`);
+  const tmp = `${wav}.tmp-${process.pid}.wav`;
+  const conv = spawnSync("sox", ["-t", "wav", "-", "-r", "8000", "-c", "1", "-b", "16", tmp, "norm", "-3"], { input: tts.stdout });
+  if (conv.status !== 0) throw new Error(`anons dönüştürülemedi (${name}): ${conv.stderr.toString().trim()}`);
+  renameSync(tmp, wav);
+  writeFileSync(txt, text, { mode: 0o640 });
+  return true;
+}
+
+async function writePrompts(db: Db, tenantId: number, prefix: string): Promise<string[]> {
+  const rows = (await db.query("SELECT name, prompt_text, invalid_text FROM menus WHERE tenant_id = $1", [tenantId])).rows;
+  const changed: string[] = [];
+  for (const m of rows) {
+    if (writePrompt(prefix, `menu-${m.name}`, m.prompt_text)) changed.push(`ses/menu-${m.name}`);
+    if (writePrompt(prefix, `menu-${m.name}-invalid`, m.invalid_text)) changed.push(`ses/menu-${m.name}-invalid`);
+  }
+  return changed;
 }
 
 // Dosyalar önce geçici adla yazılır, sonra yerine taşınır: Asterisk yarım dosya okumaz.
@@ -99,7 +152,8 @@ export async function renderAll(db: Db): Promise<{ prefix: string; changed: stri
   const result = [];
   for (const id of ids) {
     const model = await loadTenant(db, id);
-    result.push({ prefix: model.prefix, changed: writeTenantFiles(model.prefix, renderTenant(model)) });
+    const sounds = model.licensed ? await writePrompts(db, id, model.prefix) : [];
+    result.push({ prefix: model.prefix, changed: [...writeTenantFiles(model.prefix, renderTenant(model)), ...sounds] });
   }
   return result;
 }

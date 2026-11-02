@@ -23,12 +23,17 @@ const HELP = `santralio <komut>
                                            Trunk'ı kaydeder; şifre gizli girişle sorulur
                                            (ya da --password-stdin ile standart girdiden okunur)
   trunk enable|disable <önek>
-  entry add <önek> voice <numara> --flow queue:<kuyruk>
+  entry add <önek> voice <numara> --flow queue:<kuyruk>|menu:<menü>
                                            Ses giriş noktası (DID), ör. 908501234567
+  entry flow <önek> <numara> queue:<kuyruk>|menu:<menü>
+                                           Giriş noktasının hedefini değiştirir
   ext add <önek> <numara> [--name "Ad"]    Dahili açar ve SIP şifresini bir kez gösterir
   ext secret <önek> <numara>               Dahilinin SIP bilgilerini gösterir
   queue add <önek> <ad> [--number 8001] [--strategy rrmemory] [--ring 20] [--max-wait 300]
   queue member add <önek> <kuyruk> <dahili> [--penalty 0]
+  menu add <önek> <ad> --text "anons" [--invalid "anons"] [--default hedef] [--timeout 5] [--tries 3]
+                                           Tuşlamalı menü; anons metinden üretilir. Varsa günceller
+  menu option <önek> <menü> <tuş> <hedef>  Tuşu hedefe bağlar (hedef: queue:<ad> ya da menu:<ad>)
   operator ip add <operatör> <cidr> [--note metin]
   apply                                    Konfigürasyonu üretir ve Asterisk'i yeniden yükler
   status [<önek>]                          Trunk kaydı ve dahililerin durumu
@@ -117,6 +122,11 @@ async function main() {
       ring: { type: "string" },
       "max-wait": { type: "string" },
       penalty: { type: "string" },
+      text: { type: "string" },
+      invalid: { type: "string" },
+      default: { type: "string" },
+      timeout: { type: "string" },
+      tries: { type: "string" },
     },
   });
   const [cmd, sub, ...rest] = positionals;
@@ -240,10 +250,8 @@ async function main() {
         const [channel, address] = rest.slice(1);
         if (channel !== "voice") fail("şimdilik yalnızca voice kanalı");
         if (!address || !/^[1-9][0-9]{7,14}$/.test(address)) fail("numara ülke koduyla, yalnızca rakam olmalı (ör. 908501234567)");
-        const flow = values.flow ?? fail("--flow queue:<kuyruk> gerekli");
-        const qname = flow.replace(/^queue:/, "");
-        const q = (await db.query("SELECT id FROM queues WHERE tenant_id = $1 AND name = $2", [t.id, qname])).rows[0];
-        if (!q) fail(`${t.prefix}: kuyruk yok: ${qname}`);
+        const flow = values.flow ?? fail("--flow queue:<kuyruk> ya da menu:<menü> gerekli");
+        await assertTarget(db, t, flow);
         const trunk = (await db.query("SELECT id FROM trunks WHERE tenant_id = $1", [t.id])).rows[0];
         await db.query("INSERT INTO entry_points (tenant_id, channel, address, trunk_id, flow) VALUES ($1, 'voice', $2, $3, $4)", [
           t.id,
@@ -256,6 +264,57 @@ async function main() {
         });
         await audit(db, "entry.add", t.id, { channel, address, flow });
         console.log(`${t.prefix}: ${address} -> ${flow}. Uygulamak için: santralio apply`);
+        break;
+      }
+
+      case "entry flow": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const [address, flow] = rest.slice(1);
+        if (!address || !flow) fail("kullanım: entry flow <önek> <numara> <hedef>");
+        await assertTarget(db, t, flow);
+        const r = await db.query("UPDATE entry_points SET flow = $1 WHERE tenant_id = $2 AND channel = 'voice' AND address = $3", [
+          flow,
+          t.id,
+          address,
+        ]);
+        if (!r.rowCount) fail(`${t.prefix}: giriş noktası yok: ${address}`);
+        await audit(db, "entry.flow", t.id, { address, flow });
+        console.log(`${t.prefix}: ${address} -> ${flow}. Uygulamak için: santralio apply`);
+        break;
+      }
+
+      case "menu add": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const name = rest[1];
+        if (!name || !/^[a-z0-9_]{1,32}$/.test(name)) fail("menü adı küçük harf, rakam ve _ olmalı");
+        const text = values.text ?? fail('--text "anons metni" gerekli');
+        if (values.default) await assertTarget(db, t, values.default);
+        await db.query(
+          `INSERT INTO menus (tenant_id, name, prompt_text, invalid_text, timeout_s, max_tries, default_target)
+           VALUES ($1, $2, $3, COALESCE($4, 'Geçersiz bir seçim yaptınız.'), $5, $6, $7)
+           ON CONFLICT (tenant_id, name) DO UPDATE SET prompt_text = $3, invalid_text = COALESCE($4, menus.invalid_text),
+             timeout_s = $5, max_tries = $6, default_target = $7`,
+          [t.id, name, text, values.invalid ?? null, int(values.timeout, "timeout", 5), int(values.tries, "tries", 3), values.default ?? null],
+        );
+        await audit(db, "menu.add", t.id, { name, text, default: values.default });
+        console.log(`${t.prefix}: menü ${name} kaydedildi. Uygulamak için: santralio apply`);
+        break;
+      }
+
+      case "menu option": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const [menu, digit, target] = rest.slice(1);
+        if (!menu || !digit || !target) fail("kullanım: menu option <önek> <menü> <tuş> <hedef>");
+        if (!/^[0-9*#]$/.test(digit)) fail("tuş 0-9, * ya da # olmalı");
+        const m = (await db.query("SELECT id FROM menus WHERE tenant_id = $1 AND name = $2", [t.id, menu])).rows[0];
+        if (!m) fail(`${t.prefix}: menü yok: ${menu}`);
+        await assertTarget(db, t, target);
+        await db.query(
+          "INSERT INTO menu_options (menu_id, digit, target) VALUES ($1, $2, $3) ON CONFLICT (menu_id, digit) DO UPDATE SET target = $3",
+          [m.id, digit, target],
+        );
+        await audit(db, "menu.option", t.id, { menu, digit, target });
+        console.log(`${t.prefix}: ${menu} menüsünde ${digit} -> ${target}. Uygulamak için: santralio apply`);
         break;
       }
 
@@ -357,6 +416,15 @@ async function main() {
   } finally {
     await db.end();
   }
+}
+
+// Hedef (queue:<ad> | menu:<ad>) aynı kiracıda var olmalı: başka kiracının nesnesine yönlendirilemez.
+async function assertTarget(db: Db, t: { id: number; prefix: string }, target: string) {
+  const m = /^(queue|menu):([a-z0-9_]{1,32})$/.exec(target);
+  if (!m) fail(`geçersiz hedef: ${target} (queue:<ad> ya da menu:<ad>)`);
+  const table = m[1] === "queue" ? "queues" : "menus";
+  const row = (await db.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND name = $2`, [t.id, m[2]])).rows[0];
+  if (!row) fail(`${t.prefix}: ${m[1] === "queue" ? "kuyruk" : "menü"} yok: ${m[2]}`);
 }
 
 function printSip(prefix: string, number: string, secret: string) {

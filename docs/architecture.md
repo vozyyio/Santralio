@@ -125,6 +125,8 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | `extensions` | Dahili numarası, şifreli SIP şifresi, durum |
 | `queues` | Kuyruk adı, strateji, zaman aşımı, anonslar |
 | `queue_members` | Kuyruk ve dahili eşleşmesi |
+| `menus` | Tuşlamalı menü: anons metni, zaman aşımı, deneme sayısı, varsayılan hedef. Ses dosyası `apply` sırasında metinden üretilir |
+| `menu_options` | Menüde tuş → hedef (`queue:<ad>` ya da `menu:<ad>`) |
 | `operator_ip_ranges` | Operatör başına izinli sinyal IP aralıkları |
 | `interactions` | Kanaldan bağımsız konuşma kaydı: kiracı, kanal, giriş noktası, kuyruk, temsilci, sonuç |
 | `ai_providers` | Kiracı bazında STT/TTS/LLM sağlayıcısı ve şifreli API anahtarı (5. adımda kullanılır) |

@@ -113,7 +113,7 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 
 ## Kurulum (sunucu)
 
-Ubuntu 26.04, Asterisk 22 ve PostgreSQL 18 paketleri kurulu olmalı (`asterisk`, `asterisk-modules`, `asterisk-core-sounds-en-wav`, `asterisk-moh-opsound-wav`, `postgresql`, `certbot`). `sip.santralio.site` Cloudflare'de proxy'siz olmalı.
+Ubuntu 26.04, Asterisk 22 ve PostgreSQL 18 paketleri kurulu olmalı (`asterisk`, `asterisk-modules`, `asterisk-core-sounds-en-wav`, `asterisk-moh-opsound-wav`, `postgresql`, `certbot`; menü anonsları için `espeak-ng`, `mbrola-tr2`, `sox`). `sip.santralio.site` Cloudflare'de proxy'siz olmalı.
 
 ```sh
 sudo certbot certonly --standalone -d sip.santralio.site --key-type ecdsa
@@ -134,10 +134,13 @@ santralio ext add t2 1001 --name "Resepsiyon"        # SIP şifresini bir kez g�
 santralio queue member add t2 destek 1001
 santralio trunk set t2 --operator netgsm --server <sunucu> --username <kullanıcı>   # şifre gizli sorulur
 santralio entry add t2 voice 908501234567 --flow queue:destek
+santralio menu add t2 ana --text "Örnek Otel'e hoş geldiniz. Rezervasyon için 1'e basınız." --default queue:destek
+santralio menu option t2 ana 1 queue:destek
+santralio entry flow t2 908501234567 menu:ana        # aramayı menüye bağlar
 santralio apply
 ```
 
-Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py` (kullanım dosyanın başında).
+Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`.
 
 ## Lisanslama ve satış
 
