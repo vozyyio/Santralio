@@ -108,8 +108,36 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 | `docs/architecture.md` | Çağrı altyapısı mimarisi (öneri) |
 | `infra/asterisk/` | Ortak Asterisk ayarları, kurulum betiği (`deploy.sh`), sertifika kancası ve ret testi |
 | `infra/fail2ban/` | Asterisk için fail2ban jail'i |
+| `infra/firewall-sync.sh` | Operatör IP aralıklarını 5060 için ufw iznine çevirir (yalnızca ekler) |
+| `control/` | Kontrol servisi (Node 22 + TypeScript): şema, şifreleme, konfigürasyon üretici, CLI |
 
-Kurulum, çalıştırma ve yapılandırma adımları ilk yazılım modülüyle birlikte bu dosyaya eklenecek.
+## Kurulum (sunucu)
+
+Ubuntu 26.04, Asterisk 22 ve PostgreSQL 18 paketleri kurulu olmalı (`asterisk`, `asterisk-modules`, `asterisk-core-sounds-en-wav`, `asterisk-moh-opsound-wav`, `postgresql`, `certbot`). `sip.santralio.site` Cloudflare'de proxy'siz olmalı.
+
+```sh
+sudo certbot certonly --standalone -d sip.santralio.site --key-type ecdsa
+sudo install -m 0755 infra/asterisk/cert-hook.sh /etc/letsencrypt/renewal-hooks/deploy/santralio-asterisk.sh
+sudo install -m 0644 infra/fail2ban/santralio-asterisk.conf /etc/fail2ban/jail.d/
+sudo ufw allow 5061/tcp && sudo ufw allow 10000:19999/udp
+sudo infra/asterisk/deploy.sh --restart
+sudo control/install.sh
+```
+
+Kiracı açmak (örnek):
+
+```sh
+santralio tenant create "Örnek Otel"                 # -> t2
+santralio license set-manual t2 --max-ext 5 --max-channels 4 --until 2027-01-31
+santralio queue add t2 destek --number 8001
+santralio ext add t2 1001 --name "Resepsiyon"        # SIP şifresini bir kez gösterir
+santralio queue member add t2 destek 1001
+santralio trunk set t2 --operator netgsm --server <sunucu> --username <kullanıcı>   # şifre gizli sorulur
+santralio entry add t2 voice 908501234567 --flow queue:destek
+santralio apply
+```
+
+Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py` (kullanım dosyanın başında).
 
 ## Lisanslama ve satış
 

@@ -1,0 +1,19 @@
+{
+  "name": "santralio-control",
+  "private": true,
+  "type": "module",
+  "description": "Santralio kontrol servisi: kiracı kayıtlarından Asterisk konfigürasyonu üretir",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.8.0"
+  }
+}

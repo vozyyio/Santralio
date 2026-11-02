@@ -1,0 +1,105 @@
+// Santralio: veritabanından kiracı modellerini okur, dosyaları yazar ve Asterisk'i yeniden yükler.
+
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { aad, open } from "./crypto.ts";
+import { masterKey, TENANTS_DIR } from "./config.ts";
+import type { Db } from "./db.ts";
+import { renderTenant, type RenderedFiles, type TenantModel } from "./render.ts";
+
+export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel> {
+  const t = (
+    await db.query(
+      `SELECT t.id, t.prefix, t.name, t.status, l.active, l.valid_until, l.max_channels
+         FROM tenants t LEFT JOIN licenses l ON l.tenant_id = t.id WHERE t.id = $1`,
+      [tenantId],
+    )
+  ).rows[0];
+  if (!t) throw new Error(`kiracı yok: ${tenantId}`);
+
+  const licensed =
+    t.status === "active" && t.active === true && (t.valid_until === null || new Date(t.valid_until) > new Date());
+
+  const tr = (await db.query("SELECT * FROM trunks WHERE tenant_id = $1", [tenantId])).rows[0];
+  const exts = (await db.query("SELECT * FROM extensions WHERE tenant_id = $1 ORDER BY number", [tenantId])).rows;
+  const queues = (await db.query("SELECT * FROM queues WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows;
+  const members = (
+    await db.query(
+      `SELECT qm.queue_id, e.number, qm.penalty FROM queue_members qm
+         JOIN extensions e ON e.id = qm.extension_id
+         JOIN queues q ON q.id = qm.queue_id
+        WHERE q.tenant_id = $1 AND e.tenant_id = $1 ORDER BY e.number`,
+      [tenantId],
+    )
+  ).rows;
+  const entries = (
+    await db.query("SELECT * FROM entry_points WHERE tenant_id = $1 AND channel = 'voice' ORDER BY address", [tenantId])
+  ).rows;
+
+  return {
+    id: t.id,
+    prefix: t.prefix,
+    name: t.name,
+    licensed,
+    maxChannels: t.max_channels ?? 0,
+    trunk: tr
+      ? {
+          operator: tr.operator,
+          server: tr.server,
+          port: tr.port,
+          transport: tr.transport,
+          username: tr.username,
+          secret: open(tr.secret_enc, aad.trunk(tenantId), masterKey(tr.key_id)),
+          contactToken: tr.contact_token,
+          enabled: tr.enabled,
+        }
+      : null,
+    extensions: exts.map((e) => ({
+      number: e.number,
+      displayName: e.display_name,
+      secret: open(e.secret_enc, aad.extension(tenantId, e.number), masterKey(e.key_id)),
+      enabled: e.enabled,
+    })),
+    queues: queues.map((q) => ({
+      name: q.name,
+      number: q.number,
+      strategy: q.strategy,
+      ringS: q.ring_s,
+      maxWaitS: q.max_wait_s,
+      members: members.filter((m) => m.queue_id === q.id).map((m) => ({ number: m.number, penalty: m.penalty })),
+    })),
+    entryPoints: entries.map((e) => ({ address: e.address, flow: e.flow, enabled: e.enabled })),
+  };
+}
+
+// Dosyalar önce geçici adla yazılır, sonra yerine taşınır: Asterisk yarım dosya okumaz.
+export function writeTenantFiles(prefix: string, files: RenderedFiles): string[] {
+  const dir = join(TENANTS_DIR, prefix);
+  mkdirSync(dir, { recursive: true, mode: 0o2750 });
+  const changed: string[] = [];
+  for (const [name, content] of Object.entries(files)) {
+    const target = join(dir, name);
+    let current: string | null = null;
+    try {
+      current = readFileSync(target, "utf8");
+    } catch {
+      current = null;
+    }
+    if (current === content) continue;
+    const tmp = `${target}.tmp-${process.pid}`;
+    writeFileSync(tmp, content, { mode: 0o640 });
+    renameSync(tmp, target);
+    changed.push(join(prefix, name));
+  }
+  return changed;
+}
+
+export async function renderAll(db: Db): Promise<{ prefix: string; changed: string[] }[]> {
+  const ids = (await db.query("SELECT id FROM tenants ORDER BY id")).rows.map((r) => r.id as number);
+  const result = [];
+  for (const id of ids) {
+    const model = await loadTenant(db, id);
+    result.push({ prefix: model.prefix, changed: writeTenantFiles(model.prefix, renderTenant(model)) });
+  }
+  return result;
+}

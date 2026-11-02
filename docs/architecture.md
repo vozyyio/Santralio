@@ -49,6 +49,8 @@ Asterisk'in veritabanından doğrudan okuma modu (realtime, `res_config_pgsql`) 
 
 - Trunk şifreleri veritabanında AES-256-GCM ile şifreli durur (`secret_enc`). Her kayıtta bir `key_id` tutulur, böylece anahtar yenilenebilir.
 - Ana anahtar veritabanında da depoda da durmaz. `systemd-creds` ile şifrelenmiş bir credential olarak yalnızca kontrol servisine verilir.
+- İlk sunucuda TPM yok. `systemd-creds` credential'ları sunucunun kendi sır dosyasıyla (`/var/lib/systemd/credential.secret`) şifreler. Bu yöntem veritabanı dökümü ya da yedek sızarsa şifreleri korur, ama sunucuda root yetkisi ele geçirilirse korumaz.
+- Sunucu kaybedilirse ana anahtar da kaybolur ve şifreli alanlar açılamaz. Ana anahtarın bir kopyası sunucu dışında, kasada saklanmalıdır.
 - Şifre düz metin olarak yalnızca `/etc/asterisk/tenants/<kiracı>/` dosyalarında bulunur. Bu dosyalar `0640 root:asterisk` izinleriyle yazılır.
 - Trunk şifresi sohbete, bilet sistemine ya da depoya yazılmaz. Sunucuda CLI'nin sorduğu gizli girişe yazılır ve doğrudan şifrelenip veritabanına kaydedilir.
 - Temsilci SIP şifreleri rastgele üretilir ve aynı yöntemle saklanır.
