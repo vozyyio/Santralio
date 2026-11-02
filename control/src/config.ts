@@ -8,6 +8,9 @@ import { join } from "node:path";
 export const PUBLIC_IP = process.env.SANTRALIO_PUBLIC_IP ?? "116.203.184.30";
 export const TENANTS_DIR = process.env.SANTRALIO_TENANTS_DIR ?? "/etc/asterisk/tenants";
 export const SOUNDS_DIR = process.env.SANTRALIO_SOUNDS_DIR ?? "/var/lib/asterisk/sounds/santralio";
+// Anons sesi: Piper (yerel, sinir ağı tabanlı) varsa o, yoksa espeak-ng kullanılır.
+export const PIPER_BIN = process.env.SANTRALIO_PIPER_BIN ?? "/opt/santralio/piper/piper";
+export const PIPER_MODEL = process.env.SANTRALIO_PIPER_MODEL ?? "/opt/santralio/voices/tr_TR-dfki-medium.onnx";
 export const PG_DATABASE = process.env.SANTRALIO_PG_DATABASE ?? "santralio";
 export const PG_HOST = process.env.SANTRALIO_PG_HOST ?? "/var/run/postgresql";
 export const AMI_HOST = "127.0.0.1";

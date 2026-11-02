@@ -1,10 +1,10 @@
 // Santralio: veritabanından kiracı modellerini okur, dosyaları yazar ve Asterisk'i yeniden yükler.
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { aad, open } from "./crypto.ts";
-import { masterKey, SOUNDS_DIR, TENANTS_DIR } from "./config.ts";
+import { masterKey, PIPER_BIN, PIPER_MODEL, SOUNDS_DIR, TENANTS_DIR } from "./config.ts";
 import type { Db } from "./db.ts";
 import { renderTenant, type RenderedFiles, type TenantModel } from "./render.ts";
 
@@ -89,29 +89,40 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
 }
 
 // Anons metninden 8 kHz, tek kanallı, 16 bit WAV üretir (Asterisk'in yerel biçimi).
-// Metin değişmedikçe dosya yeniden üretilmez; son üretilen metin yanındaki .txt dosyasında tutulur.
+// Metin ya da ses motoru değişmedikçe dosya yeniden üretilmez; ikisi yanındaki .txt dosyasında tutulur.
 export function writePrompt(prefix: string, name: string, text: string): boolean {
   const dir = join(SOUNDS_DIR, prefix);
   mkdirSync(dir, { recursive: true, mode: 0o2750 });
   const wav = join(dir, `${name}.wav`);
   const txt = join(dir, `${name}.txt`);
+  const engine = existsSync(PIPER_BIN) && existsSync(PIPER_MODEL) ? "piper" : "espeak";
+  const marker = `${engine}\n${text}`;
   let current: string | null = null;
   try {
     current = readFileSync(txt, "utf8");
   } catch {
     current = null;
   }
-  if (current === text) return false;
+  if (current === marker) return false;
 
   // Metin argüman olarak değil standart girdiden verilir: "-" ile başlayan metin seçenek sanılmaz.
-  // espeak-ng çıktısı diske yazılmadan doğrudan sox'a verilir.
-  const tts = spawnSync("espeak-ng", ["-v", "mb-tr2", "-s", "140", "--stdin", "--stdout"], { input: text, maxBuffer: 64 << 20 });
-  if (tts.status !== 0) throw new Error(`anons üretilemedi (${name}): ${tts.stderr.toString().trim()}`);
+  // Ses diske yazılmadan doğrudan sox'a verilir.
   const tmp = `${wav}.tmp-${process.pid}.wav`;
-  const conv = spawnSync("sox", ["-t", "wav", "-", "-r", "8000", "-c", "1", "-b", "16", tmp, "norm", "-3"], { input: tts.stdout });
+  let input: string[];
+  let tts;
+  if (engine === "piper") {
+    tts = spawnSync(PIPER_BIN, ["--model", PIPER_MODEL, "--output_raw"], { input: text, maxBuffer: 64 << 20 });
+    const rate = String(JSON.parse(readFileSync(`${PIPER_MODEL}.json`, "utf8")).audio.sample_rate);
+    input = ["-t", "raw", "-r", rate, "-e", "signed", "-b", "16", "-c", "1", "-"];
+  } else {
+    tts = spawnSync("espeak-ng", ["-v", "mb-tr2", "-s", "140", "--stdin", "--stdout"], { input: text, maxBuffer: 64 << 20 });
+    input = ["-t", "wav", "-"];
+  }
+  if (tts.status !== 0) throw new Error(`anons üretilemedi (${name}, ${engine}): ${tts.stderr.toString().trim().split("\n").pop()}`);
+  const conv = spawnSync("sox", [...input, "-r", "8000", "-c", "1", "-b", "16", tmp, "norm", "-1"], { input: tts.stdout });
   if (conv.status !== 0) throw new Error(`anons dönüştürülemedi (${name}): ${conv.stderr.toString().trim()}`);
   renameSync(tmp, wav);
-  writeFileSync(txt, text, { mode: 0o640 });
+  writeFileSync(txt, marker, { mode: 0o640 });
   return true;
 }
 

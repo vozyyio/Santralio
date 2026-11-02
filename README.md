@@ -113,7 +113,19 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 
 ## Kurulum (sunucu)
 
-Ubuntu 26.04, Asterisk 22 ve PostgreSQL 18 paketleri kurulu olmalı (`asterisk`, `asterisk-modules`, `asterisk-core-sounds-en-wav`, `asterisk-moh-opsound-wav`, `postgresql`, `certbot`; menü anonsları için `espeak-ng`, `mbrola-tr2`, `sox`). `sip.santralio.site` Cloudflare'de proxy'siz olmalı.
+Ubuntu 26.04, Asterisk 22 ve PostgreSQL 18 paketleri kurulu olmalı (`asterisk`, `asterisk-modules`, `asterisk-core-sounds-en-wav`, `asterisk-moh-opsound-wav`, `postgresql`, `certbot`; menü anonsları için `sox` ve yedek ses olarak `espeak-ng`, `mbrola-tr2`).
+
+Anonslar varsayılan olarak [Piper](https://github.com/rhasspy/piper) ile sunucuda yerel üretilir; metin dış servise gitmez:
+
+```sh
+curl -LO https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz   # sha256 fea0fd2d87c54dbc…
+sudo tar xzf piper_linux_aarch64.tar.gz -C /opt/santralio/ --no-same-owner
+B=https://huggingface.co/rhasspy/piper-voices/resolve/main/tr/tr_TR/dfki/medium
+curl -LO $B/tr_TR-dfki-medium.onnx -LO $B/tr_TR-dfki-medium.onnx.json                               # sha256 2844717f524ab965…
+sudo install -D -m 0644 -t /opt/santralio/voices/ tr_TR-dfki-medium.onnx tr_TR-dfki-medium.onnx.json
+```
+
+Piper ya da ses modeli yoksa espeak-ng kullanılır. Motor değişince `santralio apply` anonsları yeniden üretir.. `sip.santralio.site` Cloudflare'de proxy'siz olmalı.
 
 ```sh
 sudo certbot certonly --standalone -d sip.santralio.site --key-type ecdsa
