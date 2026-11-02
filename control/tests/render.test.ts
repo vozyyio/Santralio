@@ -88,7 +88,7 @@ test("trunk kaydı line=yes ve kiracıya özel contact token ile yapılır", () 
   const pjsip = renderTenant(tenant(1))["pjsip.conf"];
   assert.match(pjsip, /line=yes\nendpoint=t1_trunk\n/);
   assert.match(pjsip, /contact_user=token1a+\n/);
-  assert.match(pjsip, /match_request_uri=token1a+\n/);
+  assert.match(pjsip, /match_request_uri=\/\^sips\?:token1a+@\/\n/);
 });
 
 test("internal context dış arama içermez, eşleşmeyen numara reject'e düşer", () => {

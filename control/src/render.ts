@@ -139,7 +139,8 @@ max_retries=10000
 [${p}_trunk_identify]
 type=identify
 endpoint=${p}_trunk
-match_request_uri=${tr.contactToken}
+; Asterisk tüm Request-URI ile karşılaştırır; yalnızca kullanıcı kısmı için regex kullanılır.
+match_request_uri=/^sips?:${tr.contactToken}@/
 `);
   }
 

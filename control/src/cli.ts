@@ -127,7 +127,9 @@ async function main() {
 
   const db = await connect();
   try {
-    switch (`${cmd} ${sub ?? ""}`.trim()) {
+    // Alt komutu olmayan komutlarda ikinci kelime argümandır (ör. status t1).
+    const key = ["migrate", "apply", "status"].includes(cmd) ? cmd : `${cmd} ${sub ?? ""}`.trim();
+    switch (key) {
       case "migrate": {
         const applied = await migrate(db, MIGRATIONS);
         console.log(applied.length ? `uygulandı: ${applied.join(", ")}` : "şema güncel");
