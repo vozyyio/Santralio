@@ -1,0 +1,40 @@
+# Santralio yönetim API'si. control/install.sh kurar.
+# Yalnızca 127.0.0.1:8090'ı dinler; dışarıya HTTPS ters vekil üzerinden açılır.
+[Unit]
+Description=Santralio yönetim API'si
+After=network.target postgresql.service asterisk.service
+Wants=postgresql.service
+
+[Service]
+User=santralio-ctl
+Group=santralio-ctl
+SupplementaryGroups=asterisk
+UMask=0027
+LoadCredentialEncrypted=santralio-master-key-k1
+LoadCredentialEncrypted=santralio-ami-secret
+WorkingDirectory=/opt/santralio/control
+ExecStart=/usr/bin/node /opt/santralio/control/src/api.ts
+Restart=on-failure
+RestartSec=2
+
+# Sandbox: dosya sistemi salt okunur; yalnızca kiracı ayarları ve anonslar yazılabilir.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/asterisk/tenants /var/lib/asterisk/sounds/santralio
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

@@ -193,13 +193,21 @@ export function writeTenantFiles(prefix: string, files: RenderedFiles): string[]
   return changed;
 }
 
+// CLI ve API aynı anda üretim yapmasın diye PostgreSQL danışma kilidi alınır.
+const RENDER_LOCK = 7_261_001;
+
 export async function renderAll(db: Db): Promise<{ prefix: string; changed: string[] }[]> {
-  const ids = (await db.query("SELECT id FROM tenants ORDER BY id")).rows.map((r) => r.id as number);
-  const result = [];
-  for (const id of ids) {
-    const model = await loadTenant(db, id);
-    const sounds = model.licensed ? await writePrompts(db, id, model.prefix) : [];
-    result.push({ prefix: model.prefix, changed: [...writeTenantFiles(model.prefix, renderTenant(model)), ...sounds] });
+  await db.query("SELECT pg_advisory_lock($1)", [RENDER_LOCK]);
+  try {
+    const ids = (await db.query("SELECT id FROM tenants ORDER BY id")).rows.map((r) => r.id as number);
+    const result = [];
+    for (const id of ids) {
+      const model = await loadTenant(db, id);
+      const sounds = model.licensed ? await writePrompts(db, id, model.prefix) : [];
+      result.push({ prefix: model.prefix, changed: [...writeTenantFiles(model.prefix, renderTenant(model)), ...sounds] });
+    }
+    return result;
+  } finally {
+    await db.query("SELECT pg_advisory_unlock($1)", [RENDER_LOCK]);
   }
-  return result;
 }

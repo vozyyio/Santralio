@@ -9,11 +9,16 @@ import { renderAll } from "./apply.ts";
 import { CURRENT_KEY_ID, masterKey } from "./config.ts";
 import { aad, open, randomToken, seal } from "./crypto.ts";
 import { audit, connect, migrate, tx, type Db } from "./db.ts";
+import { hashPassword } from "./auth.ts";
+import * as ops from "./ops.ts";
+import { assertTarget, tenantByPrefix, UserError } from "./ops.ts";
 
 const HELP = `santralio <komut>
 
   migrate                                  Veritabanı şemasını günceller
-  tenant create <ad>                       Yeni kiracı açar (önek otomatik: t<id>)
+  reseller add <ad>                        Bayi açar (platformun kendisi "Platform" adlı bayidir)
+  reseller list
+  tenant create <ad> [--reseller ad]       Yeni kiracı açar (önek otomatik: t<id>), varsayılan bayi Platform
   tenant list                              Kiracıları listeler
   tenant suspend|resume <önek>             Kiracıyı kapatır / açar
   license set-manual <önek> --max-ext N --max-channels N [--until YYYY-MM-DD] [--note metin]
@@ -41,6 +46,13 @@ const HELP = `santralio <komut>
   schedule holiday <önek> <zamanlama> <YYYY-AA-GG> [--note metin]
                                            Tam gün kapalı tarih (resmî tatil, bayram)
   schedule show <önek> <zamanlama>         Aralıkları ve tatilleri listeler
+  user add <e-posta> --role platform_admin|reseller_admin|tenant_admin|agent
+           [--reseller ad] [--tenant önek] [--ext dahili] [--name "Ad"]
+                                           Panel/API kullanıcısı; şifre gizli girişle sorulur
+                                           (ya da --password-stdin ile standart girdiden okunur)
+  user password <e-posta>                  Şifreyi değiştirir ve açık oturumları kapatır
+  user disable|enable <e-posta>
+  user list
   operator ip add <operatör> <cidr> [--note metin]
   apply                                    Konfigürasyonu üretir ve Asterisk'i yeniden yükler
   status [<önek>]                          Trunk kaydı ve dahililerin durumu
@@ -51,13 +63,6 @@ const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), "..", "migratio
 function fail(msg: string): never {
   console.error(`hata: ${msg}`);
   process.exit(1);
-}
-
-async function tenantByPrefix(db: Db, prefix: string | undefined) {
-  if (!prefix) fail("kiracı öneki gerekli (ör. t1)");
-  const row = (await db.query("SELECT * FROM tenants WHERE prefix = $1", [prefix])).rows[0];
-  if (!row) fail(`kiracı yok: ${prefix}`);
-  return row as { id: number; prefix: string; name: string; status: string };
 }
 
 function int(v: string | undefined, name: string, def?: number): number {
@@ -135,6 +140,10 @@ async function main() {
       timeout: { type: "string" },
       tries: { type: "string" },
       open: { type: "string" },
+      role: { type: "string" },
+      reseller: { type: "string" },
+      tenant: { type: "string" },
+      ext: { type: "string" },
       closed: { type: "string" },
       "closed-text": { type: "string" },
       tz: { type: "string" },
@@ -157,13 +166,40 @@ async function main() {
         break;
       }
 
+      case "reseller add": {
+        const name = rest.join(" ").trim();
+        if (!name) fail("bayi adı gerekli");
+        const r = await db.query("INSERT INTO resellers (name) VALUES ($1) ON CONFLICT (name) DO NOTHING RETURNING id", [name]);
+        if (!r.rowCount) fail(`bayi zaten var: ${name}`);
+        await audit(db, "reseller.add", null, { name });
+        console.log(`bayi açıldı: ${name}`);
+        break;
+      }
+
+      case "reseller list": {
+        console.table(
+          (
+            await db.query(
+              "SELECT r.name, r.status, (SELECT count(*) FROM tenants t WHERE t.reseller_id = r.id) AS tenants FROM resellers r ORDER BY r.id",
+            )
+          ).rows,
+        );
+        break;
+      }
+
       case "tenant create": {
         const name = rest.join(" ").trim();
         if (!name) fail("kiracı adı gerekli");
+        const reseller = await resellerId(db, values.reseller ?? "Platform");
         const row = await tx(db, async () => {
           const id = Number((await db.query("SELECT nextval(pg_get_serial_sequence('tenants', 'id')) AS id")).rows[0].id);
           const r = (
-            await db.query("INSERT INTO tenants (id, prefix, name) VALUES ($1, $2, $3) RETURNING id, prefix", [id, `t${id}`, name])
+            await db.query("INSERT INTO tenants (id, prefix, name, reseller_id) VALUES ($1, $2, $3, $4) RETURNING id, prefix", [
+              id,
+              `t${id}`,
+              name,
+              reseller,
+            ])
           ).rows[0];
           await audit(db, "tenant.create", r.id, { name });
           return r;
@@ -282,32 +318,21 @@ async function main() {
         const t = await tenantByPrefix(db, rest[0]);
         const [address, flow] = rest.slice(1);
         if (!address || !flow) fail("kullanım: entry flow <önek> <numara> <hedef>");
-        await assertTarget(db, t, flow);
-        const r = await db.query("UPDATE entry_points SET flow = $1 WHERE tenant_id = $2 AND channel = 'voice' AND address = $3", [
-          flow,
-          t.id,
-          address,
-        ]);
-        if (!r.rowCount) fail(`${t.prefix}: giriş noktası yok: ${address}`);
-        await audit(db, "entry.flow", t.id, { address, flow });
+        await ops.setEntryFlow(db, t, address, flow);
         console.log(`${t.prefix}: ${address} -> ${flow}. Uygulamak için: santralio apply`);
         break;
       }
 
       case "menu add": {
         const t = await tenantByPrefix(db, rest[0]);
-        const name = rest[1];
-        if (!name || !/^[a-z0-9_]{1,32}$/.test(name)) fail("menü adı küçük harf, rakam ve _ olmalı");
-        const text = values.text ?? fail('--text "anons metni" gerekli');
-        if (values.default) await assertTarget(db, t, values.default);
-        await db.query(
-          `INSERT INTO menus (tenant_id, name, prompt_text, invalid_text, timeout_s, max_tries, default_target)
-           VALUES ($1, $2, $3, COALESCE($4, 'Geçersiz bir seçim yaptınız.'), $5, $6, $7)
-           ON CONFLICT (tenant_id, name) DO UPDATE SET prompt_text = $3, invalid_text = COALESCE($4, menus.invalid_text),
-             timeout_s = $5, max_tries = $6, default_target = $7`,
-          [t.id, name, text, values.invalid ?? null, int(values.timeout, "timeout", 5), int(values.tries, "tries", 3), values.default ?? null],
-        );
-        await audit(db, "menu.add", t.id, { name, text, default: values.default });
+        const name = rest[1] ?? fail("menü adı gerekli");
+        await ops.setMenu(db, t, name, {
+          text: values.text ?? fail('--text "anons metni" gerekli'),
+          invalidText: values.invalid ?? null,
+          defaultTarget: values.default ?? null,
+          timeoutS: int(values.timeout, "timeout", 5),
+          maxTries: int(values.tries, "tries", 3),
+        });
         console.log(`${t.prefix}: menü ${name} kaydedildi. Uygulamak için: santralio apply`);
         break;
       }
@@ -316,40 +341,20 @@ async function main() {
         const t = await tenantByPrefix(db, rest[0]);
         const [menu, digit, target] = rest.slice(1);
         if (!menu || !digit || !target) fail("kullanım: menu option <önek> <menü> <tuş> <hedef>");
-        if (!/^[0-9*#]$/.test(digit)) fail("tuş 0-9, * ya da # olmalı");
-        const m = (await db.query("SELECT id FROM menus WHERE tenant_id = $1 AND name = $2", [t.id, menu])).rows[0];
-        if (!m) fail(`${t.prefix}: menü yok: ${menu}`);
-        await assertTarget(db, t, target);
-        await db.query(
-          "INSERT INTO menu_options (menu_id, digit, target) VALUES ($1, $2, $3) ON CONFLICT (menu_id, digit) DO UPDATE SET target = $3",
-          [m.id, digit, target],
-        );
-        await audit(db, "menu.option", t.id, { menu, digit, target });
+        await ops.setMenuOption(db, t, menu, digit, target);
         console.log(`${t.prefix}: ${menu} menüsünde ${digit} -> ${target}. Uygulamak için: santralio apply`);
         break;
       }
 
       case "schedule add": {
         const t = await tenantByPrefix(db, rest[0]);
-        const name = rest[1];
-        if (!name || !/^[a-z0-9_]{1,32}$/.test(name)) fail("zamanlama adı küçük harf, rakam ve _ olmalı");
-        const open = values.open ?? fail("--open <hedef> gerekli (ör. menu:ana)");
-        const text = values["closed-text"] ?? fail('--closed-text "anons" gerekli');
-        await assertTarget(db, t, open);
-        if (values.closed) await assertTarget(db, t, values.closed);
-        const tz = values.tz ?? "Europe/Istanbul";
-        try {
-          new Intl.DateTimeFormat("tr", { timeZone: tz });
-        } catch {
-          fail(`geçersiz saat dilimi: ${tz}`);
-        }
-        await db.query(
-          `INSERT INTO schedules (tenant_id, name, timezone, open_target, closed_text, closed_target)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (tenant_id, name) DO UPDATE SET timezone = $3, open_target = $4, closed_text = $5, closed_target = $6`,
-          [t.id, name, tz, open, text, values.closed ?? null],
-        );
-        await audit(db, "schedule.add", t.id, { name, open, closed: values.closed, tz });
+        const name = rest[1] ?? fail("zamanlama adı gerekli");
+        await ops.setSchedule(db, t, name, {
+          openTarget: values.open ?? fail("--open <hedef> gerekli (ör. menu:ana)"),
+          closedText: values["closed-text"] ?? fail('--closed-text "anons" gerekli'),
+          closedTarget: values.closed ?? null,
+          timezone: values.tz,
+        });
         console.log(`${t.prefix}: zamanlama ${name} kaydedildi. Uygulamak için: santralio apply`);
         break;
       }
@@ -357,19 +362,9 @@ async function main() {
       case "schedule hours": {
         const t = await tenantByPrefix(db, rest[0]);
         const [name, days, range] = rest.slice(1);
-        const m = /^([0-2]\d:[0-5]\d)-([0-2]\d:[0-5]\d)$/.exec(range ?? "");
+        const m = /^(\d\d:\d\d)-(\d\d:\d\d)$/.exec(range ?? "");
         if (!name || !days || !m) fail("kullanım: schedule hours <önek> <zamanlama> mon-fri 09:00-18:00");
-        if (!/^(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?$/.test(days)) fail("günler: mon..sun ya da aralık (mon-fri)");
-        const sc = (await db.query("SELECT id FROM schedules WHERE tenant_id = $1 AND name = $2", [t.id, name])).rows[0];
-        if (!sc) fail(`${t.prefix}: zamanlama yok: ${name}`);
-        await db.query(
-          "INSERT INTO schedule_hours (schedule_id, weekdays, opens, closes) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
-          [sc.id, days, m[1], m[2]],
-        ).catch((err) => {
-          if (err.code === "23514" || err.code === "22007" || err.code === "22008") fail(`geçersiz aralık: ${range}`);
-          throw err;
-        });
-        await audit(db, "schedule.hours", t.id, { name, days, range });
+        await ops.addScheduleHours(db, t, name, { weekdays: days, opens: m[1], closes: m[2] });
         console.log(`${t.prefix}: ${name} ${days} ${range} açık. Uygulamak için: santralio apply`);
         break;
       }
@@ -377,17 +372,8 @@ async function main() {
       case "schedule holiday": {
         const t = await tenantByPrefix(db, rest[0]);
         const [name, day] = rest.slice(1);
-        if (!name || !day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) fail("kullanım: schedule holiday <önek> <zamanlama> YYYY-AA-GG");
-        const sc = (await db.query("SELECT id FROM schedules WHERE tenant_id = $1 AND name = $2", [t.id, name])).rows[0];
-        if (!sc) fail(`${t.prefix}: zamanlama yok: ${name}`);
-        await db.query(
-          "INSERT INTO schedule_holidays (schedule_id, day, note) VALUES ($1, $2, $3) ON CONFLICT (schedule_id, day) DO UPDATE SET note = $3",
-          [sc.id, day, values.note ?? null],
-        ).catch((err) => {
-          if (err.code === "22007" || err.code === "22008") fail(`geçersiz tarih: ${day}`);
-          throw err;
-        });
-        await audit(db, "schedule.holiday", t.id, { name, day, note: values.note });
+        if (!name || !day) fail("kullanım: schedule holiday <önek> <zamanlama> YYYY-AA-GG");
+        await ops.addScheduleHoliday(db, t, name, day, values.note ?? null);
         console.log(`${t.prefix}: ${name} ${day} kapalı${values.note ? ` (${values.note})` : ""}. Uygulamak için: santralio apply`);
         break;
       }
@@ -413,23 +399,8 @@ async function main() {
 
       case "ext add": {
         const t = await tenantByPrefix(db, rest[0]);
-        const number = rest[1];
-        if (!number || !/^[0-9]{2,6}$/.test(number)) fail("dahili 2–6 haneli olmalı");
-        const lic = (await db.query("SELECT max_extensions FROM licenses WHERE tenant_id = $1", [t.id])).rows[0];
-        if (!lic) fail(`${t.prefix}: lisans kaydı yok`);
-        const count = Number((await db.query("SELECT count(*) FROM extensions WHERE tenant_id = $1", [t.id])).rows[0].count);
-        if (count >= lic.max_extensions) fail(`${t.prefix}: lisanstaki dahili sınırı dolu (${lic.max_extensions})`);
-        const secret = randomToken(24);
-        const sealed = seal(secret, aad.extension(t.id, number), masterKey(CURRENT_KEY_ID), CURRENT_KEY_ID);
-        await db.query(
-          "INSERT INTO extensions (tenant_id, number, display_name, secret_enc, key_id) VALUES ($1, $2, $3, $4, $5)",
-          [t.id, number, values.name ?? "", sealed.enc, sealed.keyId],
-        ).catch((err) => {
-          if (err.code === "23505") fail(`${t.prefix}: dahili zaten var: ${number}`);
-          throw err;
-        });
-        await audit(db, "ext.add", t.id, { number });
-        printSip(t.prefix, number, secret);
+        const number = rest[1] ?? fail("dahili numarası gerekli");
+        printSip(t.prefix, number, await ops.addExtension(db, t, number, values.name ?? ""));
         console.log("Uygulamak için: santralio apply");
         break;
       }
@@ -486,6 +457,76 @@ async function main() {
         break;
       }
 
+      case "user add": {
+        const email = (rest[0] ?? fail("e-posta gerekli")).trim().toLowerCase();
+        const role = values.role ?? fail("--role gerekli");
+        if (!["platform_admin", "reseller_admin", "tenant_admin", "agent"].includes(role)) fail(`geçersiz rol: ${role}`);
+        let reseller: number | null = null;
+        let tenant: number | null = null;
+        let ext: number | null = null;
+        if (role === "reseller_admin") reseller = await resellerId(db, values.reseller ?? fail("--reseller gerekli"));
+        if (role === "tenant_admin" || role === "agent") tenant = (await tenantByPrefix(db, values.tenant ?? fail("--tenant gerekli"))).id;
+        if (role === "agent") {
+          const number = values.ext ?? fail("--ext gerekli");
+          const e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2", [tenant, number])).rows[0];
+          if (!e) fail(`dahili yok: ${number}`);
+          ext = e.id;
+        }
+        const password = await readSecret(`${email} için şifre (en az 10 karakter): `, !!values["password-stdin"]);
+        const hash = await hashPassword(password).catch((err) => fail(err.message));
+        await db
+          .query(
+            "INSERT INTO users (email, name, password_hash, role, reseller_id, tenant_id, extension_id) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            [email, values.name ?? "", hash, role, reseller, tenant, ext],
+          )
+          .catch((err) => {
+            if (err.code === "23505") fail(`kullanıcı zaten var: ${email}`);
+            if (err.code === "23514") fail("geçersiz e-posta ya da rol/kapsam");
+            throw err;
+          });
+        await audit(db, "user.add", tenant, { email, role });
+        console.log(`kullanıcı açıldı: ${email} (${role})`);
+        break;
+      }
+
+      case "user password": {
+        const email = (rest[0] ?? fail("e-posta gerekli")).trim().toLowerCase();
+        const u = (await db.query("SELECT id, tenant_id FROM users WHERE email = $1", [email])).rows[0];
+        if (!u) fail(`kullanıcı yok: ${email}`);
+        const hash = await hashPassword(await readSecret(`${email} için yeni şifre: `, !!values["password-stdin"])).catch((err) => fail(err.message));
+        await tx(db, async () => {
+          await db.query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, u.id]);
+          await db.query("UPDATE sessions SET revoked = true WHERE user_id = $1", [u.id]);
+          await audit(db, "user.password", u.tenant_id, { email });
+        });
+        console.log(`${email}: şifre değişti, açık oturumlar kapatıldı`);
+        break;
+      }
+
+      case "user disable":
+      case "user enable": {
+        const email = (rest[0] ?? fail("e-posta gerekli")).trim().toLowerCase();
+        const r = await db.query("UPDATE users SET disabled = $1 WHERE email = $2 RETURNING tenant_id", [sub === "disable", email]);
+        if (!r.rowCount) fail(`kullanıcı yok: ${email}`);
+        await audit(db, `user.${sub}`, r.rows[0].tenant_id, { email });
+        console.log(`${email}: ${sub === "disable" ? "kapatıldı" : "açıldı"}`);
+        break;
+      }
+
+      case "user list": {
+        console.table(
+          (
+            await db.query(
+              `SELECT u.email, u.role, r.name AS reseller, t.prefix AS tenant, e.number AS ext, u.disabled,
+                      (SELECT max(last_seen) FROM sessions s WHERE s.user_id = u.id) AS last_seen
+                 FROM users u LEFT JOIN resellers r ON r.id = u.reseller_id LEFT JOIN tenants t ON t.id = u.tenant_id
+                 LEFT JOIN extensions e ON e.id = u.extension_id ORDER BY u.id`,
+            )
+          ).rows,
+        );
+        break;
+      }
+
       case "apply":
         await apply(db);
         break;
@@ -511,14 +552,10 @@ async function main() {
   }
 }
 
-// Hedef (queue:<ad> | menu:<ad>) aynı kiracıda var olmalı: başka kiracının nesnesine yönlendirilemez.
-async function assertTarget(db: Db, t: { id: number; prefix: string }, target: string) {
-  const m = /^(queue|menu|schedule):([a-z0-9_]{1,32})$/.exec(target);
-  if (!m) fail(`geçersiz hedef: ${target} (queue:<ad>, menu:<ad> ya da schedule:<ad>)`);
-  const kinds = { queue: ["queues", "kuyruk"], menu: ["menus", "menü"], schedule: ["schedules", "zamanlama"] } as const;
-  const [table, label] = kinds[m[1] as keyof typeof kinds];
-  const row = (await db.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND name = $2`, [t.id, m[2]])).rows[0];
-  if (!row) fail(`${t.prefix}: ${label} yok: ${m[2]}`);
+async function resellerId(db: Db, name: string): Promise<number> {
+  const r = (await db.query("SELECT id FROM resellers WHERE name = $1", [name])).rows[0];
+  if (!r) fail(`bayi yok: ${name}`);
+  return r.id;
 }
 
 function printSip(prefix: string, number: string, secret: string) {
@@ -530,4 +567,4 @@ function printSip(prefix: string, number: string, secret: string) {
   ses şifreleme: SRTP (SDES), destekleniyorsa`);
 }
 
-main().catch((err) => fail(err instanceof Error ? err.message : String(err)));
+main().catch((err) => fail(err instanceof UserError || err instanceof Error ? err.message : String(err)));

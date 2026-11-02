@@ -156,7 +156,17 @@ santralio entry flow t2 908501234567 schedule:mesai  # önce çalışma saatine 
 santralio apply
 ```
 
-Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`.
+Panel/API kullanıcısı açmak (şifre gizli girişle sorulur):
+
+```sh
+santralio user add info@ornek.com --role platform_admin --name "Ad Soyad"
+santralio reseller add "Bayi A" && santralio user add bayi@ornek.com --role reseller_admin --reseller "Bayi A"
+santralio user add yonetici@otel.com --role tenant_admin --tenant t2
+```
+
+Yönetim API'si `santralio-api` servisi olarak `127.0.0.1:8090`'da çalışır (bkz. `docs/architecture.md`, "Yönetim API'si ve roller").
+
+Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu, kullanım dosyanın başında).
 
 ## Lisanslama ve satış
 

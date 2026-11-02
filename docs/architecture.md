@@ -133,7 +133,29 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | `operator_ip_ranges` | Operatör başına izinli sinyal IP aralıkları |
 | `interactions` | Kanaldan bağımsız konuşma kaydı: kiracı, kanal, giriş noktası, kuyruk, temsilci, sonuç |
 | `ai_providers` | Kiracı bazında STT/TTS/LLM sağlayıcısı ve şifreli API anahtarı (5. adımda kullanılır) |
-| `audit_log` | Kim, ne zaman, neyi değiştirdi |
+| `audit_log` | Kim, ne zaman, neyi değiştirdi (CLI'de sistem kullanıcısı, API'de `api:<e-posta>`) |
+| `resellers` | Bayiler. Platform sahibi de bir bayidir (`Platform`, id 1) |
+| `users` | Panel/API kullanıcıları: rol, kapsam (bayi, kiracı, temsilcinin dahilisi), scrypt şifre özeti |
+| `sessions` | Oturumlar: belirtecin yalnızca SHA-256 özeti, bitiş süresi, iptal |
+
+## Yönetim API'si ve roller
+
+Hiyerarşi: **platform → bayi → kiracı (müşteri) → temsilci**. Web paneli ve mobil uygulama aynı API'yi kullanır.
+
+| Rol | Kapsam | Yetki |
+| --- | --- | --- |
+| `platform_admin` | Bütün kiracılar | Her şey |
+| `reseller_admin` | Kendi bayisine bağlı kiracılar | Kiracıların ayarlarını yönetir |
+| `tenant_admin` | Kendi kiracısı | Dahili, menü, anons, çalışma saatleri, giriş noktaları |
+| `agent` | Kendi dahilisi | Yönetim yetkisi yok; temsilci masası (3. adım) için |
+
+- API, `santralio-api` servisi olarak yalnızca `127.0.0.1:8090` adresini dinler. Dışarıya, panelle birlikte HTTPS ters vekil üzerinden açılır.
+- Kimlik `Authorization: Bearer <belirteç>` ile doğrulanır. Belirteç `POST /api/login` ile alınır ve 7 gün geçerlidir.
+- Kiracıya erişimin tek kapısı `canAccessTenant` fonksiyonudur. Erişilemeyen kiracı için `404` döner, böylece başka kiracıların varlığı dışarıdan anlaşılmaz.
+- Gizli alanlar (trunk ve dahili şifreleri, contact token) API yanıtlarında hiç yer almaz. Yeni dahilinin SIP şifresi yalnızca oluşturma yanıtında bir kez gösterilir.
+- Değişiklik yapan her istek tek bir veritabanı işleminde çalışır. Bir adım reddedilirse hiçbiri kalmaz. Asterisk'e uygulama, işlem tamamlandıktan sonra yapılır.
+- Giriş denemeleri IP başına 15 dakikada 10 ile sınırlıdır.
+- CLI ve API aynı işlem modülünü (`control/src/ops.ts`) kullanır. Doğrulama kuralları tek yerde yazılır.
 
 ## Depo yapısı
 

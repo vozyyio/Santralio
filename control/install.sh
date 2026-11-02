@@ -4,6 +4,7 @@
 # - Ana anahtar ve AMI şifresi: systemd-creds ile şifreli, /etc/credstore.encrypted/ altında
 # - AMI kullanıcısı: /etc/asterisk/manager.d/santralio-ctl.conf
 # - Kod: /opt/santralio/control, CLI: /usr/local/bin/santralio
+# - Yönetim API'si: santralio-api.service (127.0.0.1:8090)
 # Kullanım: sudo control/install.sh
 set -euo pipefail
 
@@ -73,4 +74,10 @@ asterisk -rx 'module reload manager' >/dev/null
 
 # 7. Şema
 /usr/local/bin/santralio migrate
+
+# 8. Yönetim API'si (yalnızca 127.0.0.1:8090)
+install -m 0644 "$REPO/control/santralio-api.service" /etc/systemd/system/santralio-api.service
+systemctl daemon-reload
+systemctl enable --quiet santralio-api
+systemctl restart santralio-api
 echo "Kontrol servisi kuruldu."
