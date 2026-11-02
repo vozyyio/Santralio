@@ -172,3 +172,9 @@ test("menü: tuşlar yalnızca kendi kiracısının hedeflerine gider", () => {
     assert.ok(n.startsWith("t1_") || n.startsWith("t1-") || n === "t1" || n === "s", `t1 dışı ad: ${n}`);
   }
 });
+
+test("kuyruğa bağlanılamazsa arayana anons çalınır, sonra kapatılır", () => {
+  const ext = renderTenant(tenant(1))["extensions.conf"];
+  const q = ext.slice(ext.indexOf("[t1-queue-destek]"));
+  assert.match(q, /ExecIf\(\$\[\$\{REGEX\("\^\(TIMEOUT\|FULL\|JOINEMPTY\|LEAVEEMPTY\|JOINUNAVAIL\|LEAVEUNAVAIL\)\$" \$\{QUEUESTATUS\}\)\}\]\?Playback\(\/var\/lib\/asterisk\/sounds\/santralio\/t1\/queue-destek-unavailable\)\)\n same => n,Hangup\(16\)/);
+});

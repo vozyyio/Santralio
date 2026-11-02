@@ -196,6 +196,9 @@ password=${e.secret}
   return out.join("");
 }
 
+// Arayanın temsilciye bağlanamadığı Queue() sonuçları: müsait temsilci yok, kuyruk dolu ya da süre doldu.
+const QUEUE_FAILED = "^(TIMEOUT|FULL|JOINEMPTY|LEAVEEMPTY|JOINUNAVAIL|LEAVEUNAVAIL)$";
+
 // Asterisk değişkeni ya da fonksiyonu: v("EXTEN") -> ${EXTEN}
 const v = (s: string) => "${" + s + "}";
 
@@ -284,6 +287,7 @@ exten => s,1,Answer()
  same => n,ExecIf($[${v(`STAT(e,${welcome}.wav)`)}]?Playback(${welcome}))
  same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS})
  same => n,NoOp(Santralio ${p}_${q.name}: ${v("QUEUESTATUS")})
+ same => n,ExecIf($[${v(`REGEX("${QUEUE_FAILED}" ${v("QUEUESTATUS")})`)}]?Playback(${promptPath(p, `queue-${q.name}-unavailable`)}))
  same => n,Hangup(16)
 `);
   }

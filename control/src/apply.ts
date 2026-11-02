@@ -122,6 +122,11 @@ async function writePrompts(db: Db, tenantId: number, prefix: string): Promise<s
     if (writePrompt(prefix, `menu-${m.name}`, m.prompt_text)) changed.push(`ses/menu-${m.name}`);
     if (writePrompt(prefix, `menu-${m.name}-invalid`, m.invalid_text)) changed.push(`ses/menu-${m.name}-invalid`);
   }
+  const queues = (await db.query("SELECT name, unavailable_text FROM queues WHERE tenant_id = $1", [tenantId])).rows;
+  for (const q of queues) {
+    const name = `queue-${q.name}-unavailable`;
+    if (writePrompt(prefix, name, q.unavailable_text)) changed.push(`ses/${name}`);
+  }
   return changed;
 }
 
