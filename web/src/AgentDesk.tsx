@@ -81,7 +81,15 @@ export function AgentDesk() {
   const [paused, setPaused] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [directory, setDirectory] = useState<{ queues: { name: string; number: string | null }[]; extensions: { number: string; name: string }[] } | null>(null);
-  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState<"blind" | "consult" | null>(null);
+  const [held, setHeld] = useState(false);
+  // Danışmalı aktarma: arayan beklerken temsilcinin açtığı ikinci görüşme.
+  const [consultInfo, setConsultInfo] = useState<{ label: string; state: "calling" | "talking" } | null>(null);
+  const [focus, setFocus] = useState<"caller" | "consult">("caller");
+  const consult = useRef<Session | null>(null);
+  const transferring = useRef(false);
+  const [consultDial, setConsultDial] = useState("");
+  const consultLabel = useRef("");
   const [dial, setDial] = useState("");
   // Görüşme bitince müşteri paneli, not kaydedilene ya da kapatılana kadar açık kalır.
   const [lastCall, setLastCall] = useState<Call | null>(null);
@@ -163,13 +171,123 @@ export function AgentDesk() {
       }
       if (state === SessionState.Terminated) {
         ringer.current.stop();
-        session.current = null;
         if (callRef.current) setLastCall(callRef.current);
+        setHeld(false);
+        setTransferOpen(null);
+        // Danışma sırasında arayan kapattıysa (aktarma değil), danışma görüşmesi normal görüşmeye döner.
+        if (consult.current && !transferring.current) {
+          const c = consult.current;
+          consult.current = null;
+          session.current = c;
+          setCall({ from: consultLabel.current, name: "", queue: null, did: null, callid: null, startedAt: Date.now() });
+          setConsultInfo(null);
+          setFocus("caller");
+          void setHold(c, false).then(() => attachRemoteAudio(c));
+          return;
+        }
+        session.current = null;
         setCall(null);
-        setTransferOpen(false);
         setPhase((p) => (p === "error" ? p : "ready"));
       }
     });
+  };
+
+  // Beklet / devam: görüşme içi yeniden davet (re-INVITE). Beklemedeki tarafa santral bekleme müziği çalar.
+  const setHold = (s: Session, hold: boolean) =>
+    s.invite({ sessionDescriptionHandlerModifiers: hold ? [Web.holdModifier] : [] }).then(
+      () => true,
+      (e) => {
+        setError(`Bekletme başarısız: ${e instanceof Error ? e.message : String(e)}`);
+        return false;
+      },
+    );
+
+  const toggleHold = async () => {
+    const s = session.current;
+    if (!s || s.state !== SessionState.Established || consult.current) return;
+    if (await setHold(s, !held)) setHeld(!held);
+  };
+
+  // Danış: arayan beklemeye alınır, hedef aranır.
+  const startConsult = async (target: string, label: string) => {
+    const main = session.current;
+    const uri = UserAgent.makeURI(`sip:${target}@sip.santralio.site`);
+    if (!ua.current || !main || main.state !== SessionState.Established || consult.current || !uri) return;
+    setTransferOpen(null);
+    setError("");
+    if (!held && !(await setHold(main, true))) return;
+    setHeld(true);
+    const inv = new Inviter(ua.current, uri, { earlyMedia: true, sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } } });
+    consult.current = inv;
+    transferring.current = false;
+    consultLabel.current = label;
+    setConsultInfo({ label, state: "calling" });
+    setFocus("consult");
+    inv.stateChange.addListener((state) => {
+      if (state === SessionState.Established) {
+        attachRemoteAudio(inv);
+        setConsultInfo((c) => (c ? { ...c, state: "talking" } : c));
+      }
+      if (state === SessionState.Terminated && consult.current === inv) {
+        // Danışılan kapattı ya da vazgeçildi: arayana geri dönülür.
+        consult.current = null;
+        setConsultInfo(null);
+        setFocus("caller");
+        const m = session.current;
+        if (m && m.state === SessionState.Established && !transferring.current) {
+          void setHold(m, false).then((ok) => {
+            if (ok) setHeld(false);
+            attachRemoteAudio(m);
+          });
+        }
+      }
+    });
+    void inv
+      .invite({
+        requestDelegate: {
+          onProgress: () => attachRemoteAudio(inv),
+          onReject: (r) => setError(OUT_ERRORS[r.message.statusCode ?? 0] ?? `Danışma araması kurulamadı (${r.message.statusCode ?? ""}).`),
+        },
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  };
+
+  // Aktarımı tamamla: arayan danışılan kişiye bağlanır (REFER + Replaces), temsilcinin iki bağlantısı da kapanır.
+  const completeTransfer = () => {
+    const main = session.current;
+    const c = consult.current;
+    if (!main || !c || c.state !== SessionState.Established) return;
+    transferring.current = true;
+    void main.refer(c).catch((e) => {
+      transferring.current = false;
+      setError(`Aktarma başarısız: ${e instanceof Error ? e.message : String(e)}`);
+    });
+  };
+
+  const cancelConsult = () => {
+    const c = consult.current;
+    if (!c) return;
+    if (c instanceof Inviter && c.state !== SessionState.Established) void c.cancel();
+    else if (c.state === SessionState.Established) void c.bye();
+    else void c.dispose();
+  };
+
+  // Arayan ile danışılan arasında geçiş: konuşulmayan taraf beklemeye alınır.
+  const swap = async () => {
+    const main = session.current;
+    const c = consult.current;
+    if (!main || !c || c.state !== SessionState.Established) return;
+    if (focus === "consult") {
+      if (!(await setHold(c, true)) || !(await setHold(main, false))) return;
+      setHeld(false);
+      attachRemoteAudio(main);
+      setFocus("caller");
+    } else {
+      if (!(await setHold(main, true)) || !(await setHold(c, false))) return;
+      setHeld(true);
+      attachRemoteAudio(c);
+      setFocus("consult");
+    }
   };
 
   // Dış arama. Numara santralde dış arama politikasına göre denetlenir; tarayıcıdaki kontrol yalnızca biçim içindir.
@@ -288,13 +406,16 @@ export function AgentDesk() {
     const s = session.current;
     const uri = UserAgent.makeURI(`sip:${target}@sip.santralio.site`);
     if (!s || !uri || s.state !== SessionState.Established) return;
-    setTransferOpen(false);
+    setTransferOpen(null);
     void s.refer(uri).catch((e) => setError(`Aktarma başarısız: ${e instanceof Error ? e.message : String(e)}`));
   };
 
+  // Sessize al: açık bütün görüşmelerde mikrofon kapanır.
   const toggleMute = () => {
-    const sdh = session.current?.sessionDescriptionHandler as Web.SessionDescriptionHandler | undefined;
-    for (const s of sdh?.peerConnection?.getSenders() ?? []) if (s.track) s.track.enabled = muted;
+    for (const sess of [session.current, consult.current]) {
+      const sdh = sess?.sessionDescriptionHandler as Web.SessionDescriptionHandler | undefined;
+      for (const s of sdh?.peerConnection?.getSenders() ?? []) if (s.track) s.track.enabled = muted;
+    }
     setMuted(!muted);
   };
 
@@ -379,23 +500,36 @@ export function AgentDesk() {
           </p>
           <div className="actions">
             {phase === "ringing" && <button onClick={answer}>Aç</button>}
+            {phase === "talking" && !consultInfo && (
+              <button className="ghost" onClick={toggleHold}>
+                {held ? "Devam et" : "Beklet"}
+              </button>
+            )}
             {phase === "talking" && (
               <button className="ghost" onClick={toggleMute}>
                 {muted ? "Sesi aç" : "Sessize al"}
               </button>
             )}
-            {phase === "talking" && directory && (
-              <button className="ghost" onClick={() => setTransferOpen(!transferOpen)}>
-                Aktar
+            {phase === "talking" && directory && !consultInfo && (
+              <>
+                <button className="ghost" onClick={() => setTransferOpen(transferOpen === "blind" ? null : "blind")}>
+                  Aktar
+                </button>
+                <button className="ghost" onClick={() => setTransferOpen(transferOpen === "consult" ? null : "consult")}>
+                  Danış
+                </button>
+              </>
+            )}
+            {!consultInfo && (
+              <button className="danger" onClick={hangup}>
+                {phase === "ringing" ? "Reddet" : phase === "calling" ? "Vazgeç" : "Kapat"}
               </button>
             )}
-            <button className="danger" onClick={hangup}>
-              {phase === "ringing" ? "Reddet" : phase === "calling" ? "Vazgeç" : "Kapat"}
-            </button>
           </div>
-          {transferOpen && directory && (
+          {held && !consultInfo && <p className="muted small">Arayan beklemede; bekleme müziği dinliyor.</p>}
+          {transferOpen === "blind" && directory && (
             <div className="transfer">
-              <p className="muted small">Aramayı aktar (arayan seçilen yere geçer, sizin bağlantınız kapanır):</p>
+              <p className="muted small">Doğrudan aktar (arayan seçilen yere geçer, sizin bağlantınız kapanır):</p>
               <div className="row">
                 {directory.queues.map((q) => (
                   <button key={q.name} className="ghost" onClick={() => transfer(`q-${q.name.replace(/_/g, "-")}`)}>
@@ -410,6 +544,57 @@ export function AgentDesk() {
                     {e.name ? ` · ${e.name}` : ""}
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+          {transferOpen === "consult" && directory && (
+            <div className="transfer">
+              <p className="muted small">Danış: arayan beklemeye alınır, seçtiğiniz kişiyle önce siz konuşursunuz; sonra aktarımı tamamlarsınız ya da arayana dönersiniz.</p>
+              <div className="row">
+                {directory.extensions.map((e) => (
+                  <button key={e.number} className="ghost" onClick={() => startConsult(e.number, `${e.number}${e.name ? ` · ${e.name}` : ""}`)}>
+                    {e.number}
+                    {e.name ? ` · ${e.name}` : ""}
+                  </button>
+                ))}
+              </div>
+              {agent?.outbound && (
+                <form
+                  className="dialer"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const n = normalizeNumber(consultDial);
+                    if (!n) return setError("Numara geçersiz.");
+                    void startConsult(n, n);
+                    setConsultDial("");
+                  }}
+                >
+                  <input type="tel" placeholder="Dış numaraya danış" value={consultDial} onChange={(e) => setConsultDial(e.target.value)} />
+                  <button className="ghost" disabled={!consultDial.trim()}>
+                    Ara
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+          {consultInfo && (
+            <div className="transfer consult">
+              <p>
+                <strong>Danışılıyor: {consultInfo.label}</strong>{" "}
+                <span className="muted small">
+                  {consultInfo.state === "calling" ? "· çalıyor…" : focus === "consult" ? "· görüşüyorsunuz, arayan beklemede" : "· beklemede, arayanla görüşüyorsunuz"}
+                </span>
+              </p>
+              <div className="actions">
+                <button disabled={consultInfo.state !== "talking"} onClick={completeTransfer}>
+                  Aktarımı tamamla
+                </button>
+                <button className="ghost" disabled={consultInfo.state !== "talking"} onClick={swap}>
+                  {focus === "consult" ? "Arayana dön" : "Danışılana dön"}
+                </button>
+                <button className="danger" onClick={cancelConsult}>
+                  Vazgeç
+                </button>
               </div>
             </div>
           )}
