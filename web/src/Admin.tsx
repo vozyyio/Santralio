@@ -53,7 +53,12 @@ export function Staff({ t, reload }: { t: Tenant; reload: () => void }) {
       setBusy(false);
     }
   };
-  const free = t.extensions.map((e) => e.number).filter((n) => !rows?.some((r) => r.extension === n && !r.disabled));
+  // Atanabilir dahili: tanımlı, en az bir kuyrukta ve açık bir hesaba bağlı değil.
+  const inQueue = new Set(t.queues.flatMap((q) => q.members));
+  const free = t.extensions
+    .filter((e) => e.enabled && inQueue.has(e.number) && !rows?.some((r) => r.extension === e.number && !r.disabled))
+    .map((e) => e);
+  const notInQueue = t.extensions.filter((e) => e.enabled && !inQueue.has(e.number)).map((e) => e.number);
 
   return (
     <div className="card">
@@ -115,25 +120,22 @@ export function Staff({ t, reload }: { t: Tenant; reload: () => void }) {
           <option value="tenant_admin">Yönetici</option>
         </select>
         {form.role === "agent" && (
-          <input
-            placeholder="Dahili (ör. 1003)"
-            list="free-ext"
-            value={form.extension}
-            onChange={(e) => setForm({ ...form, extension: e.target.value.replace(/\D/g, "") })}
-            maxLength={6}
-          />
+          <select value={form.extension} onChange={(e) => setForm({ ...form, extension: e.target.value })}>
+            <option value="">Dahili seçin</option>
+            {free.map((e) => (
+              <option key={e.number} value={e.number}>
+                {e.number}
+                {e.display_name ? ` · ${e.display_name}` : ""}
+              </option>
+            ))}
+          </select>
         )}
-        <datalist id="free-ext">
-          {free.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
         <button
           disabled={busy || !form.email || (form.role === "agent" && form.extension.length < 2)}
           onClick={() =>
             act(async () => {
               const r = await api.addUser(t.prefix, { ...form, extension: form.role === "agent" ? form.extension : null });
-              setShown({ title: r.extensionCreated ? `Personel ve ${form.extension} dahilisi açıldı` : "Personel açıldı", email: r.email, password: r.temporaryPassword });
+              setShown({ title: "Personel açıldı", email: r.email, password: r.temporaryPassword });
               setForm({ email: "", name: "", role: "agent", extension: "" });
             })
           }
@@ -142,9 +144,13 @@ export function Staff({ t, reload }: { t: Tenant; reload: () => void }) {
         </button>
       </div>
       <p className="muted small">
-        Temsilci, panele girip “Mesaiye başla” ile tarayıcıdan arama alır. Dahili yoksa otomatik açılır (lisanstaki dahili sınırı içinde). Kuyruklara
-        atamak için “Kuyruklar” sekmesi.
+        Temsilci yalnızca tanımlı ve bir kuyruğa bağlı bir dahiliye atanabilir: önce “Dahililer” sekmesinden dahiliyi açın, “Kuyruklar” sekmesinden
+        kuyruğa ekleyin, sonra burada personele atayın. Temsilci panele girip “Mesaiye başla” ile tarayıcıdan arama alır.
       </p>
+      {form.role === "agent" && notInQueue.length > 0 && (
+        <p className="muted small">Hiçbir kuyrukta olmadığı için listede görünmeyen dahililer: {notInQueue.join(", ")}.</p>
+      )}
+      {form.role === "agent" && free.length === 0 && <p className="error small">Atanabilir dahili yok.</p>}
     </div>
   );
 }

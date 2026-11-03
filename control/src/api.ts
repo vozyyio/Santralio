@@ -357,9 +357,8 @@ route("POST", "/api/tenants/:prefix/users", async (ctx) => {
     { email: str(b.email, "email"), name: optStr(b.name, "name") ?? "", role: b.role, extension: optStr(b.extension, "extension") },
     actor(ctx),
   );
-  if (r.sipPassword) applyChanges(ctx.db);
   // Geçici şifre yalnızca bu yanıtta bir kez gösterilir.
-  return { email: String(b.email).trim().toLowerCase(), temporaryPassword: r.password, extensionCreated: !!r.sipPassword };
+  return { email: String(b.email).trim().toLowerCase(), temporaryPassword: r.password };
 });
 
 route("PUT", "/api/tenants/:prefix/users/:email", async (ctx) => {

@@ -140,7 +140,7 @@ export const api = {
   recordingUrl: (p: string, callid: string) => `${t(p)}/recordings/${seg(callid)}`,
   users: (p: string) => call<StaffRow[]>("GET", `${t(p)}/users`),
   addUser: (p: string, body: { email: string; name: string; role: string; extension: string | null }) =>
-    call<{ email: string; temporaryPassword: string; extensionCreated: boolean }>("POST", `${t(p)}/users`, body),
+    call<{ email: string; temporaryPassword: string }>("POST", `${t(p)}/users`, body),
   setUserDisabled: (p: string, email: string, disabled: boolean) => call("PUT", `${t(p)}/users/${seg(email)}`, { disabled }),
   resetPassword: (p: string, email: string) => call<{ temporaryPassword: string }>("POST", `${t(p)}/users/${seg(email)}/reset-password`),
   setQueueMembers: (p: string, q: string, members: string[]) => call("PUT", `${t(p)}/queues/${seg(q)}/members`, { members }),
