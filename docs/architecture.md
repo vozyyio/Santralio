@@ -229,7 +229,7 @@ Bilerek sonraya bırakılanlar:
 
 ## Personel, işlem günlüğü ve aktarma
 
-- **Personel:** Kiracı yöneticisi panelden kendi kiracısına yönetici (`tenant_admin`) ve temsilci (`agent`) açar. Daha üst roller yalnızca CLI'den açılır. Geçici şifre rastgele üretilir ve yalnızca bir kez gösterilir. Temsilcinin dahilisi yoksa lisans sınırı içinde otomatik açılır; bir dahili aynı anda tek bir açık hesaba bağlanabilir. Hesap kapatılınca o hesabın açık oturumları da kapanır. Yönetici kendi hesabını kapatamaz.
+- **Personel:** `staff.manage` yetkisi olan kullanıcı, panelden kendi kiracısına personel açar ve personele bir rol seçer. Geçici şifre rastgele üretilir ve yalnızca bir kez gösterilir. Temsilci masasını kullanan bir rol için dahili gerekir. Dahili burada açılmaz: önce Dahililer sekmesinden tanımlanır, Kuyruklar sekmesinden bir kuyruğa eklenir, sonra personele atanır. Bir dahili aynı anda tek bir açık hesaba bağlanabilir. Hesap kapatılınca o hesabın açık oturumları da kapanır.
 - **İşlem günlüğü:** Giriş, çıkış, ayar değişiklikleri, personel işlemleri, kayıt dinleme, mola ve temsilci masasına bağlanma `audit_log`'a yazılır: kim, ne zaman, hangi IP'den. Kiracı yöneticisi kendi kiracısının günlüğünü, platform yöneticisi bütün günlüğü görür.
 - **Sistem durumu:** Yalnızca platform yöneticisi görür. İçeriği: santralin çalışma süresi, süren arama sayısı, operatör hatlarının kaydı, disk ve son 50 santral uyarısı.
 - **Aktarma:** Temsilci görüşmeyi tarayıcıdan bir kuyruğa (`q-<kuyruk>`) ya da bir dahiliye kör aktarır (SIP REFER). Hedef, temsilcinin kendi kiracısının `tN-internal` context'inde çözülür; başka bir kiracıya ya da dış hatta aktarma yapılamaz. Aktarılan görüşme yeni kuyrukta ayrı bir satır olarak rapora girer.
