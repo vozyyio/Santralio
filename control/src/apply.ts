@@ -14,7 +14,7 @@ import { recordingDir, renderTenant, type RenderedFiles, type TenantModel } from
 export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel> {
   const t = (
     await db.query(
-      `SELECT t.id, t.prefix, t.name, t.status, t.recording_enabled, t.pbx_open, l.active, l.valid_until, l.max_channels
+      `SELECT t.id, t.prefix, t.name, t.status, t.recording_enabled, t.pbx_open, t.ai_enabled, l.active, l.valid_until, l.max_channels
          FROM tenants t LEFT JOIN licenses l ON l.tenant_id = t.id WHERE t.id = $1`,
       [tenantId],
     )
@@ -70,6 +70,7 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       [tenantId],
     )
   ).rows;
+  const aiFlows = (await db.query("SELECT name, enabled, routes, default_target FROM ai_flows WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows;
   const entries = (
     await db.query("SELECT * FROM entry_points WHERE tenant_id = $1 AND channel = 'voice' ORDER BY address", [tenantId])
   ).rows;
@@ -127,6 +128,15 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
     recording: { enabled: t.recording_enabled },
     outbound: pol,
     pbxOpen: t.pbx_open,
+    ai: {
+      enabled: t.ai_enabled,
+      flows: aiFlows.map((f) => ({
+        name: f.name,
+        enabled: f.enabled,
+        routes: (f.routes as { target: string }[]).map((r) => r.target),
+        defaultTarget: f.default_target,
+      })),
+    },
   };
 }
 

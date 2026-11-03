@@ -10,6 +10,7 @@ import { AgentDesk } from "./AgentDesk";
 import { Audit, Roles, Staff, SystemPage } from "./Admin";
 import { Contacts, DispositionsCard, FollowUps } from "./Crm";
 import { OutboundPolicyCard } from "./Outbound";
+import { AiSessions, AiTab } from "./Ai";
 import { PbxCard, PromptsTab } from "./Prompts";
 import { Calls, Reports } from "./Reports";
 import { api, ApiError, type AppName, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
@@ -232,6 +233,7 @@ const PANEL_TABS: [string, string, string[]][] = [
   ["genel", "Genel", ["settings.manage"]],
   ["menuler", "Menüler", ["settings.manage"]],
   ["anonslar", "Anonslar", ["settings.manage"]],
+  ["yapayzeka", "Yapay zekâ", ["settings.manage"]],
   ["saatler", "Çalışma saatleri", ["settings.manage"]],
   ["kuyruklar", "Kuyruklar", ["settings.manage"]],
   ["dahililer", "Dahililer", ["settings.manage"]],
@@ -274,6 +276,7 @@ function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; ta
       <Tabs prefix={prefix} tabs={tabs} active={tab} />
       {tab === "genel" && <General t={t} reload={reload} />}
       {tab === "anonslar" && <PromptsTab t={t} reload={reload} />}
+      {tab === "yapayzeka" && <AiTab t={t} reload={reload} />}
       {tab === "menuler" && t.menus.map((m) => <MenuEditor key={m.name} t={t} menu={m} reload={reload} />)}
       {tab === "menuler" && t.menus.length === 0 && <p className="muted">Bu müşteride henüz menü yok.</p>}
       {tab === "saatler" && t.schedules.map((s) => <ScheduleEditor key={s.name} t={t} sc={s} reload={reload} />)}
@@ -292,6 +295,7 @@ const CRM_TABS: [string, string, string[]][] = [
   ["geriarama", "Geri aramalar", ["crm.use"]],
   ["gorusmeler", "Görüşmeler", ["calls.all", "calls.own"]],
   ["raporlar", "Raporlar", ["reports.view"]],
+  ["yapayzeka", "Yapay zekâ", ["calls.all"]],
   ["gunluk", "İşlem günlüğü", ["audit.view"]],
 ];
 
@@ -310,6 +314,7 @@ function CrmPage({ me, prefix, tab: requested, id }: { me: Me; prefix: string; t
       {tab === "geriarama" && <FollowUps prefix={prefix} />}
       {tab === "gorusmeler" && <Calls prefix={prefix} own={!can(me, "calls.all")} />}
       {tab === "raporlar" && <Reports prefix={prefix} />}
+      {tab === "yapayzeka" && <AiSessions prefix={prefix} />}
       {tab === "gunluk" && <Audit prefix={prefix} />}
       {tabs.length === 0 && <p className="muted">Rolünüzde CRM'de açık bir sekme yok.</p>}
     </>
@@ -342,6 +347,7 @@ function useSave(reload: () => void) {
 function targetLabel(t: Tenant, target: string | null): string {
   if (!target) return "Kapat";
   const [kind, name] = target.split(":");
+  if (kind === "ai") return `Yapay zekâ: ${name}`;
   if (kind === "ext") {
     const e = t.extensions.find((x) => x.number === name);
     return `Dahili: ${name}${e?.display_name ? ` · ${e.display_name}` : ""}`;
@@ -355,6 +361,7 @@ function TargetSelect({ t, value, onChange, allowNone }: { t: Tenant; value: str
     ...t.menus.map((m) => `menu:${m.name}`),
     ...t.schedules.map((s) => `schedule:${s.name}`),
     ...t.extensions.filter((e) => e.enabled).map((e) => `ext:${e.number}`),
+    ...t.aiFlows.map((f) => `ai:${f}`),
   ];
   return (
     <select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>

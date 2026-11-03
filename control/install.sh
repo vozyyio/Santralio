@@ -37,6 +37,8 @@ fi
 # Arama kayıtları: Asterisk yazar, kontrol servisi okur ve saklama süresi dolanı siler.
 install -d -m 0755 /var/lib/santralio
 install -d -m 2770 -o "$USER_NAME" -g asterisk /var/lib/santralio/recordings
+# Yapay zekâ karşılaması: önbellek ve durum dosyası (santralio-ai yazar, API okur)
+install -d -m 0750 -o "$USER_NAME" -g "$USER_NAME" /var/lib/santralio/ai /var/lib/santralio/ai/cache
 # Ses örnekleri (panelde ses seçmeden önce dinlemek için)
 install -d -m 0750 -o "$USER_NAME" -g "$USER_NAME" /var/lib/santralio/voice-samples
 
@@ -91,6 +93,12 @@ install -m 0644 "$REPO/control/santralio-api.service" /etc/systemd/system/santra
 systemctl daemon-reload
 systemctl enable --quiet santralio-api
 systemctl restart santralio-api
+
+# 8b. Yapay zekâ karşılama servisi (yalnızca 127.0.0.1:9092)
+install -m 0644 "$REPO/control/santralio-ai.service" /etc/systemd/system/santralio-ai.service
+systemctl daemon-reload
+systemctl enable --quiet santralio-ai
+systemctl restart santralio-ai
 
 # 9. Saklama süresi dolan arama kayıtlarının temizliği (her gece)
 install -m 0644 "$REPO/control/santralio-recordings-purge.service" "$REPO/control/santralio-recordings-purge.timer" /etc/systemd/system/

@@ -324,3 +324,23 @@ test("santral kapalıyken bütün numaralar kapalı anonsuna gider", () => {
   const open = renderTenant(tenant(1))["extensions.conf"];
   assert.ok(!open.includes("pbxclosed"));
 });
+
+test("yapay zekâ akışı: AudioSocket, karar yalnızca tanımlı hedeflere, yoksa varsayılan", () => {
+  const ai = { enabled: true, flows: [{ name: "ana", enabled: true, routes: ["queue:destek", "ext:1001", "ai:baska", "queue:yok"], defaultTarget: "queue:destek" }] };
+  const ext = renderTenant(tenant(1, { ai, entryPoints: [{ address: "908501234567", flow: "ai:ana", enabled: true }] }))["extensions.conf"];
+  assert.ok(ext.includes("exten => 908501234567,1,Goto(t1-ai-ana,s,1)"));
+  const x = ext.slice(ext.indexOf("[t1-ai-ana]"));
+  assert.ok(x.includes("AudioSocket(${AIUUID},127.0.0.1:9092)"));
+  assert.ok(x.includes('GotoIf($["${ROUTE}" = "queue:destek"]?t1-queue-destek,s,1)'));
+  assert.ok(x.includes('GotoIf($["${ROUTE}" = "ext:1001"]?t1-ext,1001,1)'));
+  assert.ok(!x.includes("ai:baska") && !x.includes("queue:yok"), "akış başka akışa ya da tanımsız kuyruğa gitmez");
+  assert.ok(x.includes("hangup_handler_push)=santralio-lib,ai-cleanup,1(${AIUUID})"));
+  assert.match(x, /n,Goto\(t1-queue-destek,s,1\)\n same => n\(bye\),Hangup\(16\)/);
+});
+
+test("yapay zekâ kiracıda kapalıysa akış doğrudan varsayılana gider, servise bağlanmaz", () => {
+  const ai = { enabled: false, flows: [{ name: "ana", enabled: true, routes: ["queue:destek"], defaultTarget: "queue:destek" }] };
+  const x = renderTenant(tenant(1, { ai }))["extensions.conf"];
+  const ctx = x.slice(x.indexOf("[t1-ai-ana]"), x.indexOf("[t1-ai-ana]") + 200);
+  assert.ok(!ctx.includes("AudioSocket") && ctx.includes("Goto(t1-queue-destek,s,1)"));
+});

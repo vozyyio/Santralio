@@ -3,13 +3,18 @@
   "private": true,
   "type": "module",
   "description": "Santralio kontrol servisi: kiracı kayıtlarından Asterisk konfigürasyonu üretir",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "check": "tsc --noEmit",
     "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
-    "pg": "^8.13.0"
+    "@anthropic-ai/sdk": "^1.4.0",
+    "microsoft-cognitiveservices-speech-sdk": "^1.53.0",
+    "pg": "^8.13.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -30,6 +30,7 @@ import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
 import { listCalls, parseRange, summary, type CallRow } from "./reports.ts";
 import * as crm from "./crm.ts";
+import { AI_MODELS, aiVoices, saveFlow } from "./aiops.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
 import { dialPatterns, TEMPLATES, type Policy } from "./outbound.ts";
@@ -297,6 +298,7 @@ route("GET", "/api/tenants/:prefix", async (ctx) => {
     status: t.status,
     recording: rec,
     ...(await q(`SELECT tts_voice AS voice, pbx_open AS "pbxOpen", pbx_closed_text AS "pbxClosedText" FROM tenants WHERE id = $1`))[0],
+    aiFlows: (await q("SELECT name FROM ai_flows WHERE tenant_id = $1 ORDER BY name")).map((r) => r.name),
     license: license ?? null,
     trunk: trunk ?? null,
     entryPoints: await q("SELECT channel, address, flow, enabled FROM entry_points WHERE tenant_id = $1 ORDER BY address"),
@@ -533,6 +535,104 @@ route("PUT", "/api/tenants/:prefix/pbx", async (ctx) => {
   ]);
   applyChanges(ctx.db);
   return { ok: true };
+});
+
+// --- Yapay zekâ karşılaması ---
+// Kiracıda açmak yalnızca platform yöneticisinin yetkisindedir (ücret ve KVKK); akışları kiracı yönetir.
+
+const AI_STATUS_FILE = "/var/lib/santralio/ai/status.json";
+
+route("GET", "/api/tenants/:prefix/ai", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const row = (await ctx.db.query("SELECT ai_enabled FROM tenants WHERE id = $1", [t.id])).rows[0];
+  const flows = (
+    await ctx.db.query(
+      `SELECT name, enabled, greeting_text AS "greetingText", instructions, routes, default_target AS "defaultTarget",
+              max_turns AS "maxTurns", voice, model FROM ai_flows WHERE tenant_id = $1 ORDER BY name`,
+      [t.id],
+    )
+  ).rows;
+  const usage = (
+    await ctx.db.query(
+      `SELECT count(*)::int AS sessions, COALESCE(sum(stt_seconds), 0)::float AS "sttSeconds", COALESCE(sum(tts_chars), 0)::int AS "ttsChars",
+              COALESCE(sum(llm_input_tokens), 0)::int AS "inputTokens", COALESCE(sum(llm_output_tokens), 0)::int AS "outputTokens",
+              count(*) FILTER (WHERE end_reason = 'transfer')::int AS transferred, count(*) FILTER (WHERE end_reason = 'error')::int AS errors
+         FROM ai_sessions WHERE tenant_id = $1 AND started_at > now() - interval '30 days'`,
+      [t.id],
+    )
+  ).rows[0];
+  // Servisin anahtar durumu (anahtarların kendisi değil): santralio-ai açılışta yazar.
+  const status = await readFile(AI_STATUS_FILE, "utf8").then((x) => JSON.parse(x), () => null);
+  return { enabled: row.ai_enabled, editable: ctx.user!.role === "platform_admin", flows, usage, service: status, voices: aiVoices(), models: AI_MODELS };
+});
+
+route("PUT", "/api/tenants/:prefix/ai/enabled", async (ctx) => {
+  platformOnly(ctx);
+  const t = await tenantFor(ctx, ctx.params[0]);
+  if (typeof ctx.body?.enabled !== "boolean") throw new UserError("enabled true/false olmalı");
+  await ctx.db.query("UPDATE tenants SET ai_enabled = $1 WHERE id = $2", [ctx.body.enabled, t.id]);
+  await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, $3, '{}')", [
+    actor(ctx),
+    t.id,
+    ctx.body.enabled ? "ai.enable" : "ai.disable",
+  ]);
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+
+route("PUT", "/api/tenants/:prefix/ai/flows/:name", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  await saveFlow(
+    ctx.db,
+    t,
+    ctx.params[1],
+    {
+      enabled: b.enabled,
+      greetingText: str(b.greetingText, "greetingText"),
+      instructions: optStr(b.instructions, "instructions") ?? "",
+      routes: b.routes,
+      defaultTarget: optStr(b.defaultTarget, "defaultTarget"),
+      maxTurns: b.maxTurns,
+      voice: str(b.voice, "voice"),
+      model: str(b.model, "model"),
+    },
+    actor(ctx),
+  );
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+
+// Yapay zekâ görüşmeleri: döküm, özet, sonuç (kayıt dinleme gibi kişisel veri: bütün görüşmeleri görme yetkisi gerekir).
+route("GET", "/api/tenants/:prefix/ai/sessions", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "calls.all");
+  const q = query(ctx);
+  const r = parseRange(q.get("from"), q.get("to"));
+  return (
+    await ctx.db.query(
+      `SELECT id, flow, callid, caller, did, to_char(started_at AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD HH24:MI:SS') AS started,
+              EXTRACT(EPOCH FROM (ended_at - started_at))::int AS "durationS", route_target AS target, summary, transcript,
+              end_reason AS reason, error
+         FROM ai_sessions WHERE tenant_id = $1
+          AND started_at >= ($2::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND started_at < (($3::date + 1)::timestamp AT TIME ZONE 'Europe/Istanbul')
+        ORDER BY started_at DESC LIMIT 500`,
+      [t.id, r.from, r.to],
+    )
+  ).rows;
+});
+
+// Temsilci ekranı: aktarılan görüşmenin yapay zekâ özeti (callid ile).
+route("GET", "/api/tenants/:prefix/ai/summary", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "agent.desk", "crm.use", "calls.all");
+  const callid = query(ctx).get("callid") ?? "";
+  if (!/^\d{6,12}\.\d{1,8}$/.test(callid)) throw new UserError("bulunamadı", 404);
+  const s = (
+    await ctx.db.query(
+      "SELECT summary, transcript, route_target AS target FROM ai_sessions WHERE tenant_id = $1 AND callid = $2 ORDER BY id DESC LIMIT 1",
+      [t.id, callid],
+    )
+  ).rows[0];
+  return s ?? null;
 });
 
 // --- Dış arama politikası ---

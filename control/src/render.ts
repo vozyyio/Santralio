@@ -50,7 +50,12 @@ export type TenantModel = {
   outbound?: Policy | null;
   // Santral kapalıysa gelen aramalar menü, kuyruk ve çalışma saatine girmeden kapalı anonsunu duyar.
   pbxOpen?: boolean;
+  // Yapay zekâ karşılaması: kiracıda açık mı (platform) ve akışlar (aktarılabilecek hedefler, varsayılan).
+  ai?: { enabled: boolean; flows: { name: string; enabled: boolean; routes: string[]; defaultTarget: string | null }[] };
 };
+
+// Yapay zekâ karşılama servisi (santralio-ai), AudioSocket ile.
+export const AI_SERVICE = "127.0.0.1:9092";
 
 // Dış arama: politika açık, hat var ve lisans aktifse.
 const outboundOn = (t: TenantModel) => !!(t.outbound && t.outbound.enabled && t.trunk && t.trunk.enabled && dialPatterns(t.outbound).length);
@@ -351,16 +356,18 @@ exten => i,1,Goto(reject,s,1)
   // Hedefler (queue:<ad>, menu:<ad>) yalnızca bu kiracının nesnelerine çözülür.
   const menus = new Set(t.menus.map((m) => m.name));
   const schedules = new Set(t.schedules.map((x) => x.name));
+  const aiFlows = new Set((t.ai?.flows ?? []).map((f) => f.name));
   const extensions = new Set(t.extensions.filter((e) => e.enabled).map((e) => e.number));
   const target = (flow: string): string | null => {
     const ext = /^ext:([0-9]{2,6})$/.exec(flow);
     if (ext) return extensions.has(ext[1]) ? `${p}-ext,${ext[1]},1` : null;
-    const m = /^(queue|menu|schedule):([a-z0-9_]{1,32})$/.exec(flow);
+    const m = /^(queue|menu|schedule|ai):([a-z0-9_]{1,32})$/.exec(flow);
     if (!m) return null;
     const [, kind, name] = m;
     if (kind === "queue" && queues.has(name)) return `${p}-queue-${name},s,1`;
     if (kind === "menu" && menus.has(name)) return `${p}-menu-${name},s,1`;
     if (kind === "schedule" && schedules.has(name)) return `${p}-schedule-${name},s,1`;
+    if (kind === "ai" && aiFlows.has(name)) return `${p}-ai-${name},s,1`;
     return null;
   };
 
@@ -412,6 +419,38 @@ exten => s,1,Set(TODAY=${v(`STRFTIME(${v("EPOCH")},${sc.timezone},%F)`)})
  same => n,Playback(${promptPath(p, `schedule-${sc.name}-closed`)})
  same => n,${closed ? `Goto(${closed})` : "Hangup(16)"}
 `);
+  }
+
+  // Yapay zekâ karşılaması. Çağrı bilgisi AstDB'ye yazılır, ses santralio-ai servisine akar (AudioSocket);
+  // servis kararını santralio_ai/<uuid>/route'a yazıp bağlantıyı kapatınca buradan devam edilir.
+  // Kapalıysa (kiracıda ya da akışta) doğrudan varsayılan hedefe gidilir. AstDB kayıtları kapanışta silinir.
+  for (const f of t.ai?.flows ?? []) {
+    assertId(f.name, "yapay zekâ akışı");
+    const fallback = f.defaultTarget && !f.defaultTarget.startsWith("ai:") ? target(f.defaultTarget) : null;
+    const end = fallback ? `Goto(${fallback})` : "Hangup(16)";
+    out.push(`\n[${p}-ai-${f.name}]\n`);
+    if (!t.ai!.enabled || !f.enabled) {
+      out.push(`exten => s,1,NoOp(Santralio ${p}: yapay zekâ kapalı, varsayılan hedef)\n same => n,${end}\n`);
+      continue;
+    }
+    out.push(`exten => s,1,Answer()
+ same => n,Set(__SANTRALIO_CALLID=${v("UNIQUEID")})
+ same => n,Set(AIUUID=${v("SHELL(cat /proc/sys/kernel/random/uuid)")})
+ same => n,Set(AIUUID=${v("AIUUID:0:36")})
+ same => n,Set(CHANNEL(hangup_handler_push)=santralio-lib,ai-cleanup,1(${v("AIUUID")}))
+ same => n,Set(DB(santralio_ai/${v("AIUUID")})=${p}|${f.name}|${v("UNIQUEID")}|${v("FILTER(0-9,${SANTRALIO_DID})")}|${v("FILTER(0-9+,${CALLERID(num)})")})
+ same => n,Set(__SANTRALIO_AI=${v("AIUUID")})
+ same => n,AudioSocket(${v("AIUUID")},${AI_SERVICE})
+ same => n,Set(ROUTE=${v(`DB(santralio_ai/${v("AIUUID")}/route)`)})
+ same => n,NoOp(Santralio ${p}/${f.name}: yapay zekâ kararı ${v("ROUTE")})
+ same => n,GotoIf($["${v("ROUTE")}" = "hangup"]?bye)
+`);
+    for (const r of f.routes) {
+      if (r.startsWith("ai:") || !/^((queue|menu|schedule):[a-z0-9_]{1,32}|ext:[0-9]{2,6})$/.test(r)) continue;
+      const dest = target(r);
+      if (dest) out.push(` same => n,GotoIf($["${v("ROUTE")}" = "${r}"]?${dest})\n`);
+    }
+    out.push(` same => n,${end}\n same => n(bye),Hangup(16)\n`);
   }
 
   // Tuşlamalı menü: anons çalar, tuşa göre hedefe gider.
