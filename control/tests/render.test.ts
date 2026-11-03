@@ -24,8 +24,8 @@ function tenant(id: number, over: Partial<TenantModel> = {}): TenantModel {
       enabled: true,
     },
     extensions: [
-      { number: "1001", displayName: "Ayşe", secret: `ext-secret-${id}-1001`, enabled: true },
-      { number: "1002", displayName: "", secret: `ext-secret-${id}-1002`, enabled: true },
+      { number: "1001", displayName: "Ayşe", secret: `ext-secret-${id}-1001`, enabled: true, paused: false },
+      { number: "1002", displayName: "", secret: `ext-secret-${id}-1002`, enabled: true, paused: true },
     ],
     queues: [
       {
@@ -55,6 +55,7 @@ function names(text: string): string[] {
   for (const m of text.matchAll(/PJSIP\/([a-z0-9_]+)/g)) out.add(m[1]);
   for (const m of text.matchAll(/(?:Goto|GotoIf)\(([^,()$]+),/g)) out.add(m[1]);
   for (const m of text.matchAll(/Queue\(([^,)]+)/g)) out.add(m[1]);
+  for (const m of text.matchAll(/(?:Local\/|hint:)[0-9]+@([a-z0-9_-]+)/g)) out.add(m[1]);
   return [...out];
 }
 
@@ -217,4 +218,21 @@ test("timeRange kapanış dakikasını dışarıda bırakır", () => {
   assert.equal(timeRange("00:00", "00:01"), "00:00-00:00");
   assert.throws(() => timeRange("18:00", "09:00"));
   assert.throws(() => timeRange("9:00", "18:00"));
+});
+
+test("WebRTC: her dahilinin ayrı tarayıcı uç noktası var, arama iki cihazda birden çalar", () => {
+  const f = renderTenant(tenant(1));
+  assert.match(f["pjsip.conf"], /\[t1_1001_web\]\ntype=endpoint\ncontext=t1-internal\ndisallow=all\nallow=alaw,ulaw\nwebrtc=yes\n/);
+  assert.match(f["pjsip.conf"], /\[t1_1001_web\]\ntype=auth\nauth_type=userpass\nusername=t1_1001_web\npassword=ext-secret-1-1001\n/);
+  const ext = f["extensions.conf"];
+  assert.ok(ext.includes("exten => 1001,1,Dial(PJSIP/t1_1001&PJSIP/t1_1001_web,,b(santralio-lib^agent-headers^1))"));
+  assert.ok(ext.includes("exten => 1001,hint,PJSIP/t1_1001&PJSIP/t1_1001_web"));
+  assert.ok(ext.includes("same => n,Dial(PJSIP/t1_1001&PJSIP/t1_1001_web,30)"));
+});
+
+test("kuyruk üyesi Local kanalı, durum hint'ten, mola veritabanından", () => {
+  const q = renderTenant(tenant(1))["queues.conf"];
+  assert.ok(q.includes("member => Local/1001@t1-agent/n,0,1001,hint:1001@t1-hints,no,,0"));
+  assert.ok(q.includes("member => Local/1002@t1-agent/n,0,1002,hint:1002@t1-hints,no,,1"));
+  assert.ok(!q.includes("PJSIP/"));
 });

@@ -122,7 +122,7 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | `licenses` | Kiracı başına yetkiler, kaynak (`vozyy`, `manual`), bitiş tarihi |
 | `trunks` | Operatör, sunucu, kullanıcı adı, `secret_enc`, `key_id`, kayıt ayarları |
 | `entry_points` | Kiracının giriş noktaları: kanal, adres (ses için DID) ve bağlı olduğu akış (bkz. Ek) |
-| `extensions` | Dahili numarası, şifreli SIP şifresi, durum |
+| `extensions` | Dahili numarası, şifreli SIP şifresi, durum, mola durumu |
 | `queues` | Kuyruk adı, strateji, zaman aşımı, anonslar |
 | `queue_members` | Kuyruk ve dahili eşleşmesi |
 | `menus` | Tuşlamalı menü: anons metni, zaman aşımı, deneme sayısı, varsayılan hedef. Ses dosyası `apply` sırasında metinden üretilir |
@@ -164,6 +164,16 @@ Hiyerarşi: **platform → bayi → kiracı (müşteri) → temsilci**. Web pane
 - Oturum belirteci `HttpOnly; Secure; SameSite=Strict` çerezde durur; JavaScript belirteci görmez. Çerezle gelen değişiklik istekleri yalnızca `https://panel.santralio.site` kaynağından kabul edilir (CSRF).
 - İçerik güvenlik politikası (CSP) yalnızca aynı kaynaktan betik, stil ve ses yüklenmesine izin verir.
 - Mobil uygulama aynı API'yi `Authorization: Bearer` belirteciyle kullanır.
+
+### Temsilci masası (tarayıcıdan arama)
+
+- Her dahilinin iki SIP uç noktası vardır: `tN_<dahili>` (softphone, TLS + SDES) ve `tN_<dahili>_web` (tarayıcı, WebRTC: DTLS-SRTP + ICE). Şifre aynı, kullanıcı adı ayrıdır.
+- Tarayıcı SIP'i `wss://panel.santralio.site/ws` üzerinden konuşur. Caddy bağlantıyı açmadan önce oturumu `/api/auth/ws` ile doğrular; yalnızca dahilisi olan kullanıcı Asterisk'e (yalnızca `127.0.0.1:8088`) ulaşır. SIP kimlik doğrulaması ayrıca Asterisk'te yapılır.
+- Ses Cloudflare'den geçmez: tarayıcı ile sunucu arasında doğrudan UDP 10000–19999 üzerinden akar. Sunucunun genel IP'si arayüzde olduğu için STUN/TURN gerekmez.
+- Ses G.711 (alaw/ulaw) kalır: operatör hattıyla tarayıcı arasında dönüştürme yapılmaz.
+- Kuyruk üyesi bir Local kanalıdır (`Local/<dahili>@tN-agent/n`): dahilinin iki cihazını birlikte çaldırır, hangisi önce açarsa arama ona bağlanır. Meşgul/müsait durumu iki cihazı birlikte izleyen hint'ten (`hint:<dahili>@tN-hints`) okunur.
+- Temsilciye giden aramaya kuyruk adı (`X-Santralio-Queue`) ve aranan numara (`X-Santralio-DID`) SIP başlığı olarak eklenir; temsilci ekranında gösterilir.
+- Mola durumu veritabanında (`extensions.paused`) tutulur, AMI `QueuePause` ile anında uygulanır ve kuyruk ayarına da yazılır; Asterisk yeniden yüklense de korunur.
 
 ## Depo yapısı
 

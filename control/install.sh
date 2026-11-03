@@ -50,8 +50,8 @@ cat > /etc/asterisk/manager.d/santralio-ctl.conf.tmp <<CONF
 secret = $AMI_SECRET
 deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.1/255.255.255.255
-read = system,command
-write = system,command
+read = system,command,agent
+write = system,command,agent
 CONF
 chown root:asterisk /etc/asterisk/manager.d/santralio-ctl.conf.tmp
 mv /etc/asterisk/manager.d/santralio-ctl.conf.tmp /etc/asterisk/manager.d/santralio-ctl.conf

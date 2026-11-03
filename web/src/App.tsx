@@ -2,6 +2,7 @@
 // Yönlendirme adres çubuğundaki # ile yapılır: #/ liste, #/t/<önek>/<sekme> kiracı sayfası.
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { AgentDesk } from "./AgentDesk";
 import { api, ApiError, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
 
 const ROLE: Record<string, string> = {
@@ -98,10 +99,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       </header>
       <main>
         {me.role === "agent" ? (
-          <div className="card">
-            <h2>Temsilci</h2>
-            <p>Dahili {me.extension}. Temsilci masası bir sonraki sürümde bu ekranda olacak.</p>
-          </div>
+          <AgentDesk />
         ) : m ? (
           <TenantPage prefix={m[1]} tab={m[2] ?? "genel"} go={go} />
         ) : (

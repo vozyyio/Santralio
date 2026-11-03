@@ -85,6 +85,7 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       displayName: e.display_name,
       secret: open(e.secret_enc, aad.extension(tenantId, e.number), masterKey(e.key_id)),
       enabled: e.enabled,
+      paused: e.paused,
     })),
     queues: queues.map((q) => ({
       name: q.name,
