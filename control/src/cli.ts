@@ -48,8 +48,8 @@ const HELP = `santralio <komut>
   schedule holiday <önek> <zamanlama> <YYYY-AA-GG> [--note metin]
                                            Tam gün kapalı tarih (resmî tatil, bayram)
   schedule show <önek> <zamanlama>         Aralıkları ve tatilleri listeler
-  user add <e-posta> --role platform_admin|reseller_admin|tenant_admin|agent
-           [--reseller ad] [--tenant önek] [--ext dahili] [--name "Ad"]
+  user add <e-posta> --role platform_admin|reseller_admin|tenant_user
+           [--reseller ad] [--tenant önek --role-name "Patron"] [--ext dahili] [--name "Ad"]
                                            Panel/API kullanıcısı; şifre gizli girişle sorulur
                                            (ya da --password-stdin ile standart girdiden okunur)
   user password <e-posta>                  Şifreyi değiştirir ve açık oturumları kapatır
@@ -149,6 +149,7 @@ async function main() {
       reseller: { type: "string" },
       tenant: { type: "string" },
       ext: { type: "string" },
+      "role-name": { type: "string" },
       enabled: { type: "string" },
       retention: { type: "string" },
       notice: { type: "string" },
@@ -209,6 +210,7 @@ async function main() {
               reseller,
             ])
           ).rows[0];
+          await ops.createDefaultRoles(db, r.id);
           await audit(db, "tenant.create", r.id, { name });
           return r;
         });
@@ -468,24 +470,30 @@ async function main() {
       case "user add": {
         const email = (rest[0] ?? fail("e-posta gerekli")).trim().toLowerCase();
         const role = values.role ?? fail("--role gerekli");
-        if (!["platform_admin", "reseller_admin", "tenant_admin", "agent"].includes(role)) fail(`geçersiz rol: ${role}`);
+        if (!["platform_admin", "reseller_admin", "tenant_user"].includes(role)) fail(`geçersiz rol: ${role} (platform_admin, reseller_admin, tenant_user)`);
         let reseller: number | null = null;
         let tenant: number | null = null;
+        let roleId: number | null = null;
         let ext: number | null = null;
         if (role === "reseller_admin") reseller = await resellerId(db, values.reseller ?? fail("--reseller gerekli"));
-        if (role === "tenant_admin" || role === "agent") tenant = (await tenantByPrefix(db, values.tenant ?? fail("--tenant gerekli"))).id;
-        if (role === "agent") {
-          const number = values.ext ?? fail("--ext gerekli");
-          const e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2", [tenant, number])).rows[0];
-          if (!e) fail(`dahili yok: ${number}`);
-          ext = e.id;
+        if (role === "tenant_user") {
+          tenant = (await tenantByPrefix(db, values.tenant ?? fail("--tenant gerekli"))).id;
+          const roleName = values["role-name"] ?? fail("--role-name gerekli (ör. Patron)");
+          const r = (await db.query("SELECT id FROM roles WHERE tenant_id = $1 AND name = $2", [tenant, roleName])).rows[0];
+          if (!r) fail(`rol yok: ${roleName}`);
+          roleId = r.id;
+          if (values.ext) {
+            const e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2", [tenant, values.ext])).rows[0];
+            if (!e) fail(`dahili yok: ${values.ext}`);
+            ext = e.id;
+          }
         }
         const password = await readSecret(`${email} için şifre (en az 10 karakter): `, !!values["password-stdin"]);
         const hash = await hashPassword(password).catch((err) => fail(err.message));
         await db
           .query(
-            "INSERT INTO users (email, name, password_hash, role, reseller_id, tenant_id, extension_id) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-            [email, values.name ?? "", hash, role, reseller, tenant, ext],
+            "INSERT INTO users (email, name, password_hash, role, reseller_id, tenant_id, role_id, extension_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            [email, values.name ?? "", hash, role, reseller, tenant, roleId, ext],
           )
           .catch((err) => {
             if (err.code === "23505") fail(`kullanıcı zaten var: ${email}`);
@@ -525,10 +533,10 @@ async function main() {
         console.table(
           (
             await db.query(
-              `SELECT u.email, u.role, r.name AS reseller, t.prefix AS tenant, e.number AS ext, u.disabled,
+              `SELECT u.email, u.role, ro.name AS "rol", r.name AS reseller, t.prefix AS tenant, e.number AS ext, u.disabled,
                       (SELECT max(last_seen) FROM sessions s WHERE s.user_id = u.id) AS last_seen
                  FROM users u LEFT JOIN resellers r ON r.id = u.reseller_id LEFT JOIN tenants t ON t.id = u.tenant_id
-                 LEFT JOIN extensions e ON e.id = u.extension_id ORDER BY u.id`,
+                 LEFT JOIN extensions e ON e.id = u.extension_id LEFT JOIN roles ro ON ro.id = u.role_id ORDER BY u.id`,
             )
           ).rows,
         );

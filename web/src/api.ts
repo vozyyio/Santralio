@@ -20,8 +20,20 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
-export type Role = "platform_admin" | "reseller_admin" | "tenant_admin" | "agent";
-export type Me = { email: string; name: string; role: Role; tenant: { prefix: string; name: string } | null; extension: string | null };
+export type Role = "platform_admin" | "reseller_admin" | "tenant_user";
+export type AppName = "panel" | "crm" | "agent";
+export type Me = {
+  email: string;
+  name: string;
+  role: Role;
+  roleName: string | null;
+  permissions: string[];
+  apps: AppName[];
+  origins: Record<AppName, string>;
+  tenant: { prefix: string; name: string } | null;
+  extension: string | null;
+};
+export type RoleRow = { id: number; name: string; permissions: string[]; users: number };
 export type TenantRow = {
   prefix: string;
   name: string;
@@ -62,7 +74,15 @@ export type Tenant = {
   }[];
 };
 export type Status = { registration: string; onlineExtensions: string[] };
-export type StaffRow = { email: string; name: string; role: Role; extension: string | null; disabled: boolean; last_seen: string | null };
+export type StaffRow = {
+  email: string;
+  name: string;
+  roleId: number;
+  roleName: string;
+  extension: string | null;
+  disabled: boolean;
+  last_seen: string | null;
+};
 export type AuditRow = { id: number; at: string; actor: string; action: string; tenant: string | null; details: Record<string, unknown> };
 export type SystemStatus = {
   asterisk: { uptimeS: number; activeCalls: number; registrations: { name: string; status: string }[] };
@@ -119,7 +139,7 @@ const t = (prefix: string) => `/api/tenants/${encodeURIComponent(prefix)}`;
 const seg = encodeURIComponent;
 
 export const api = {
-  login: (email: string, password: string) => call<{ user: { email: string; role: Role } }>("POST", "/api/login", { email, password }),
+  login: (email: string, password: string) => call<{ user: { email: string } }>("POST", "/api/login", { email, password }),
   logout: () => call("POST", "/api/logout"),
   me: () => call<Me>("GET", "/api/me"),
   tenants: () => call<TenantRow[]>("GET", "/api/tenants"),
@@ -139,9 +159,15 @@ export const api = {
   calls: (p: string, from: string, to: string) => call<CallRow[]>("GET", `${t(p)}/calls?from=${from}&to=${to}`),
   recordingUrl: (p: string, callid: string) => `${t(p)}/recordings/${seg(callid)}`,
   users: (p: string) => call<StaffRow[]>("GET", `${t(p)}/users`),
-  addUser: (p: string, body: { email: string; name: string; role: string; extension: string | null }) =>
+  addUser: (p: string, body: { email: string; name: string; roleId: number; extension: string | null }) =>
     call<{ email: string; temporaryPassword: string }>("POST", `${t(p)}/users`, body),
-  setUserDisabled: (p: string, email: string, disabled: boolean) => call("PUT", `${t(p)}/users/${seg(email)}`, { disabled }),
+  updateUser: (p: string, email: string, body: { disabled?: boolean; roleId?: number; extension?: string | null }) =>
+    call("PUT", `${t(p)}/users/${seg(email)}`, body),
+  roles: (p: string) => call<RoleRow[]>("GET", `${t(p)}/roles`),
+  addRole: (p: string, name: string, permissions: string[]) => call<{ id: number }>("POST", `${t(p)}/roles`, { name, permissions }),
+  saveRole: (p: string, id: number, name: string, permissions: string[]) => call("PUT", `${t(p)}/roles/${id}`, { name, permissions }),
+  deleteRole: (p: string, id: number) => call("DELETE", `${t(p)}/roles/${id}`),
+  permissions: () => call<{ id: string; label: string }[]>("GET", "/api/permissions"),
   resetPassword: (p: string, email: string) => call<{ temporaryPassword: string }>("POST", `${t(p)}/users/${seg(email)}/reset-password`),
   setQueueMembers: (p: string, q: string, members: string[]) => call("PUT", `${t(p)}/queues/${seg(q)}/members`, { members }),
   setQueueNumber: (p: string, q: string, number: string | null) => call("PUT", `${t(p)}/queues/${seg(q)}/number`, { number }),

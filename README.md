@@ -164,7 +164,8 @@ Panel/API kullanıcısı açmak (şifre gizli girişle sorulur):
 ```sh
 santralio user add info@ornek.com --role platform_admin --name "Ad Soyad"
 santralio reseller add "Bayi A" && santralio user add bayi@ornek.com --role reseller_admin --reseller "Bayi A"
-santralio user add yonetici@otel.com --role tenant_admin --tenant t2
+santralio user add patron@otel.com --role tenant_user --tenant t2 --role-name Patron
+# Kiracının diğer personeli ve rolleri panelden (Personel, Roller sekmeleri) yönetilir.
 ```
 
 Yönetim API'si `santralio-api` servisi olarak `127.0.0.1:8090`'da çalışır (bkz. `docs/architecture.md`, "Yönetim API'si ve roller").
@@ -178,7 +179,7 @@ sudo infra/web-deploy.sh        # paneli derler ve kurar; Caddy sertifikayı ken
 sudo certbot reconfigure --cert-name sip.santralio.site --webroot --webroot-path /var/lib/santralio-acme
 ```
 
-Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu), `infra/asterisk/tests/check_ws.mjs` (temsilci masasının WSS yolu); kullanımlar dosyaların başında.
+Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu), `control/tests/roles_sso.py` (roller ve tek giriş), `infra/asterisk/tests/check_ws.mjs` (temsilci masasının WSS yolu); kullanımlar dosyaların başında.
 
 Arama kaydı (varsayılan kapalı; panelde "Genel" sekmesinden de açılır):
 
@@ -187,11 +188,7 @@ santralio recording set t2 --enabled yes --retention 90
 santralio apply
 ```
 
-Temsilci hesabı (panelde tarayıcıdan arama alır):
-
-```sh
-santralio user add ayse@otel.com --role agent --tenant t2 --ext 1001 --name "Ayşe"
-```
+Üç adres: `panel.santralio.site` (ayarlar), `crm.santralio.site` (görüşmeler, raporlar), `agent.santralio.site` (temsilci masası). Üçü de Cloudflare'de proxy'li olmalı; Caddy sertifikaları kendisi alır.
 
 ## Lisanslama ve satış
 

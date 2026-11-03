@@ -1,18 +1,24 @@
-// Santralio yönetim paneli: giriş, kiracı listesi ve kiracı ayarları.
+// Santralio: tek uygulama, üç adres. Hangi ekranın açılacağı adresten anlaşılır:
+//   panel.<alan> : ayarlar ve personel (patron, müdür)
+//   crm.<alan>   : görüşmeler, kayıtlar, raporlar, işlem günlüğü
+//   agent.<alan> : temsilci masası
+// Oturum üç adreste ortaktır; üst menüden yeniden giriş yapmadan geçilir.
 // Yönlendirme adres çubuğundaki # ile yapılır: #/ liste, #/t/<önek>/<sekme> kiracı sayfası.
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { AgentDesk } from "./AgentDesk";
-import { Audit, Staff, SystemPage } from "./Admin";
+import { Audit, Roles, Staff, SystemPage } from "./Admin";
 import { Calls, Reports } from "./Reports";
-import { api, ApiError, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
+import { api, ApiError, type AppName, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
 
-const ROLE: Record<string, string> = {
-  platform_admin: "Platform yöneticisi",
-  reseller_admin: "Bayi yöneticisi",
-  tenant_admin: "Müşteri yöneticisi",
-  agent: "Temsilci",
-};
+const APP_LABEL: Record<AppName, string> = { panel: "Panel", crm: "CRM", agent: "Temsilci" };
+const SCOPE_LABEL: Record<string, string> = { platform_admin: "Platform yöneticisi", reseller_admin: "Bayi yöneticisi" };
+
+// Adresin ilk parçası: panel / crm / agent. Geliştirme ortamında (localhost) panel.
+export function currentApp(): AppName {
+  const first = location.hostname.split(".")[0];
+  return first === "crm" || first === "agent" ? first : "panel";
+}
 
 function useHash(): [string, (h: string) => void] {
   const [hash, setHash] = useState(location.hash || "#/");
@@ -30,6 +36,7 @@ function useHash(): [string, (h: string) => void] {
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function App() {
+  const app = currentApp();
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const load = useCallback(() => {
     api
@@ -38,13 +45,16 @@ export function App() {
       .catch(() => setMe(null));
   }, []);
   useEffect(load, [load]);
+  useEffect(() => {
+    document.title = `Santralio ${APP_LABEL[app]}`;
+  }, [app]);
 
   if (me === undefined) return <div className="center muted">Yükleniyor…</div>;
-  if (me === null) return <Login onDone={load} />;
-  return <Shell me={me} onLogout={() => api.logout().finally(() => setMe(null))} />;
+  if (me === null) return <Login app={app} onDone={load} />;
+  return <Shell app={app} me={me} onLogout={() => api.logout().finally(() => setMe(null))} />;
 }
 
-function Login({ onDone }: { onDone: () => void }) {
+function Login({ app, onDone }: { app: AppName; onDone: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -65,8 +75,8 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="center">
       <form className="card login" onSubmit={submit}>
-        <h1>Santralio</h1>
-        <p className="muted">Yönetim paneline giriş</p>
+        <h1>Santralio {APP_LABEL[app]}</h1>
+        <p className="muted">Giriş yapın. Aynı hesapla Panel, CRM ve Temsilci ekranları arasında geçebilirsiniz.</p>
         <label>
           E-posta
           <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -82,56 +92,95 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
+function AppLinks({ me, app }: { me: Me; app: AppName }) {
+  return (
+    <nav className="apps">
+      {me.apps.map((a) => (
+        <a key={a} href={me.origins[a] + "/"} className={a === app ? "active" : ""}>
+          {APP_LABEL[a]}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => void }) {
   const [hash, go] = useHash();
   const m = /^#\/t\/([^/]+)(?:\/([a-z]+))?/.exec(hash);
+  const allowed = me.apps.includes(app);
+  const scoped = me.role !== "tenant_user";
   return (
     <>
       <header className="top">
         <a href="#/" className="brand">
-          Santralio
+          Santralio <span className="muted">{APP_LABEL[app]}</span>
         </a>
-        {me.role === "platform_admin" && (
+        <AppLinks me={me} app={app} />
+        {me.role === "platform_admin" && app === "panel" && (
           <a href="#/sistem" className="small">
             Sistem
           </a>
         )}
         <span className="spacer" />
         <span className="muted small">
-          {me.email} · {ROLE[me.role]}
+          {me.email} · {scoped ? SCOPE_LABEL[me.role] : (me.roleName ?? "")}
         </span>
         <button className="ghost" onClick={onLogout}>
           Çıkış
         </button>
       </header>
       <main>
-        {me.role === "agent" ? (
+        {!allowed ? (
+          <div className="card">
+            <h2>Bu ekrana erişiminiz yok</h2>
+            {me.apps.length ? (
+              <p>
+                Hesabınızla açabileceğiniz ekranlar:{" "}
+                {me.apps.map((a, i) => (
+                  <span key={a}>
+                    {i > 0 && ", "}
+                    <a href={me.origins[a] + "/"}>{APP_LABEL[a]}</a>
+                  </span>
+                ))}
+                .
+              </p>
+            ) : (
+              <p className="muted">Rolünüzde açık bir yetki yok. Yöneticinizle görüşün.</p>
+            )}
+          </div>
+        ) : app === "agent" ? (
           <AgentDesk />
-        ) : hash.startsWith("#/sistem") && me.role === "platform_admin" ? (
+        ) : app === "panel" && hash.startsWith("#/sistem") && me.role === "platform_admin" ? (
           <SystemPage />
         ) : m ? (
-          <TenantPage prefix={m[1]} tab={m[2] ?? "genel"} go={go} />
+          app === "crm" ? <CrmPage me={me} prefix={m[1]} tab={m[2] ?? ""} /> : <TenantPage me={me} prefix={m[1]} tab={m[2] ?? "genel"} />
+        ) : scoped ? (
+          <TenantList go={go} />
         ) : (
-          <TenantList me={me} go={go} />
+          <OwnTenant me={me} go={go} />
         )}
       </main>
     </>
   );
 }
 
-function TenantList({ me, go }: { me: Me; go: (h: string) => void }) {
+// Kiracı kullanıcısı liste görmez; kendi kiracısının sayfasına gider.
+function OwnTenant({ me, go }: { me: Me; go: (h: string) => void }) {
+  useEffect(() => {
+    if (me.tenant) go(`#/t/${me.tenant.prefix}`);
+  }, [me.tenant, go]);
+  return <p className="muted">Yükleniyor…</p>;
+}
+
+function TenantList({ go }: { go: (h: string) => void }) {
   const [rows, setRows] = useState<TenantRow[] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     api
       .tenants()
-      .then((r) => {
-        // Tek müşterisi olan yönetici doğrudan kendi sayfasına gider.
-        if (me.role === "tenant_admin" && r.length === 1) go(`#/t/${r[0].prefix}`);
-        setRows(r);
-      })
+      .then(setRows)
       .catch((e) => setError(message(e)));
-  }, [me.role, go]);
+  }, []);
   if (error) return <p className="error">{error}</p>;
   if (!rows) return <p className="muted">Yükleniyor…</p>;
   return (
@@ -169,20 +218,34 @@ function TenantList({ me, go }: { me: Me; go: (h: string) => void }) {
   );
 }
 
-const TABS: [string, string][] = [
-  ["genel", "Genel"],
-  ["gorusmeler", "Görüşmeler"],
-  ["raporlar", "Raporlar"],
-  ["menuler", "Menüler"],
-  ["saatler", "Çalışma saatleri"],
-  ["kuyruklar", "Kuyruklar"],
-  ["personel", "Personel"],
-  ["dahililer", "Dahililer"],
-  ["gunluk", "İşlem günlüğü"],
+const can = (me: Me, ...perms: string[]) => perms.some((p) => me.permissions.includes(p));
+
+// Panel sekmeleri ve gereken yetki.
+const PANEL_TABS: [string, string, string[]][] = [
+  ["genel", "Genel", ["settings.manage"]],
+  ["menuler", "Menüler", ["settings.manage"]],
+  ["saatler", "Çalışma saatleri", ["settings.manage"]],
+  ["kuyruklar", "Kuyruklar", ["settings.manage"]],
+  ["dahililer", "Dahililer", ["settings.manage"]],
+  ["personel", "Personel", ["staff.manage"]],
+  ["roller", "Roller", ["staff.manage"]],
 ];
 
-function TenantPage({ prefix, tab: requested }: { prefix: string; tab: string; go: (h: string) => void }) {
-  const tab = TABS.some(([id]) => id === requested) ? requested : "genel";
+function Tabs({ prefix, tabs, active }: { prefix: string; tabs: [string, string][]; active: string }) {
+  return (
+    <nav className="tabs">
+      {tabs.map(([id, label]) => (
+        <a key={id} href={`#/t/${prefix}/${id}`} className={active === id ? "active" : ""}>
+          {label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; tab: string }) {
+  const tabs = PANEL_TABS.filter(([, , perms]) => can(me, ...perms)).map(([id, label]) => [id, label] as [string, string]);
+  const tab = tabs.some(([id]) => id === requested) ? requested : (tabs[0]?.[0] ?? "");
   const [t, setT] = useState<Tenant | null>(null);
   const [error, setError] = useState("");
   const reload = useCallback(() => {
@@ -200,24 +263,42 @@ function TenantPage({ prefix, tab: requested }: { prefix: string; tab: string; g
         <h2>{t.name}</h2>
         <span className="mono muted">{t.prefix}</span>
       </div>
-      <nav className="tabs">
-        {TABS.map(([id, label]) => (
-          <a key={id} href={`#/t/${prefix}/${id}`} className={tab === id ? "active" : ""}>
-            {label}
-          </a>
-        ))}
-      </nav>
+      <Tabs prefix={prefix} tabs={tabs} active={tab} />
       {tab === "genel" && <General t={t} reload={reload} />}
-      {tab === "gorusmeler" && <Calls t={t} />}
-      {tab === "raporlar" && <Reports t={t} />}
       {tab === "menuler" && t.menus.map((m) => <MenuEditor key={m.name} t={t} menu={m} reload={reload} />)}
       {tab === "menuler" && t.menus.length === 0 && <p className="muted">Bu müşteride henüz menü yok.</p>}
       {tab === "saatler" && t.schedules.map((s) => <ScheduleEditor key={s.name} t={t} sc={s} reload={reload} />)}
       {tab === "saatler" && t.schedules.length === 0 && <p className="muted">Bu müşteride henüz çalışma saati tanımı yok.</p>}
       {tab === "kuyruklar" && t.queues.map((q) => <QueueEditor key={q.name} t={t} q={q} reload={reload} />)}
       {tab === "dahililer" && <Extensions t={t} reload={reload} />}
-      {tab === "personel" && <Staff t={t} reload={reload} />}
-      {tab === "gunluk" && <Audit prefix={t.prefix} />}
+      {tab === "personel" && <Staff t={t} me={me} reload={reload} />}
+      {tab === "roller" && <Roles prefix={t.prefix} me={me} />}
+    </>
+  );
+}
+
+// CRM sekmeleri ve gereken yetki.
+const CRM_TABS: [string, string, string[]][] = [
+  ["gorusmeler", "Görüşmeler", ["calls.all", "calls.own"]],
+  ["raporlar", "Raporlar", ["reports.view"]],
+  ["gunluk", "İşlem günlüğü", ["audit.view"]],
+];
+
+function CrmPage({ me, prefix, tab: requested }: { me: Me; prefix: string; tab: string }) {
+  const tabs = CRM_TABS.filter(([, , perms]) => can(me, ...perms)).map(([id, label]) => [id, label] as [string, string]);
+  const tab = tabs.some(([id]) => id === requested) ? requested : (tabs[0]?.[0] ?? "");
+  const name = me.tenant?.prefix === prefix ? me.tenant.name : prefix;
+  return (
+    <>
+      <div className="title">
+        <h2>{name}</h2>
+        <span className="mono muted">{prefix}</span>
+      </div>
+      <Tabs prefix={prefix} tabs={tabs} active={tab} />
+      {tab === "gorusmeler" && <Calls prefix={prefix} own={!can(me, "calls.all")} />}
+      {tab === "raporlar" && <Reports prefix={prefix} />}
+      {tab === "gunluk" && <Audit prefix={prefix} />}
+      {tabs.length === 0 && <p className="muted">Rolünüzde CRM'de açık bir sekme yok.</p>}
     </>
   );
 }
@@ -245,9 +326,13 @@ function useSave(reload: () => void) {
   return { busy: state.busy, run, view };
 }
 
-function targetLabel(target: string | null): string {
+function targetLabel(t: Tenant, target: string | null): string {
   if (!target) return "Kapat";
   const [kind, name] = target.split(":");
+  if (kind === "ext") {
+    const e = t.extensions.find((x) => x.number === name);
+    return `Dahili: ${name}${e?.display_name ? ` · ${e.display_name}` : ""}`;
+  }
   return `${{ queue: "Kuyruk", menu: "Menü", schedule: "Çalışma saati" }[kind] ?? kind}: ${name}`;
 }
 
@@ -256,13 +341,14 @@ function TargetSelect({ t, value, onChange, allowNone }: { t: Tenant; value: str
     ...t.queues.map((q) => `queue:${q.name}`),
     ...t.menus.map((m) => `menu:${m.name}`),
     ...t.schedules.map((s) => `schedule:${s.name}`),
+    ...t.extensions.filter((e) => e.enabled).map((e) => `ext:${e.number}`),
   ];
   return (
     <select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
       {allowNone && <option value="">Kapat</option>}
       {options.map((o) => (
         <option key={o} value={o}>
-          {targetLabel(o)}
+          {targetLabel(t, o)}
         </option>
       ))}
     </select>

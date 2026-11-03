@@ -139,30 +139,49 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | `users` | Panel/API kullanıcıları: rol, kapsam (bayi, kiracı, temsilcinin dahilisi), scrypt şifre özeti |
 | `sessions` | Oturumlar: belirtecin yalnızca SHA-256 özeti, bitiş süresi, iptal |
 
-## Yönetim API'si ve roller
+## Yönetim API'si, roller ve yetkiler
 
-Hiyerarşi: **platform → bayi → kiracı (müşteri) → temsilci**. Web paneli ve mobil uygulama aynı API'yi kullanır.
+Hiyerarşi: **platform → bayi → kiracı (müşteri) → personel**.
 
-| Rol | Kapsam | Yetki |
-| --- | --- | --- |
-| `platform_admin` | Bütün kiracılar | Her şey |
-| `reseller_admin` | Kendi bayisine bağlı kiracılar | Kiracıların ayarlarını yönetir |
-| `tenant_admin` | Kendi kiracısı | Dahili, menü, anons, çalışma saatleri, giriş noktaları |
-| `agent` | Kendi dahilisi | Yönetim yetkisi yok; temsilci masası (3. adım) için |
+- **Platform yöneticisi** her kiracıda, **bayi yöneticisi** kendi bayisinin kiracılarında bütün yetkilere sahiptir. Bu iki rol yalnızca CLI'den açılır.
+- **Kiracının personeli** tek tip kullanıcıdır (`tenant_user`). Yetkileri, kiracının panelden kendi tanımladığı **rolden** gelir. Rol adı serbesttir ("Patron", "Hasta Danışmanı"…). Her yeni kiracıya örnek roller açılır: Patron, Müdür, Süpervizör, Temsilci. Kiracı bunları değiştirebilir, yenilerini ekleyebilir; personeli olmayan rolü silebilir.
+- **Yetki kataloğu** `control/src/permissions.ts` dosyasındadır:
 
-- API, `santralio-api` servisi olarak yalnızca `127.0.0.1:8090` adresini dinler. Dışarıya, panelle birlikte HTTPS ters vekil üzerinden açılır.
-- Kimlik `Authorization: Bearer <belirteç>` ile doğrulanır. Belirteç `POST /api/login` ile alınır ve 7 gün geçerlidir.
-- Kiracıya erişimin tek kapısı `canAccessTenant` fonksiyonudur. Erişilemeyen kiracı için `404` döner, böylece başka kiracıların varlığı dışarıdan anlaşılmaz.
-- Gizli alanlar (trunk ve dahili şifreleri, contact token) API yanıtlarında hiç yer almaz. Yeni dahilinin SIP şifresi yalnızca oluşturma yanıtında bir kez gösterilir.
-- Değişiklik yapan her istek tek bir veritabanı işleminde çalışır. Bir adım reddedilirse hiçbiri kalmaz. Asterisk'e uygulama, işlem tamamlandıktan sonra yapılır.
-- Giriş denemeleri IP başına 15 dakikada 10 ile sınırlıdır.
-- CLI ve API aynı işlem modülünü (`control/src/ops.ts`) kullanır. Doğrulama kuralları tek yerde yazılır.
+  | Yetki | Ne açar |
+  | --- | --- |
+  | `agent.desk` | Temsilci masası: arama alma, aktarma, mola. Dahili gerektirir |
+  | `agent.outbound` | Dış arama, kiracının dış arama politikası içinde |
+  | `calls.own` / `calls.all` | Kendi görüşmeleri / bütün görüşmeler |
+  | `recordings.listen` | Görebildiği görüşmelerin kaydını dinleme |
+  | `reports.view` | Raporlar |
+  | `audit.view` | İşlem günlüğü |
+  | `crm.use` | Müşteri kartları ve notlar |
+  | `settings.manage` | Santral ayarları |
+  | `staff.manage` | Personel ve roller |
+
+- Kiracıya erişimin tek kapısı `can(kullanıcı, kiracı, ...yetkiler)` fonksiyonudur. Her API ucu gereken yetkiyi açıkça belirtir. Erişilemeyen kiracı için `404` döner, böylece başka kiracıların varlığı dışarıdan anlaşılmaz.
+- Kullanıcının rolü kendi kiracısından olmak zorundadır; bu kural veritabanında bileşik yabancı anahtarla da korunur.
+- **Kendini kilitleme korumaları:** Kullanıcı kendi rolünü değiştiremez, kendi hesabını kapatamaz ve kendi rolünden `staff.manage` yetkisini kaldıramaz.
+- Gizli alanlar (trunk ve dahili şifreleri, contact token) API yanıtlarında hiç yer almaz. Değişiklik yapan her istek tek bir veritabanı işleminde çalışır; Asterisk'e uygulama, işlem tamamlandıktan sonra yapılır.
+- Giriş denemeleri IP başına 15 dakikada 10 ile sınırlıdır. CLI ve API aynı işlem modülünü (`control/src/ops.ts`) kullanır.
+
+### Üç adres ve tek giriş
+
+| Adres | Kimin için | İçerik | Açılması için |
+| --- | --- | --- | --- |
+| `panel.santralio.site` | Patron, müdür | Ayarlar, personel, roller; platform yöneticisi için Sistem | `settings.manage` ya da `staff.manage` |
+| `crm.santralio.site` | Yetkisi olan herkes | Görüşmeler, kayıtlar, raporlar, işlem günlüğü, müşteriler | `calls.*`, `reports.view`, `audit.view` ya da `crm.use` |
+| `agent.santralio.site` | Personel | Temsilci masası; `/ws` yalnızca bu adreste | `agent.desk` ve bir dahili |
+
+- Üç adres aynı uygulamayı ve aynı API'yi sunar; uygulama hangi ekranı açacağını adresten anlar.
+- Oturum çerezi `Domain=.santralio.site; HttpOnly; Secure; SameSite=Lax` ile yazılır. Kullanıcı bir adreste giriş yapınca diğerlerine yeniden giriş yapmadan geçer.
+- Değişiklik istekleri yalnızca bu üç adresin kaynağından (Origin) kabul edilir (CSRF koruması).
 
 ### Web paneli
 
-- `panel.santralio.site` Cloudflare proxy'si arkasındadır. Caddy yalnızca Cloudflare IP'lerinden gelen bağlantıları kabul eder; böylece `CF-Connecting-IP` başlığına güvenilir ve giriş sınırı gerçek istemci IP'siyle çalışır.
+- Üç adres de Cloudflare proxy'si arkasındadır. Caddy yalnızca Cloudflare IP'lerinden gelen bağlantıları kabul eder; böylece `CF-Connecting-IP` başlığına güvenilir ve giriş sınırı gerçek istemci IP'siyle çalışır.
 - Panel tek sayfalık bir React uygulamasıdır. Aynı alan adındaki `/api` Caddy tarafından yönetim API'sine iletilir.
-- Oturum belirteci `HttpOnly; Secure; SameSite=Strict` çerezde durur; JavaScript belirteci görmez. Çerezle gelen değişiklik istekleri yalnızca `https://panel.santralio.site` kaynağından kabul edilir (CSRF).
+- Oturum belirteci `HttpOnly` çerezde durur; JavaScript belirteci görmez (bkz. "Üç adres ve tek giriş").
 - İçerik güvenlik politikası (CSP) yalnızca aynı kaynaktan betik, stil ve ses yüklenmesine izin verir.
 - Mobil uygulama aynı API'yi `Authorization: Bearer` belirteciyle kullanır.
 
@@ -178,7 +197,7 @@ Hiyerarşi: **platform → bayi → kiracı (müşteri) → temsilci**. Web pane
 ### Temsilci masası (tarayıcıdan arama)
 
 - Her dahilinin iki SIP uç noktası vardır: `tN_<dahili>` (softphone, TLS + SDES) ve `tN_<dahili>_web` (tarayıcı, WebRTC: DTLS-SRTP + ICE). Şifre aynı, kullanıcı adı ayrıdır.
-- Tarayıcı SIP'i `wss://panel.santralio.site/ws` üzerinden konuşur. Caddy bağlantıyı açmadan önce oturumu `/api/auth/ws` ile doğrular; yalnızca dahilisi olan kullanıcı Asterisk'e (yalnızca `127.0.0.1:8088`) ulaşır. SIP kimlik doğrulaması ayrıca Asterisk'te yapılır.
+- Tarayıcı SIP'i `wss://agent.santralio.site/ws` üzerinden konuşur. Caddy bağlantıyı açmadan önce oturumu `/api/auth/ws` ile doğrular; yalnızca dahilisi olan kullanıcı Asterisk'e (yalnızca `127.0.0.1:8088`) ulaşır. SIP kimlik doğrulaması ayrıca Asterisk'te yapılır.
 - Ses Cloudflare'den geçmez: tarayıcı ile sunucu arasında doğrudan UDP 10000–19999 üzerinden akar. Sunucunun genel IP'si arayüzde olduğu için STUN/TURN gerekmez.
 - Ses G.711 (alaw/ulaw) kalır: operatör hattıyla tarayıcı arasında dönüştürme yapılmaz.
 - Kuyruk üyesi bir Local kanalıdır (`Local/<dahili>@tN-agent/n`): dahilinin iki cihazını birlikte çaldırır, hangisi önce açarsa arama ona bağlanır. Meşgul/müsait durumu iki cihazı birlikte izleyen hint'ten (`hint:<dahili>@tN-hints`) okunur.

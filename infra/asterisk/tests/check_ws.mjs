@@ -5,7 +5,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-const URL_ = process.env.WS_URL ?? "wss://panel.santralio.site/ws";
+const URL_ = process.env.WS_URL ?? "wss://agent.santralio.site/ws";
 const user = process.argv[2];
 const expectReject = process.argv.includes("--expect-reject");
 const md5 = (s) => createHash("md5").update(s).digest("hex");
@@ -15,7 +15,7 @@ let password = "";
 if (!expectReject) for await (const c of process.stdin) password += c;
 password = password.trim();
 
-const ws = new WebSocket(URL_, { protocols: ["sip"], headers: { cookie: process.env.COOKIE ?? "", origin: "https://panel.santralio.site" } });
+const ws = new WebSocket(URL_, { protocols: ["sip"], headers: { cookie: process.env.COOKIE ?? "", origin: "https://agent.santralio.site" } });
 const timer = setTimeout(() => finish(false, "zaman aşımı"), 10_000);
 
 let done = false;

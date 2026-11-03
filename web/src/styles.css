@@ -119,3 +119,10 @@ label.chip { border: 1px solid var(--line); border-radius: 999px; padding: 4px 1
 pre.log { margin: 0; max-height: 320px; overflow: auto; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; color: var(--muted); }
 tr.muted td { color: var(--muted); }
 .transfer { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+
+nav.apps { display: flex; gap: 2px; margin-left: 8px; }
+nav.apps a { padding: 4px 10px; border-radius: 6px; color: var(--muted); font-size: 0.9rem; }
+nav.apps a.active { color: var(--text); background: var(--bg); font-weight: 600; }
+.perms { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px 16px; margin: 8px 0; }
+.perms label.check { margin: 4px 0; font-size: 0.9rem; }
+input.role-name { font-weight: 600; font-size: 1.05rem; max-width: 320px; }

@@ -3,6 +3,7 @@
 // Doğrulama hataları UserError olarak fırlatılır: CLI "hata:" diye yazar, API 400/404 döner.
 
 import { hashPassword } from "./auth.ts";
+import { DEFAULT_ROLES } from "./permissions.ts";
 import { CURRENT_KEY_ID, masterKey } from "./config.ts";
 import { aad, randomToken, seal } from "./crypto.ts";
 import { audit, tx, type Db } from "./db.ts";
@@ -32,8 +33,14 @@ export async function tenantByPrefix(db: Db, prefix: string | undefined): Promis
 // Hedef (queue:<ad> | menu:<ad> | schedule:<ad>) aynı kiracıda var olmalı:
 // başka kiracının nesnesine yönlendirilemez.
 export async function assertTarget(db: Db, t: Tenant, target: string) {
+  const ext = /^ext:([0-9]{2,6})$/.exec(target);
+  if (ext) {
+    const e = (await db.query("SELECT 1 FROM extensions WHERE tenant_id = $1 AND number = $2 AND enabled", [t.id, ext[1]])).rows[0];
+    if (!e) throw new UserError(`${t.prefix}: dahili yok: ${ext[1]}`);
+    return;
+  }
   const m = TARGET.exec(target);
-  if (!m) throw new UserError(`geçersiz hedef: ${target} (queue:<ad>, menu:<ad> ya da schedule:<ad>)`);
+  if (!m) throw new UserError(`geçersiz hedef: ${target} (queue:<ad>, menu:<ad>, schedule:<ad> ya da ext:<dahili>)`);
   const kinds = { queue: ["queues", "kuyruk"], menu: ["menus", "menü"], schedule: ["schedules", "zamanlama"] } as const;
   const [table, label] = kinds[m[1] as keyof typeof kinds];
   const row = (await db.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND name = $2`, [t.id, m[2]])).rows[0];
@@ -234,44 +241,109 @@ export async function setRecording(db: Db, t: Tenant, r: RecordingInput, actor?:
 }
 
 // --- Personel (panel kullanıcıları) ---
-// Kiracı yöneticisi kendi kiracısına yalnızca tenant_admin ve agent açabilir. Şifre rastgele üretilir ve
-// bir kez gösterilir; kullanıcı ilk girişten sonra değiştirmelidir. E-posta adresi bütün platformda tekildir.
-// Temsilci yalnızca önceden tanımlanmış ve en az bir kuyruğa bağlı bir dahiliye atanır; dahili burada açılmaz.
+// Kiracının personeli tek tip kullanıcıdır (tenant_user); yetkileri kiracının kendi tanımladığı rolden gelir.
+// Şifre rastgele üretilir ve bir kez gösterilir. E-posta adresi bütün platformda tekildir.
+// Temsilci masası yetkisi olan rol için dahili gerekir: dahili önceden tanımlı ve en az bir kuyruğa bağlı olmalı.
 
-export type StaffInput = { email: string; name: string; role: "tenant_admin" | "agent"; extension?: string | null };
+export type StaffInput = { email: string; name: string; roleId: number; extension?: string | null };
+
+async function roleOf(db: Db, t: Tenant, roleId: number) {
+  const r = (await db.query("SELECT * FROM roles WHERE id = $1 AND tenant_id = $2", [roleId, t.id])).rows[0];
+  if (!r) throw new UserError("rol bulunamadı");
+  return r as { id: number; name: string; permissions: string[] };
+}
+
+// Dahilinin personele atanabilir olup olmadığını denetler; atanabiliyorsa kimliğini döner.
+async function assignableExtension(db: Db, t: Tenant, number: string, exceptUserId: number | null): Promise<number> {
+  const e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2 AND enabled", [t.id, number])).rows[0];
+  if (!e) throw new UserError(`dahili ${number} tanımlı değil; önce "Dahililer" sekmesinden açın`);
+  const inQueue = (await db.query("SELECT 1 FROM queue_members WHERE extension_id = $1 LIMIT 1", [e.id])).rowCount;
+  if (!inQueue) throw new UserError(`dahili ${number} hiçbir kuyrukta değil; önce "Kuyruklar" sekmesinden bir kuyruğa ekleyin`);
+  const taken = (
+    await db.query("SELECT email FROM users WHERE extension_id = $1 AND NOT disabled AND id IS DISTINCT FROM $2", [e.id, exceptUserId])
+  ).rows[0];
+  if (taken) throw new UserError(`dahili ${number} zaten ${taken.email} hesabına bağlı`);
+  return e.id;
+}
 
 export async function createStaff(db: Db, t: Tenant, s: StaffInput, actor?: string): Promise<{ password: string }> {
   const email = s.email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new UserError("geçersiz e-posta");
-  if (s.role !== "tenant_admin" && s.role !== "agent") throw new UserError("rol tenant_admin ya da agent olmalı");
   if (s.name.length > 100) throw new UserError("ad en fazla 100 karakter");
-  let extensionId: number | null = null;
-  if (s.role === "agent") {
-    if (!s.extension) throw new UserError("temsilci için dahili gerekli");
-    const e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2 AND enabled", [t.id, s.extension])).rows[0];
-    if (!e) throw new UserError(`dahili ${s.extension} tanımlı değil; önce "Dahililer" sekmesinden açın`);
-    const inQueue = (await db.query("SELECT 1 FROM queue_members WHERE extension_id = $1 LIMIT 1", [e.id])).rowCount;
-    if (!inQueue) throw new UserError(`dahili ${s.extension} hiçbir kuyrukta değil; önce "Kuyruklar" sekmesinden bir kuyruğa ekleyin`);
-    const taken = (await db.query("SELECT email FROM users WHERE extension_id = $1 AND NOT disabled", [e.id])).rows[0];
-    if (taken) throw new UserError(`dahili ${s.extension} zaten ${taken.email} hesabına bağlı`);
-    extensionId = e.id;
-  }
+  const role = await roleOf(db, t, s.roleId);
+  if (role.permissions.includes("agent.desk") && !s.extension) throw new UserError(`"${role.name}" rolü temsilci masasını kullanıyor; dahili seçin`);
+  const extensionId = s.extension ? await assignableExtension(db, t, s.extension, null) : null;
   const password = randomToken(14);
   await db
-    .query("INSERT INTO users (email, name, password_hash, role, tenant_id, extension_id) VALUES ($1, $2, $3, $4, $5, $6)", [
+    .query("INSERT INTO users (email, name, password_hash, role, tenant_id, role_id, extension_id) VALUES ($1, $2, $3, 'tenant_user', $4, $5, $6)", [
       email,
       s.name,
       await hashPassword(password),
-      s.role,
       t.id,
+      role.id,
       extensionId,
     ])
     .catch((err) => {
       if (err.code === "23505") throw new UserError(`bu e-posta zaten kayıtlı: ${email}`);
       throw err;
     });
-  await audit(db, "user.add", t.id, { email, role: s.role, extension: s.extension ?? null }, actor);
+  await audit(db, "user.add", t.id, { email, role: role.name, extension: s.extension ?? null }, actor);
   return { password };
+}
+
+export async function setStaffRole(db: Db, t: Tenant, email: string, roleId: number, actor?: string) {
+  const u = await staffOf(db, t, email);
+  const role = await roleOf(db, t, roleId);
+  if (role.permissions.includes("agent.desk") && !u.extension_id) throw new UserError(`"${role.name}" rolü için önce personele dahili atayın`);
+  await db.query("UPDATE users SET role_id = $1 WHERE id = $2", [role.id, u.id]);
+  await audit(db, "user.role", t.id, { email: u.email, role: role.name }, actor);
+}
+
+export async function setStaffExtension(db: Db, t: Tenant, email: string, number: string | null, actor?: string) {
+  const u = await staffOf(db, t, email);
+  const id = number ? await assignableExtension(db, t, number, u.id) : null;
+  if (!id) {
+    const role = await roleOf(db, t, u.role_id);
+    if (role.permissions.includes("agent.desk")) throw new UserError(`"${role.name}" rolü temsilci masasını kullanıyor; dahili kaldırılamaz`);
+  }
+  await db.query("UPDATE users SET extension_id = $1 WHERE id = $2", [id, u.id]);
+  await audit(db, "user.extension", t.id, { email: u.email, extension: number }, actor);
+}
+
+// --- Roller ---
+
+export async function saveRole(db: Db, t: Tenant, id: number | null, name: string, permissions: string[], actor?: string): Promise<number> {
+  const n = name.trim();
+  if (!n || n.length > 50) throw new UserError("rol adı 1–50 karakter olmalı");
+  const r = await db
+    .query(
+      id === null
+        ? "INSERT INTO roles (tenant_id, name, permissions) VALUES ($1, $2, $3) RETURNING id"
+        : "UPDATE roles SET name = $2, permissions = $3 WHERE tenant_id = $1 AND id = $4 RETURNING id",
+      id === null ? [t.id, n, permissions] : [t.id, n, permissions, id],
+    )
+    .catch((err) => {
+      if (err.code === "23505") throw new UserError(`bu adla bir rol zaten var: ${n}`);
+      throw err;
+    });
+  if (!r.rowCount) throw new UserError("rol bulunamadı", 404);
+  await audit(db, id === null ? "role.add" : "role.update", t.id, { name: n, permissions }, actor);
+  return r.rows[0].id;
+}
+
+export async function deleteRole(db: Db, t: Tenant, id: number, actor?: string) {
+  const r = (await db.query("SELECT name FROM roles WHERE tenant_id = $1 AND id = $2", [t.id, id])).rows[0];
+  if (!r) throw new UserError("rol bulunamadı", 404);
+  const used = Number((await db.query("SELECT count(*) FROM users WHERE role_id = $1", [id])).rows[0].count);
+  if (used) throw new UserError(`"${r.name}" rolünde ${used} personel var; önce başka role alın`);
+  await db.query("DELETE FROM roles WHERE id = $1 AND tenant_id = $2", [id, t.id]);
+  await audit(db, "role.delete", t.id, { name: r.name }, actor);
+}
+
+export async function createDefaultRoles(db: Db, tenantId: number) {
+  for (const r of DEFAULT_ROLES) {
+    await db.query("INSERT INTO roles (tenant_id, name, permissions) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [tenantId, r.name, r.permissions]);
+  }
 }
 
 async function staffOf(db: Db, t: Tenant, email: string) {

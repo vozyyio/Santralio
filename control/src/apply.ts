@@ -165,8 +165,9 @@ async function writePrompts(db: Db, tenantId: number, prefix: string): Promise<s
     const name = `queue-${q.name}-unavailable`;
     if (writePrompt(prefix, name, q.unavailable_text)) changed.push(`ses/${name}`);
   }
-  const tenant = (await db.query("SELECT recording_notice_text FROM tenants WHERE id = $1", [tenantId])).rows[0];
+  const tenant = (await db.query("SELECT recording_notice_text, ext_unavailable_text FROM tenants WHERE id = $1", [tenantId])).rows[0];
   if (writePrompt(prefix, "recording-notice", tenant.recording_notice_text)) changed.push("ses/recording-notice");
+  if (writePrompt(prefix, "ext-unavailable", tenant.ext_unavailable_text)) changed.push("ses/ext-unavailable");
   const schedules = (await db.query("SELECT name, closed_text FROM schedules WHERE tenant_id = $1", [tenantId])).rows;
   for (const x of schedules) {
     const name = `schedule-${x.name}-closed`;

@@ -227,9 +227,12 @@ test("WebRTC: her dahilinin ayrı tarayıcı uç noktası var, arama iki cihazda
   assert.match(f["pjsip.conf"], /\[t1_1001_web\]\ntype=endpoint\ncontext=t1-internal\ndisallow=all\nallow=alaw,ulaw\nwebrtc=yes\n/);
   assert.match(f["pjsip.conf"], /\[t1_1001_web\]\ntype=auth\nauth_type=userpass\nusername=t1_1001_web\npassword=ext-secret-1-1001\n/);
   const ext = f["extensions.conf"];
-  assert.ok(ext.includes("exten => 1001,1,Dial(PJSIP/t1_1001&PJSIP/t1_1001_web,,b(santralio-lib^agent-headers^1))"));
+  const agent = ext.slice(ext.indexOf("[t1-agent]"), ext.indexOf("[t1-hints]"));
+  assert.ok(agent.includes("exten => 1001,1,Gosub(santralio-lib,devices,1(t1_1001))"));
+  assert.ok(agent.includes("Dial(${GOSUB_RETVAL},,b(santralio-lib^agent-headers^1))"));
   assert.ok(ext.includes("exten => 1001,hint,PJSIP/t1_1001&PJSIP/t1_1001_web"));
-  assert.ok(ext.includes("same => n,Dial(PJSIP/t1_1001&PJSIP/t1_1001_web,30)"));
+  const internal = ext.slice(ext.indexOf("[t1-internal]"), ext.indexOf("[t1-agent]"));
+  assert.ok(internal.includes("same => n,Dial(${GOSUB_RETVAL},30)"));
 });
 
 test("kuyruk üyesi Local kanalı, durum hint'ten, mola veritabanından", () => {
@@ -262,4 +265,19 @@ test("aktarma: her kuyruk kendi kiracısının internal context'inde q-<ad> ile 
   const internal = ext.slice(ext.indexOf("[t1-internal]"), ext.indexOf("[t1-agent]"));
   assert.ok(internal.includes("exten => q-destek,1,Goto(t1-queue-destek,s,1)"));
   assert.ok(!internal.includes("t2"));
+});
+
+test("menü tuşu doğrudan dahiliyi çaldırabilir (ext:), yalnızca kendi kiracısının dahilisini", () => {
+  const ext = renderTenant(
+    tenant(1, {
+      menus: [{ name: "ana", timeoutS: 5, maxTries: 3, defaultTarget: "ext:1002", options: [{ digit: "3", target: "ext:1001" }, { digit: "4", target: "ext:1999" }] }],
+    }),
+  )["extensions.conf"];
+  assert.ok(ext.includes("exten => 3,1,Goto(t1-ext,1001,1)"));
+  assert.ok(!ext.includes("exten => 4,1"), "tanımsız dahiliye tuş üretilmez");
+  const x = ext.slice(ext.indexOf("[t1-ext]"), ext.indexOf("[t1-internal]"));
+  assert.ok(x.includes("Gosub(santralio-lib,devices,1(t1_1001))"));
+  assert.ok(x.includes('ExecIf($["${GOSUB_RETVAL}" != ""]?Dial(${GOSUB_RETVAL},30,b(santralio-lib^agent-headers^1)))'));
+  assert.ok(x.includes("hangup_handler_push)=santralio-lib,ext-done,1(t1_ext-1001,1001)"));
+  assert.ok(x.includes("Playback(/var/lib/asterisk/sounds/santralio/t1/ext-unavailable)"));
 });
