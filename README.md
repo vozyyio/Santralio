@@ -109,7 +109,10 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 | `infra/asterisk/` | Ortak Asterisk ayarları, kurulum betiği (`deploy.sh`), sertifika kancası ve ret testi |
 | `infra/fail2ban/` | Asterisk için fail2ban jail'i |
 | `infra/firewall-sync.sh` | Operatör IP aralıklarını 5060 için ufw iznine çevirir (yalnızca ekler) |
-| `control/` | Kontrol servisi (Node 22 + TypeScript): şema, şifreleme, konfigürasyon üretici, CLI |
+| `control/` | Kontrol servisi (Node 22 + TypeScript): şema, şifreleme, konfigürasyon üretici, CLI, yönetim API'si |
+| `web/` | Yönetim paneli (React + TypeScript + Vite): https://panel.santralio.site |
+| `infra/caddy/` | HTTPS ters vekil (Caddy): panel ve `/api`; yalnızca Cloudflare'den gelen bağlantılar |
+| `infra/web-deploy.sh` | Paneli derler, `/opt/santralio/web` altına kurar, Caddy'yi yeniden yükler |
 
 ## Kurulum (sunucu)
 
@@ -165,6 +168,15 @@ santralio user add yonetici@otel.com --role tenant_admin --tenant t2
 ```
 
 Yönetim API'si `santralio-api` servisi olarak `127.0.0.1:8090`'da çalışır (bkz. `docs/architecture.md`, "Yönetim API'si ve roller").
+
+Web paneli (`panel.santralio.site` Cloudflare'de proxy'li, SSL/TLS modu Full (strict)):
+
+```sh
+sudo apt install caddy
+sudo infra/web-deploy.sh        # paneli derler ve kurar; Caddy sertifikayı kendisi alır
+# sip.santralio.site sertifikası certbot ile webroot üzerinden yenilenir (80 portu Caddy'de):
+sudo certbot reconfigure --cert-name sip.santralio.site --webroot --webroot-path /var/lib/santralio-acme
+```
 
 Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu, kullanım dosyanın başında).
 

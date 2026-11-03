@@ -157,6 +157,14 @@ Hiyerarşi: **platform → bayi → kiracı (müşteri) → temsilci**. Web pane
 - Giriş denemeleri IP başına 15 dakikada 10 ile sınırlıdır.
 - CLI ve API aynı işlem modülünü (`control/src/ops.ts`) kullanır. Doğrulama kuralları tek yerde yazılır.
 
+### Web paneli
+
+- `panel.santralio.site` Cloudflare proxy'si arkasındadır. Caddy yalnızca Cloudflare IP'lerinden gelen bağlantıları kabul eder; böylece `CF-Connecting-IP` başlığına güvenilir ve giriş sınırı gerçek istemci IP'siyle çalışır.
+- Panel tek sayfalık bir React uygulamasıdır. Aynı alan adındaki `/api` Caddy tarafından yönetim API'sine iletilir.
+- Oturum belirteci `HttpOnly; Secure; SameSite=Strict` çerezde durur; JavaScript belirteci görmez. Çerezle gelen değişiklik istekleri yalnızca `https://panel.santralio.site` kaynağından kabul edilir (CSRF).
+- İçerik güvenlik politikası (CSP) yalnızca aynı kaynaktan betik, stil ve ses yüklenmesine izin verir.
+- Mobil uygulama aynı API'yi `Authorization: Bearer` belirteciyle kullanır.
+
 ## Depo yapısı
 
 ```

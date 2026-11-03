@@ -1,14 +1,28 @@
 // Santralio yönetim API'si. Web paneli ve mobil uygulama bu API'yi kullanır.
 // Yalnızca localhost'u dinler; dışarıya HTTPS ters vekil (reverse proxy) üzerinden açılır.
-// Kimlik: "Authorization: Bearer <belirteç>" (POST /api/login ile alınır).
+// Kimlik: mobil/uygulama "Authorization: Bearer <belirteç>", web paneli HttpOnly çerez.
+//   POST /api/login, "x-santralio-client: web" başlığıyla çağrılırsa belirteci çereze yazar ve gövdede döndürmez.
+//   Çerezle gelen değişiklik istekleri yalnızca panelin kaynağından (Origin) kabul edilir (CSRF).
 // Kullanıcının erişemediği kiracı için 404 döner: başka kiracıların varlığı dışarıdan anlaşılmaz.
 
+import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { join } from "node:path";
 import pg from "pg";
-import { reloadTenants } from "./ami.ts";
+import { Ami, reloadTenants } from "./ami.ts";
 import { renderAll } from "./apply.ts";
-import { burnTime, canAccessTenant, createSession, revokeSession, tenantScope, userBySession, verifyPassword, type User } from "./auth.ts";
-import { PG_DATABASE, PG_HOST } from "./config.ts";
+import {
+  burnTime,
+  canAccessTenant,
+  createSession,
+  revokeSession,
+  SESSION_DAYS,
+  tenantScope,
+  userBySession,
+  verifyPassword,
+  type User,
+} from "./auth.ts";
+import { PG_DATABASE, PG_HOST, SOUNDS_DIR } from "./config.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
 import { UserError, type Tenant } from "./ops.ts";
@@ -16,10 +30,31 @@ import { UserError, type Tenant } from "./ops.ts";
 const PORT = Number(process.env.SANTRALIO_API_PORT ?? 8090);
 const HOST = "127.0.0.1";
 const MAX_BODY = 64 * 1024;
+const PANEL_ORIGIN = process.env.SANTRALIO_PANEL_ORIGIN ?? "https://panel.santralio.site";
+const COOKIE = "santralio_session";
 
 const pool = new pg.Pool({ host: PG_HOST, database: PG_DATABASE, max: 5 });
 
-type Ctx = { req: IncomingMessage; db: Db; user: User | null; token: string | null; params: string[]; body: any; ip: string };
+type Ctx = {
+  req: IncomingMessage;
+  res: ServerResponse;
+  db: Db;
+  user: User | null;
+  token: string | null;
+  params: string[];
+  body: any;
+  ip: string;
+};
+
+// Uç nokta JSON yerine ham yanıt döndürmek isterse (ör. ses dosyası) bunu döndürür.
+class Raw {
+  type: string;
+  data: Buffer;
+  constructor(type: string, data: Buffer) {
+    this.type = type;
+    this.data = data;
+  }
+}
 type Handler = (ctx: Ctx) => Promise<unknown>;
 type Route = { method: string; pattern: RegExp; auth: boolean; handler: Handler };
 
@@ -111,18 +146,25 @@ route(
       throw new UserError("e-posta ya da şifre hatalı", 401);
     }
     const token = await createSession(ctx.db, u.id, ctx.ip);
+    const web = ctx.req.headers["x-santralio-client"] === "web";
     await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, 'user.login', $3)", [
       `api:${u.email}`,
       u.tenant_id,
       JSON.stringify({ ip: ctx.ip }),
     ]);
-    return { token, user: { email: u.email, name: u.name, role: u.role } };
+    const user = { email: u.email, name: u.name, role: u.role };
+    if (web) {
+      ctx.res.setHeader("set-cookie", `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=${SESSION_DAYS * 86400}`);
+      return { user };
+    }
+    return { token, user };
   },
   false,
 );
 
 route("POST", "/api/logout", async (ctx) => {
   await revokeSession(ctx.db, ctx.token!);
+  ctx.res.setHeader("set-cookie", `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=0`);
   return { ok: true };
 });
 
@@ -180,6 +222,36 @@ route("GET", "/api/tenants/:prefix", async (ctx) => {
          FROM schedules s WHERE s.tenant_id = $1 ORDER BY s.name`,
     ),
   };
+});
+
+// Anonsun üretilmiş sesi (8 kHz WAV), panelde dinlemek için.
+route("GET", "/api/tenants/:prefix/prompts/:name", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const name = ctx.params[1];
+  if (!/^(menu|queue|schedule)-[a-z0-9_]{1,32}(-invalid|-unavailable|-closed)?$/.test(name)) throw new UserError("bulunamadı", 404);
+  const data = await readFile(join(SOUNDS_DIR, t.prefix, `${name}.wav`)).catch(() => null);
+  if (!data) throw new UserError("bulunamadı", 404);
+  return new Raw("audio/wav", data);
+});
+
+// Canlı durum: operatör kaydı ve hangi dahililerin bağlı olduğu (Asterisk'ten).
+route("GET", "/api/tenants/:prefix/status", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const ami = await Ami.open();
+  try {
+    const regs = await ami.command("pjsip show registrations");
+    const contacts = await ami.command("pjsip show contacts");
+    const reg = regs.find((l) => l.includes(`${t.prefix}_trunk_reg/`));
+    const registration = reg ? (/(Registered|Unregistered|Rejected|Stopped|Retrying)/.exec(reg)?.[1] ?? "unknown") : "none";
+    const online = new Set<string>();
+    for (const l of contacts) {
+      const m = new RegExp(`Contact:\\s+${t.prefix}_(\\d{2,6})/\\S+\\s+\\S+\\s+(Avail|NonQual)`).exec(l);
+      if (m) online.add(m[1]);
+    }
+    return { registration, onlineExtensions: [...online].sort() };
+  } finally {
+    await ami.close();
+  }
 });
 
 route("POST", "/api/tenants/:prefix/extensions", async (ctx) => {
@@ -266,6 +338,10 @@ route("PUT", "/api/tenants/:prefix/entry-points/:address", async (ctx) => {
 // --- Sunucu ---
 
 function send(res: ServerResponse, status: number, body: unknown) {
+  if (body instanceof Raw) {
+    res.writeHead(status, { "content-type": body.type, "cache-control": "no-store", "x-content-type-options": "nosniff" });
+    return res.end(body.data);
+  }
   const data = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -293,6 +369,14 @@ async function readBody(req: IncomingMessage): Promise<any> {
   }
 }
 
+function cookieValue(req: IncomingMessage, name: string): string | null {
+  for (const part of String(req.headers.cookie ?? "").split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === name && v.length) return v.join("=");
+  }
+  return null;
+}
+
 // Ters vekil arkasında gerçek istemci adresi X-Forwarded-For'un son değeridir; vekil yalnızca localhost'tan gelir.
 function clientIp(req: IncomingMessage): string {
   const remote = req.socket.remoteAddress ?? "";
@@ -308,12 +392,17 @@ const server = createServer(async (req, res) => {
   const db = await pool.connect();
   try {
     const auth = String(req.headers.authorization ?? "");
-    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+    const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+    const cookie = cookieValue(req, COOKIE);
+    const token = bearer ?? cookie;
+    // CSRF: çerezle gelen değişiklik istekleri (ve web girişi) yalnızca panelin kaynağından kabul edilir.
+    const fromWeb = !bearer && (cookie !== null || req.headers["x-santralio-client"] === "web");
+    if (fromWeb && req.method !== "GET" && req.headers.origin !== PANEL_ORIGIN) return send(res, 403, { error: "geçersiz kaynak" });
     const user = token ? await userBySession(db, token) : null;
     if (r.auth && !user) return send(res, 401, { error: "oturum gerekli" });
     const params = (r.pattern.exec(url.pathname) ?? []).slice(1).map(decodeURIComponent);
     const body = await readBody(req);
-    const ctx = { req, db, user, token, params, body, ip: clientIp(req) };
+    const ctx = { req, res, db, user, token, params, body, ip: clientIp(req) };
     const result = req.method === "GET" ? await r.handler(ctx) : await tx(db, () => r.handler(ctx));
     if (pendingApply.has(db)) {
       pendingApply.delete(db);
