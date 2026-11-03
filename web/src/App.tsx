@@ -10,6 +10,7 @@ import { AgentDesk } from "./AgentDesk";
 import { Audit, Roles, Staff, SystemPage } from "./Admin";
 import { Contacts, DispositionsCard, FollowUps } from "./Crm";
 import { OutboundPolicyCard } from "./Outbound";
+import { PbxCard, PromptsTab } from "./Prompts";
 import { Calls, Reports } from "./Reports";
 import { api, ApiError, type AppName, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
 
@@ -230,6 +231,7 @@ const can = (me: Me, ...perms: string[]) => perms.some((p) => me.permissions.inc
 const PANEL_TABS: [string, string, string[]][] = [
   ["genel", "Genel", ["settings.manage"]],
   ["menuler", "Menüler", ["settings.manage"]],
+  ["anonslar", "Anonslar", ["settings.manage"]],
   ["saatler", "Çalışma saatleri", ["settings.manage"]],
   ["kuyruklar", "Kuyruklar", ["settings.manage"]],
   ["dahililer", "Dahililer", ["settings.manage"]],
@@ -271,6 +273,7 @@ function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; ta
       </div>
       <Tabs prefix={prefix} tabs={tabs} active={tab} />
       {tab === "genel" && <General t={t} reload={reload} />}
+      {tab === "anonslar" && <PromptsTab t={t} reload={reload} />}
       {tab === "menuler" && t.menus.map((m) => <MenuEditor key={m.name} t={t} menu={m} reload={reload} />)}
       {tab === "menuler" && t.menus.length === 0 && <p className="muted">Bu müşteride henüz menü yok.</p>}
       {tab === "saatler" && t.schedules.map((s) => <ScheduleEditor key={s.name} t={t} sc={s} reload={reload} />)}
@@ -385,6 +388,7 @@ function General({ t, reload }: { t: Tenant; reload: () => void }) {
   }, [t.prefix]);
   return (
     <div className="grid">
+      <PbxCard t={t} reload={reload} />
       <div className="card">
         <h3>Lisans</h3>
         {t.license ? (

@@ -48,6 +48,8 @@ export type TenantModel = {
   entryPoints: { address: string; flow: string; enabled: boolean }[];
   recording: { enabled: boolean };
   outbound?: Policy | null;
+  // Santral kapalıysa gelen aramalar menü, kuyruk ve çalışma saatine girmeden kapalı anonsunu duyar.
+  pbxOpen?: boolean;
 };
 
 // Dış arama: politika açık, hat var ve lisans aktifse.
@@ -363,13 +365,25 @@ exten => i,1,Goto(reject,s,1)
   };
 
   out.push(`\n[${p}-did]\n`);
+  const closedPbx = t.pbxOpen === false;
   for (const ep of t.entryPoints.filter((e) => e.enabled)) {
-    const dest = target(ep.flow);
+    const dest = closedPbx ? `${p}-pbxclosed,s,1` : target(ep.flow);
     if (!dest) continue;
     for (const d of didVariants(ep.address)) {
       assertId(d, "DID");
       out.push(`exten => ${d},1,Goto(${dest})\n`);
     }
+  }
+
+  if (closedPbx) {
+    out.push(`
+[${p}-pbxclosed]
+exten => s,1,Answer()
+ same => n,QueueLog(${p}__pbx_closed,${v("UNIQUEID")},NONE,SANTRALIO_CLOSED,${v("SANTRALIO_DID")}|${v("CALLERID(num)")})
+ same => n,Wait(0.5)
+ same => n,Playback(${promptPath(p, "pbx-closed")})
+ same => n,Hangup(16)
+`);
   }
 
   // Çalışma saatleri: önce tatil günleri, sonra açık aralıklar kontrol edilir.

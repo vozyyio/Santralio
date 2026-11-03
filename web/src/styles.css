@@ -142,3 +142,10 @@ button.x { padding: 0 6px; border: none; font-size: 1rem; line-height: 1; }
 .caller-panel h4 { margin-top: 12px; }
 
 .transfer.consult { border-top: 2px solid var(--accent); }
+
+.voices { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin: 8px 0; }
+.voice { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0; color: var(--text); }
+.voice.active { border-color: var(--accent); }
+.voice input { width: auto; margin: 0; }
+.prompt { border-top: 1px solid var(--line); padding: 12px 0; }
+.card.pbx.closed { border-color: var(--error); }

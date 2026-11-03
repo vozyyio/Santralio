@@ -238,6 +238,14 @@ Bilerek sonraya bırakılanlar:
 - **Beklet:** Görüşme içi yeniden davetle (re-INVITE, `sendonly`) yapılır. Beklemedeki tarafa kiracının bekleme müziği çalar (endpoint'te `moh_suggest`).
 - **Danışmalı aktarma:** Arayan beklemeye alınır, temsilci ikinci bir görüşme açar: bir dahili ya da, dış arama yetkisi varsa, politika içindeki bir numara. Temsilci iki görüşme arasında geçebilir. "Aktarımı tamamla" danışma görüşmesini arayanla değiştirir (REFER + Replaces); santral arayanı doğrudan danışılan kişiye bağlar, temsilcinin iki bağlantısı da kapanır. "Vazgeç" danışmayı kapatıp arayana döner. Danışma sırasında arayan kapatırsa danışma görüşmesi normal görüşme olarak sürer.
 
+## Anons sesleri ve santrali açıp kapatma
+
+- **Ses kataloğu** (`control/src/voices.ts`): Piper modelleri `/opt/santralio/voices` altından kendiliğinden bulunur (`<model>.onnx`, `<model>.onnx.json`, isteğe bağlı `<model>.label`). espeak-ng sesleri (sentetik kadın ve erkek) yedek olarak her zaman listededir. Yeni bir ses eklemek için dosyaları bu dizine koymak yeter.
+- **Ses seçimi:** Kiracı sesini panelden seçer (`tenants.tts_voice`); seçmeden önce her sesin örneğini dinleyebilir. Ses değişince bütün anonslar yeniden üretilir.
+- **Kadın sesi:** Bugün lisansı uygun, doğal bir Türkçe kadın sesi modeli yok; yalnızca sentetik espeak sesi var. Doğal kadın sesi için kiracı kendi kaydını yükler. İleride bir bulut TTS sağlayıcısı da kullanılabilir.
+- **Kendi kaydını yükleme** (`prompt_uploads`): Her anons için ses dosyası (mp3, wav, m4a, ogg, webm, flac; en fazla 12 MB, 5 dakika) yüklenir ya da tarayıcıdan mikrofona okunur. ffmpeg dosyayı 8 kHz tek kanala çevirir ve ses düzeyini dengeler. Yüklenen kayıt, anons metni değişse de aynen çalınır; kaldırılınca anons yeniden metinden üretilir.
+- **Santrali kapatma** (`tenants.pbx_open`): Kapalıyken bütün numaralara gelen aramalar, menü ve çalışma saatlerinden bağımsız olarak "santral kapalı" anonsunu duyup kapanır ve raporda mesai dışı olarak sayılır. İç aramalar ve dış aramalar etkilenmez. Açma ve kapatma işlem günlüğüne yazılır.
+
 ## CRM
 
 - **Müşteri kartı** (`contacts`, `contact_phones`): ad, firma, e-posta, etiketler ve en fazla 10 telefon. Telefonlar tek biçimde saklanır (`normalizeNumber`: "0532…", yurt dışı "0049…"); "+90 532…", "90532…" ve "532…" aynı numaradır. Bir numara kiracı içinde tek bir karta aittir. Kartlar kiracının `crm.use` yetkili bütün personeline ortaktır.

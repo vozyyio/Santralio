@@ -44,10 +44,19 @@ export type TenantRow = {
   max_channels: number | null;
 };
 export type Hours = { weekdays: string; opens: string; closes: string };
+export type PromptRow = {
+  name: string;
+  label: string;
+  text: string;
+  upload: { originalName: string; durationS: number; uploadedBy: string; uploadedAt: string } | null;
+};
 export type Tenant = {
   prefix: string;
   name: string;
   status: string;
+  voice: string;
+  pbxOpen: boolean;
+  pbxClosedText: string;
   recording: { enabled: boolean; retentionDays: number; noticeText: string };
   license: { source: string; active: boolean; valid_until: string | null; max_extensions: number; max_channels: number } | null;
   trunk: { operator: string; server: string; port: number; transport: string; username: string; enabled: boolean } | null;
@@ -190,6 +199,23 @@ export const api = {
   saveRole: (p: string, id: number, name: string, permissions: string[]) => call("PUT", `${t(p)}/roles/${id}`, { name, permissions }),
   deleteRole: (p: string, id: number) => call("DELETE", `${t(p)}/roles/${id}`),
   permissions: () => call<{ id: string; label: string }[]>("GET", "/api/permissions"),
+  voices: () => call<{ id: string; label: string }[]>("GET", "/api/voices"),
+  voiceSampleUrl: (id: string) => `/api/voices/${encodeURIComponent(id)}/sample`,
+  setVoice: (p: string, voice: string) => call("PUT", `${t(p)}/voice`, { voice }),
+  prompts: (p: string) => call<PromptRow[]>("GET", `${t(p)}/prompts`),
+  uploadPrompt: async (p: string, name: string, blob: Blob, filename: string) => {
+    const res = await fetch(`${t(p)}/prompts/${seg(name)}/upload`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "x-santralio-client": "web", "content-type": blob.type || "application/octet-stream", "x-filename": encodeURIComponent(filename) },
+      body: blob,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error ?? `HTTP ${res.status}`);
+    return data as { ok: true; durationS: number };
+  },
+  removePromptUpload: (p: string, name: string) => call("DELETE", `${t(p)}/prompts/${seg(name)}/upload`),
+  setPbx: (p: string, open: boolean, closedText: string) => call("PUT", `${t(p)}/pbx`, { open, closedText }),
   outboundPolicy: (p: string) => call<PolicyView>("GET", `${t(p)}/outbound-policy`),
   contacts: (p: string, q: string) => call<Contact[]>("GET", `${t(p)}/contacts?q=${encodeURIComponent(q)}`),
   contact: (p: string, id: number) => call<ContactDetail>("GET", `${t(p)}/contacts/${id}`),
