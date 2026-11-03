@@ -4,8 +4,9 @@
 export interface SpeechToText {
   // Arayanın sesi (slin, 8 kHz) parça parça verilir.
   write(frame: Buffer): void;
-  // onPartial: konuşma sürerken ara metin (söze girmeyi algılamak için); onFinal: tamamlanmış cümle.
-  start(onPartial: (text: string) => void, onFinal: (text: string) => void): Promise<void>;
+  // onPartial: konuşma sürerken ara metin (söze girmeyi algılamak için); onFinal: tamamlanmış cümle ve
+  // (birden çok aday dil varsa) tanınan dil.
+  start(onPartial: (text: string) => void, onFinal: (text: string, language?: string) => void): Promise<void>;
   stop(): Promise<void>;
   // Faturalanan ses süresi (saniye).
   readonly seconds: number;
@@ -17,13 +18,14 @@ export interface TextToSpeech {
 }
 
 export type Route = { target: string; description: string };
-export type Turn = { role: "caller" | "assistant"; text: string };
+export type Turn = { role: "caller" | "assistant"; text: string; language?: string };
 
 export type Decision = {
   action: "say" | "transfer" | "end";
   say: string; // arayana söylenecek (aktarma ve kapatmada kısa bir cümle)
   target: string | null; // yalnızca "transfer" için; routes içinden
-  summary: string | null; // temsilciye bırakılacak özet (aktarmada)
+  summary: string | null; // temsilciye bırakılacak özet (aktarmada; her zaman Türkçe)
+  language: string; // "say" cümlesinin dili (seslendirme sesi buna göre seçilir)
   inputTokens: number;
   outputTokens: number;
 };
@@ -34,6 +36,7 @@ export type FlowContext = {
   routes: Route[];
   defaultTarget: string | null;
   model: string;
+  languages: string[]; // arayanın konuşabileceği diller (ilk: ana dil)
 };
 
 export interface LanguageModel {

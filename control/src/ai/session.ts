@@ -3,6 +3,7 @@
 // Hiçbir durumda çağrı düşürülmez: hata, sessizlik, tur sınırı ya da süre aşımında varsayılan yere aktarılır.
 
 import { FRAME_BYTES, FRAME_MS } from "./audiosocket.ts";
+import { lang, voiceFor } from "./languages.ts";
 import type { FlowContext, LanguageModel, SpeechToText, TextToSpeech, Turn } from "./providers.ts";
 
 export type Result = {
@@ -10,6 +11,7 @@ export type Result = {
   summary: string | null;
   reason: "transfer" | "end" | "max_turns" | "silence" | "error" | "hangup" | "timeout";
   history: Turn[];
+  language: string; // görüşmenin son dili
   inputTokens: number;
   outputTokens: number;
   error?: string;
@@ -25,18 +27,31 @@ export class CallSession {
   private llm: LanguageModel;
   private send: (frame: Buffer) => void;
   private voice: string;
-  private finals: string[] = [];
+  private languages: string[];
+  private finals: { text: string; language?: string }[] = [];
   private waiter: (() => void) | null = null;
   private playing: { started: number; stop: boolean } | null = null;
   closed = false;
   history: Turn[] = [];
+  // Konuşulan dil: karşılamada arayanın numarasına göre, sonra tanınan dile ve modelin yanıt diline göre değişir.
+  language: string;
 
-  constructor(deps: { stt: SpeechToText; tts: TextToSpeech; llm: LanguageModel; send: (f: Buffer) => void; voice: string }) {
+  constructor(deps: {
+    stt: SpeechToText;
+    tts: TextToSpeech;
+    llm: LanguageModel;
+    send: (f: Buffer) => void;
+    voice: string;
+    languages?: string[];
+    language?: string;
+  }) {
     this.stt = deps.stt;
     this.tts = deps.tts;
     this.llm = deps.llm;
     this.send = deps.send;
     this.voice = deps.voice;
+    this.languages = deps.languages ?? ["tr-TR"];
+    this.language = deps.language && this.languages.includes(deps.language) ? deps.language : this.languages[0];
   }
 
   // Arayanın sesi.
@@ -56,16 +71,16 @@ export class CallSession {
     if (this.playing && text.trim().length >= 3 && Date.now() - this.playing.started > BARGE_IN_AFTER_MS) this.playing.stop = true;
   };
 
-  private onFinal = (text: string) => {
-    this.finals.push(text);
+  private onFinal = (text: string, language?: string) => {
+    this.finals.push({ text, language: language && this.languages.includes(language) ? language : undefined });
     this.waiter?.();
   };
 
   // Sesi gerçek zamanlı hızda, 20 ms'lik çerçevelerle gönderir; söze girilirse ya da çağrı kapanırsa durur.
   async speak(text: string) {
     if (this.closed || !text.trim()) return;
-    const pcm = await this.tts.synthesize(text, this.voice);
-    this.history.push({ role: "assistant", text });
+    const pcm = await this.tts.synthesize(text, voiceFor(this.language, this.voice));
+    this.history.push({ role: "assistant", text, language: this.language });
     const state = { started: Date.now(), stop: false };
     this.playing = state;
     const t0 = Date.now();
@@ -80,13 +95,14 @@ export class CallSession {
     this.playing = null;
   }
 
-  private async nextUtterance(timeoutMs: number): Promise<string | null> {
+  private async nextUtterance(timeoutMs: number): Promise<{ text: string; language?: string } | null> {
     const deadline = Date.now() + timeoutMs;
     while (!this.closed) {
       if (this.finals.length) {
         // Kısa aralıkla gelen parçalar tek cümle sayılır.
         await new Promise((r) => setTimeout(r, 300));
-        return this.finals.splice(0).join(" ");
+        const parts = this.finals.splice(0);
+        return { text: parts.map((p) => p.text).join(" "), language: parts.map((p) => p.language).filter(Boolean).pop() };
       }
       const left = deadline - Date.now();
       if (left <= 0) return null;
@@ -105,7 +121,14 @@ export class CallSession {
   async run(flow: FlowContext, greeting: string, maxTurns: number): Promise<Result> {
     let inputTokens = 0;
     let outputTokens = 0;
-    const done = (r: Omit<Result, "history" | "inputTokens" | "outputTokens">): Result => ({ ...r, history: this.history, inputTokens, outputTokens });
+    const done = (r: Omit<Result, "history" | "language" | "inputTokens" | "outputTokens">): Result => ({
+      ...r,
+      history: this.history,
+      language: this.language,
+      inputTokens,
+      outputTokens,
+    });
+    const say = (key: "transfer" | "notHeard") => this.speak(lang(this.language)[key]);
     const started = Date.now();
     try {
       await this.stt.start(this.onPartial, this.onFinal);
@@ -114,25 +137,28 @@ export class CallSession {
       for (let turn = 0; turn < maxTurns; turn++) {
         if (this.closed) return done({ target: null, summary: null, reason: "hangup" });
         if (Date.now() - started > MAX_CALL_MS) {
-          await this.speak("Sizi bir temsilcimize aktarıyorum.");
+          await say("transfer");
           return done({ target: null, summary: null, reason: "timeout" });
         }
-        const text = await this.nextUtterance(SILENCE_MS);
+        const heard = await this.nextUtterance(SILENCE_MS);
         if (this.closed) return done({ target: null, summary: null, reason: "hangup" });
-        if (!text) {
+        if (!heard) {
           if (++silent >= 2) {
-            await this.speak("Sizi bir temsilcimize aktarıyorum.");
+            await say("transfer");
             return done({ target: null, summary: null, reason: "silence" });
           }
-          await this.speak("Sizi duyamadım. Size nasıl yardımcı olabilirim?");
+          await say("notHeard");
           turn--;
           continue;
         }
         silent = 0;
-        this.history.push({ role: "caller", text });
+        if (heard.language) this.language = heard.language;
+        this.history.push({ role: "caller", text: heard.text, language: heard.language });
         const d = await this.llm.decide(flow, this.history);
         inputTokens += d.inputTokens;
         outputTokens += d.outputTokens;
+        // Model arayanın diline geçtiyse (ya da dil tanıma yanıldıysa) ses modelin yanıt diline uyar.
+        if (this.languages.includes(d.language)) this.language = d.language;
         if (d.action === "say") {
           await this.speak(d.say);
           continue;
@@ -141,7 +167,7 @@ export class CallSession {
         if (d.action === "end") return done({ target: "hangup", summary: d.summary, reason: "end" });
         return done({ target: d.target, summary: d.summary, reason: "transfer" });
       }
-      await this.speak("Sizi bir temsilcimize aktarıyorum.");
+      await say("transfer");
       return done({ target: null, summary: null, reason: "max_turns" });
     } catch (e) {
       return done({ target: null, summary: null, reason: "error", error: e instanceof Error ? e.message : String(e) });

@@ -3,6 +3,11 @@
 import { audit, type Db } from "./db.ts";
 import { assertTarget, UserError, type Tenant } from "./ops.ts";
 import { listVoices } from "./voices.ts";
+import { DEFAULT_LANG, isLang, LANGUAGES } from "./ai/languages.ts";
+
+// Panel için dil listesi (varsayılan karşılama kiracının adıyla).
+export const aiLanguages = (company: string) =>
+  LANGUAGES.map((l) => ({ code: l.code, label: l.label, flag: l.flag, defaultGreeting: l.greeting(company) }));
 
 // Yapay zekâ karşılamasında kullanılabilecek sesler: Azure'un doğal Türkçe sesleri ve yerel Piper sesleri.
 export const AZURE_VOICES = [
@@ -25,6 +30,8 @@ export type FlowInput = {
   maxTurns: number;
   voice: string;
   model: string;
+  languages: string[];
+  greetings: Record<string, string>;
 };
 
 export async function saveFlow(db: Db, t: Tenant, name: string, f: FlowInput, actor?: string) {
@@ -49,12 +56,24 @@ export async function saveFlow(db: Db, t: Tenant, name: string, f: FlowInput, ac
   if (!Number.isInteger(f.maxTurns) || f.maxTurns < 1 || f.maxTurns > 10) throw new UserError("tur sınırı 1–10 olmalı");
   if (!aiVoices().some((v) => v.id === f.voice)) throw new UserError("ses bulunamadı");
   if (!AI_MODELS.some((m) => m.id === f.model)) throw new UserError("model bulunamadı");
+  if (!Array.isArray(f.languages) || !f.languages.every(isLang)) throw new UserError("bilinmeyen dil");
+  // Türkçe her zaman açık ve ilk sırada (yurt içi aramalar).
+  const languages = [DEFAULT_LANG, ...LANGUAGES.map((l) => l.code).filter((c) => c !== DEFAULT_LANG && f.languages.includes(c))];
+  const greetings: Record<string, string> = {};
+  if (f.greetings != null && (typeof f.greetings !== "object" || Array.isArray(f.greetings))) throw new UserError("greetings nesne olmalı");
+  for (const [code, text] of Object.entries(f.greetings ?? {})) {
+    if (!isLang(code) || code === DEFAULT_LANG || typeof text !== "string" || text.length > 500) throw new UserError(`geçersiz karşılama: ${code}`);
+    if (languages.includes(code) && text.trim()) greetings[code] = text.trim();
+  }
   await db.query(
-    `INSERT INTO ai_flows (tenant_id, name, enabled, greeting_text, instructions, routes, default_target, max_turns, voice, model)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO ai_flows (tenant_id, name, enabled, greeting_text, instructions, routes, default_target, max_turns, voice, model, languages, greetings)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (tenant_id, name) DO UPDATE SET enabled = $3, greeting_text = $4, instructions = $5, routes = $6,
-       default_target = $7, max_turns = $8, voice = $9, model = $10, updated_at = now()`,
-    [t.id, name, f.enabled, f.greetingText.trim(), f.instructions ?? "", JSON.stringify(f.routes), f.defaultTarget, f.maxTurns, f.voice, f.model],
+       default_target = $7, max_turns = $8, voice = $9, model = $10, languages = $11, greetings = $12, updated_at = now()`,
+    [
+      t.id, name, f.enabled, f.greetingText.trim(), f.instructions ?? "", JSON.stringify(f.routes), f.defaultTarget, f.maxTurns, f.voice, f.model,
+      languages, JSON.stringify(greetings),
+    ],
   );
-  await audit(db, "ai.flow", t.id, { name, enabled: f.enabled, routes: f.routes.map((r) => r.target), model: f.model, voice: f.voice }, actor);
+  await audit(db, "ai.flow", t.id, { name, enabled: f.enabled, routes: f.routes.map((r) => r.target), model: f.model, voice: f.voice, languages }, actor);
 }

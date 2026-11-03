@@ -54,7 +54,10 @@ export type AiFlow = {
   maxTurns: number;
   voice: string;
   model: string;
+  languages: string[];
+  greetings: Record<string, string>;
 };
+export type AiLanguage = { code: string; label: string; flag: string; defaultGreeting: string };
 export type AiInfo = {
   enabled: boolean;
   editable: boolean;
@@ -63,6 +66,7 @@ export type AiInfo = {
   service: { fake: boolean; azure: boolean; anthropic: boolean; region: string } | null;
   voices: { id: string; label: string }[];
   models: { id: string; label: string }[];
+  languages: AiLanguage[];
 };
 export type PromptRow = {
   name: string;
@@ -225,7 +229,7 @@ export const api = {
   saveAiFlow: (p: string, name: string, flow: AiFlow) => call("PUT", `${t(p)}/ai/flows/${seg(name)}`, flow),
   aiSessions: (p: string, from: string, to: string) => call<any[]>("GET", `${t(p)}/ai/sessions?from=${from}&to=${to}`),
   aiSummary: (p: string, callid: string) =>
-    call<{ summary: string | null; transcript: { role: string; text: string }[] } | null>("GET", `${t(p)}/ai/summary?callid=${encodeURIComponent(callid)}`),
+    call<{ summary: string | null; transcript: { role: string; text: string }[]; language: string | null } | null>("GET", `${t(p)}/ai/summary?callid=${encodeURIComponent(callid)}`),
   voices: () => call<{ id: string; label: string }[]>("GET", "/api/voices"),
   voiceSampleUrl: (id: string) => `/api/voices/${encodeURIComponent(id)}/sample`,
   setVoice: (p: string, voice: string) => call("PUT", `${t(p)}/voice`, { voice }),
