@@ -30,7 +30,7 @@ import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
 import { listCalls, parseRange, summary, type CallRow } from "./reports.ts";
 import * as crm from "./crm.ts";
-import { AI_MODELS, aiVoices, saveFlow } from "./aiops.ts";
+import { AI_MODELS, aiLanguages, aiVoices, saveFlow } from "./aiops.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
 import { dialPatterns, TEMPLATES, type Policy } from "./outbound.ts";
@@ -548,7 +548,7 @@ route("GET", "/api/tenants/:prefix/ai", async (ctx) => {
   const flows = (
     await ctx.db.query(
       `SELECT name, enabled, greeting_text AS "greetingText", instructions, routes, default_target AS "defaultTarget",
-              max_turns AS "maxTurns", voice, model FROM ai_flows WHERE tenant_id = $1 ORDER BY name`,
+              max_turns AS "maxTurns", voice, model, languages, greetings FROM ai_flows WHERE tenant_id = $1 ORDER BY name`,
       [t.id],
     )
   ).rows;
@@ -563,7 +563,7 @@ route("GET", "/api/tenants/:prefix/ai", async (ctx) => {
   ).rows[0];
   // Servisin anahtar durumu (anahtarların kendisi değil): santralio-ai açılışta yazar.
   const status = await readFile(AI_STATUS_FILE, "utf8").then((x) => JSON.parse(x), () => null);
-  return { enabled: row.ai_enabled, editable: ctx.user!.role === "platform_admin", flows, usage, service: status, voices: aiVoices(), models: AI_MODELS };
+  return { enabled: row.ai_enabled, editable: ctx.user!.role === "platform_admin", flows, usage, service: status, voices: aiVoices(), models: AI_MODELS, languages: aiLanguages(t.name) };
 });
 
 route("PUT", "/api/tenants/:prefix/ai/enabled", async (ctx) => {
@@ -596,6 +596,8 @@ route("PUT", "/api/tenants/:prefix/ai/flows/:name", async (ctx) => {
       maxTurns: b.maxTurns,
       voice: str(b.voice, "voice"),
       model: str(b.model, "model"),
+      languages: b.languages ?? ["tr-TR"],
+      greetings: b.greetings ?? {},
     },
     actor(ctx),
   );
@@ -612,7 +614,7 @@ route("GET", "/api/tenants/:prefix/ai/sessions", async (ctx) => {
     await ctx.db.query(
       `SELECT id, flow, callid, caller, did, to_char(started_at AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD HH24:MI:SS') AS started,
               EXTRACT(EPOCH FROM (ended_at - started_at))::int AS "durationS", route_target AS target, summary, transcript,
-              end_reason AS reason, error
+              end_reason AS reason, error, language
          FROM ai_sessions WHERE tenant_id = $1
           AND started_at >= ($2::date::timestamp AT TIME ZONE 'Europe/Istanbul') AND started_at < (($3::date + 1)::timestamp AT TIME ZONE 'Europe/Istanbul')
         ORDER BY started_at DESC LIMIT 500`,
@@ -628,7 +630,7 @@ route("GET", "/api/tenants/:prefix/ai/summary", async (ctx) => {
   if (!/^\d{6,12}\.\d{1,8}$/.test(callid)) throw new UserError("bulunamadı", 404);
   const s = (
     await ctx.db.query(
-      "SELECT summary, transcript, route_target AS target FROM ai_sessions WHERE tenant_id = $1 AND callid = $2 ORDER BY id DESC LIMIT 1",
+      "SELECT summary, transcript, route_target AS target, language FROM ai_sessions WHERE tenant_id = $1 AND callid = $2 ORDER BY id DESC LIMIT 1",
       [t.id, callid],
     )
   ).rows[0];

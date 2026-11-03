@@ -12,13 +12,23 @@ export class AzureStt implements SpeechToText {
   private recognizer: sdk.SpeechRecognizer;
   private bytes = 0;
 
-  constructor(key: string, region: string, language = "tr-TR") {
+  private multi: boolean;
+
+  // Tek dil: o dilde tanıma. Birden çok dil: sürekli dil tanıma (her cümlede dil yeniden belirlenir; en fazla 10 aday).
+  constructor(key: string, region: string, languages: string[] = ["tr-TR"]) {
     const config = sdk.SpeechConfig.fromSubscription(key, region);
-    config.speechRecognitionLanguage = language;
     // Arayan susunca cümleyi daha çabuk kapat (varsayılan ~1 sn).
     config.setProperty(sdk.PropertyId.Speech_SegmentationSilenceTimeoutMs, "700");
     this.push = sdk.AudioInputStream.createPushStream(sdk.AudioStreamFormat.getWaveFormatPCM(8000, 16, 1));
-    this.recognizer = new sdk.SpeechRecognizer(config, sdk.AudioConfig.fromStreamInput(this.push));
+    const audio = sdk.AudioConfig.fromStreamInput(this.push);
+    this.multi = languages.length > 1;
+    if (this.multi) {
+      config.setProperty(sdk.PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous");
+      this.recognizer = sdk.SpeechRecognizer.FromConfig(config, sdk.AutoDetectSourceLanguageConfig.fromLanguages(languages.slice(0, 10)), audio);
+    } else {
+      config.speechRecognitionLanguage = languages[0];
+      this.recognizer = new sdk.SpeechRecognizer(config, audio);
+    }
   }
 
   get seconds() {
@@ -30,10 +40,12 @@ export class AzureStt implements SpeechToText {
     this.push.write(frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.length) as ArrayBuffer);
   }
 
-  start(onPartial: (t: string) => void, onFinal: (t: string) => void): Promise<void> {
+  start(onPartial: (t: string) => void, onFinal: (t: string, language?: string) => void): Promise<void> {
     this.recognizer.recognizing = (_s, e) => onPartial(e.result.text);
     this.recognizer.recognized = (_s, e) => {
-      if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text.trim()) onFinal(e.result.text.trim());
+      if (e.result.reason !== sdk.ResultReason.RecognizedSpeech || !e.result.text.trim()) return;
+      const language = this.multi ? sdk.AutoDetectSourceLanguageResult.fromResult(e.result).language || undefined : undefined;
+      onFinal(e.result.text.trim(), language);
     };
     return new Promise((resolve, reject) => this.recognizer.startContinuousRecognitionAsync(resolve, (err) => reject(new Error(err))));
   }
@@ -73,7 +85,7 @@ export class AzureTts implements TextToSpeech {
     const file = join(this.cacheDir, `${createHash("sha256").update(`${name}\n${text}`).digest("hex").slice(0, 32)}.raw`);
     const cached = await readFile(file).catch(() => null);
     if (cached) return cached;
-    const ssml = `<speak version="1.0" xml:lang="tr-TR"><voice name="${name}">${xml(text)}</voice></speak>`;
+    const ssml = `<speak version="1.0" xml:lang="${name.slice(0, 5)}"><voice name="${name}">${xml(text)}</voice></speak>`;
     const res = await fetch(`https://${this.region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
       method: "POST",
       headers: {

@@ -155,3 +155,4 @@ button.x { padding: 0 6px; border: none; font-size: 1rem; line-height: 1; }
 .transcript { margin-top: 8px; padding: 8px 10px; background: var(--bg); border-radius: 6px; }
 .transcript p { margin: 4px 0; font-size: 0.9rem; }
 .assistant-line { color: var(--muted); }
+.lang-note { font-weight: 600; }

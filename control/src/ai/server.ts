@@ -13,6 +13,7 @@ import { AzureStt, AzureTts } from "./azure.ts";
 import { ClaudeModel } from "./claude.ts";
 import { FakeModel, FakeStt, PiperTts } from "./local.ts";
 import type { FlowContext, LanguageModel, Route, SpeechToText, TextToSpeech } from "./providers.ts";
+import { DEFAULT_LANG, greetingLanguage, lang, LANGUAGES } from "./languages.ts";
 import { CallSession, type Result } from "./session.ts";
 
 const PORT = Number(process.env.SANTRALIO_AI_PORT ?? 9092);
@@ -61,6 +62,19 @@ async function context(uuid: string) {
 async function finish(uuid: string, target: string) {
   if (!safe(target)) throw new Error(`güvensiz hedef: ${target}`);
   await amiCommand(`database put santralio_ai ${uuid}/route ${target || "default"}`);
+}
+
+// Ses adına göre Azure ya da Piper (Türkçe Piper sesi seçili akışta yabancı dil Azure'dan okunur).
+class MixedTts implements TextToSpeech {
+  azure: AzureTts;
+  private piper: PiperTts;
+  constructor(azure: AzureTts, piper: PiperTts) {
+    this.azure = azure;
+    this.piper = piper;
+  }
+  synthesize(text: string, voice: string) {
+    return voice.startsWith("azure:") ? this.azure.synthesize(text, voice) : this.piper.synthesize(text, voice);
+  }
 }
 
 async function handle(sock: Socket) {
@@ -116,6 +130,8 @@ async function handle(sock: Socket) {
       : null;
     if (!t?.ai_enabled || !flow?.enabled) throw new Error("yapay zekâ bu kiracıda ya da akışta kapalı");
     routes = (flow.routes as Route[]).filter((r) => r && typeof r.target === "string");
+    // Türkçe her zaman ilk aday (yurt içi aramalar); diğerleri akışta seçilenler.
+    const languages = [...new Set([DEFAULT_LANG, ...(flow.languages as string[])])].filter((c) => LANGUAGES.some((l) => l.code === c));
 
     let stt: SpeechToText;
     let llm: LanguageModel;
@@ -126,14 +142,18 @@ async function handle(sock: Socket) {
       tts = new PiperTts();
     } else {
       if (!AZURE_KEY || !ANTHROPIC_KEY) throw new Error("Azure Speech ya da Anthropic anahtarı tanımlı değil");
-      stt = new AzureStt(AZURE_KEY, REGION);
+      stt = new AzureStt(AZURE_KEY, REGION, languages);
       llm = new ClaudeModel(ANTHROPIC_KEY);
-      tts = String(flow.voice).startsWith("azure:") ? new AzureTts(AZURE_KEY, REGION, CACHE) : new PiperTts();
+      tts = new MixedTts(new AzureTts(AZURE_KEY, REGION, CACHE), new PiperTts());
     }
-    session = new CallSession({ stt, tts, llm, send, voice: flow.voice });
+    // Karşılama, arayanın numarasının ülkesine göre seçilen dilde; sonra arayan hangi dilde konuşursa o dilde.
+    const first = greetingLanguage(ctx.caller ?? "", languages);
+    const greeting =
+      (flow.greetings as Record<string, string>)[first]?.trim() || (first === DEFAULT_LANG ? flow.greeting_text : lang(first).greeting(t.name));
+    session = new CallSession({ stt, tts, llm, send, voice: flow.voice, languages, language: first });
     for (const f of pending.splice(0)) session.audio(f);
-    const fc: FlowContext = { company: t.name, instructions: flow.instructions, routes, defaultTarget: flow.default_target, model: flow.model };
-    const result = await session.run(fc, flow.greeting_text, flow.max_turns);
+    const fc: FlowContext = { company: t.name, instructions: flow.instructions, routes, defaultTarget: flow.default_target, model: flow.model, languages };
+    const result = await session.run(fc, greeting, flow.max_turns);
     // Model listede olmayan bir hedef seçerse varsayılan kullanılır.
     const target = result.target === "hangup" ? "hangup" : routes.some((r) => r.target === result.target) ? result.target! : "default";
     await save(db, sessionId, result, target, tts, stt);
@@ -154,7 +174,7 @@ async function save(db: pg.PoolClient, id: number | null, r: Result, target: str
   if (!id) return;
   await db.query(
     `UPDATE ai_sessions SET ended_at = now(), route_target = $2, summary = $3, transcript = $4, end_reason = $5,
-            stt_seconds = $6, tts_chars = $7, llm_input_tokens = $8, llm_output_tokens = $9, error = $10 WHERE id = $1`,
+            stt_seconds = $6, tts_chars = $7, llm_input_tokens = $8, llm_output_tokens = $9, error = $10, language = $11 WHERE id = $1`,
     [
       id,
       target,
@@ -162,10 +182,11 @@ async function save(db: pg.PoolClient, id: number | null, r: Result, target: str
       JSON.stringify(r.history),
       r.reason,
       Math.round(stt.seconds * 10) / 10,
-      tts instanceof AzureTts ? tts.chars : 0,
+      tts instanceof MixedTts ? tts.azure.chars : 0,
       r.inputTokens,
       r.outputTokens,
       r.error ?? null,
+      r.language,
     ],
   );
 }

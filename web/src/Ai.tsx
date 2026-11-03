@@ -18,6 +18,19 @@ const NEW_FLOW: AiFlow = {
   maxTurns: 4,
   voice: "azure:tr-TR-EmelNeural",
   model: "claude-haiku-5-5",
+  languages: ["tr-TR"],
+  greetings: {},
+};
+
+// Dil kodu -> bayrak ve ad (görüşme listesi ve temsilci özeti için; sunucudaki katalogla aynı).
+const LANG: Record<string, [string, string]> = {
+  "tr-TR": ["🇹🇷", "Türkçe"],
+  "en-US": ["🇬🇧", "İngilizce"],
+  "de-DE": ["🇩🇪", "Almanca"],
+  "ru-RU": ["🇷🇺", "Rusça"],
+  "ar-SA": ["🇸🇦", "Arapça"],
+  "fr-FR": ["🇫🇷", "Fransızca"],
+  "it-IT": ["🇮🇹", "İtalyanca"],
 };
 
 function targetOptions(t: Tenant) {
@@ -131,6 +144,46 @@ function FlowEditor({ t, flow, info, onSaved, isNew }: { t: Tenant; flow: AiFlow
         Asistanın bilmesi gerekenler (şirket, hizmetler, sık sorular, çalışma şekli; arayana okunmaz)
         <textarea rows={6} value={f.instructions} onChange={(e) => set({ instructions: e.target.value })} maxLength={8000} />
       </label>
+      <h4>Diller</h4>
+      <p className="muted small">
+        Türkçe her zaman açık. Karşılama arayanın numarasının ülkesine göre o dilde okunur (bilinmeyen yabancı numarada İngilizce, açıksa); arayan hangi
+        dilde konuşursa asistan o dilde ve o dilin doğal sesiyle devam eder (seçtiğiniz sesin cinsiyetinde). Temsilci özeti her zaman Türkçe görür.
+        Yalnızca gerçekten gereken dilleri açın: aday dil sayısı arttıkça tanıma yanılabilir.
+      </p>
+      <div className="row wrap">
+        {info.languages.map((l) => (
+          <label className="check" key={l.code}>
+            <input
+              type="checkbox"
+              disabled={l.code === "tr-TR"}
+              checked={l.code === "tr-TR" || f.languages.includes(l.code)}
+              onChange={(e) =>
+                set({ languages: e.target.checked ? [...f.languages, l.code] : f.languages.filter((c) => c !== l.code) })
+              }
+            />
+            {l.flag} {l.label}
+          </label>
+        ))}
+      </div>
+      {info.languages
+        .filter((l) => l.code !== "tr-TR" && f.languages.includes(l.code))
+        .map((l) => (
+          <label key={l.code}>
+            {l.flag} {l.label} karşılama (boş bırakılırsa hazır metin)
+            <textarea
+              rows={2}
+              dir={l.code.startsWith("ar") ? "rtl" : undefined}
+              placeholder={l.defaultGreeting}
+              value={f.greetings[l.code] ?? ""}
+              onChange={(e) => set({ greetings: { ...f.greetings, [l.code]: e.target.value } })}
+              maxLength={500}
+            />
+          </label>
+        ))}
+      <p className="muted small">
+        Dile göre aktarmak için bir yer ekleyip açıklamasına dili yazın, ör. “Almanca konuşan misafirler”. O dilde temsilci yoksa kuyruğun “müsait temsilci
+        yoksa” ayarı geçerlidir.
+      </p>
       <h4>Aktarılabilecek yerler</h4>
       {f.routes.map((r, i) => (
         <div className="row" key={i}>
@@ -235,7 +288,8 @@ export function AiSessions({ prefix }: { prefix: string }) {
             <li key={r.id}>
               <div className="row spread">
                 <span className="small">
-                  <span className="mono">{r.started}</span> · <span className="mono">{r.caller || "gizli"}</span> · {REASON[r.reason] ?? r.reason ?? "sürüyor"}
+                  <span className="mono">{r.started}</span> · <span className="mono">{r.caller || "gizli"}</span> ·{" "}
+                  {r.language && r.language !== "tr-TR" ? `${LANG[r.language]?.[0] ?? ""} ${LANG[r.language]?.[1] ?? r.language} · ` : ""} {REASON[r.reason] ?? r.reason ?? "sürüyor"}
                   {r.target && r.target !== "default" ? ` → ${r.target}` : r.target === "default" ? " → varsayılan" : ""} · {r.durationS ?? "–"} sn
                 </span>
                 <button className="ghost" onClick={() => setOpen(open === r.id ? null : r.id)}>
@@ -262,7 +316,7 @@ export function AiSessions({ prefix }: { prefix: string }) {
 }
 
 export function AiSummary({ prefix, callid }: { prefix: string; callid: string }) {
-  const [s, setS] = useState<{ summary: string | null; transcript: { role: string; text: string }[] } | null>(null);
+  const [s, setS] = useState<{ summary: string | null; transcript: { role: string; text: string }[]; language: string | null } | null>(null);
   useEffect(() => {
     api.aiSummary(prefix, callid).then(setS).catch(() => setS(null));
   }, [prefix, callid]);
@@ -271,6 +325,11 @@ export function AiSummary({ prefix, callid }: { prefix: string; callid: string }
   return (
     <div className="ai-summary">
       <strong>Arayanın derdi (yapay zekâ özeti)</strong>
+      {s.language && s.language !== "tr-TR" && (
+        <p className="lang-note">
+          {LANG[s.language]?.[0]} {LANG[s.language]?.[1] ?? s.language} konuşuyor
+        </p>
+      )}
       {s.summary && <p>{s.summary}</p>}
       {said.length > 0 && <p className="small muted">Söyledikleri: “{said.join(" … ")}”</p>}
     </div>
