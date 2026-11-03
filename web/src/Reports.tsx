@@ -1,7 +1,7 @@
 // Santralio: görüşme listesi ve raporlar (kuyruk olaylarından).
 
 import { useEffect, useState } from "react";
-import { api, type CallRow, type Outcome, type Summary, type Tenant } from "./api";
+import { api, type CallRow, type Outcome, type Summary } from "./api";
 
 const TZ = "Europe/Istanbul";
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
@@ -48,7 +48,9 @@ function useRange(): [string, string, (f: string, t: string) => void] {
   return [range[0], range[1], (f, t) => setRange([f, t])];
 }
 
-export function Calls({ t }: { t: Tenant }) {
+// own: yalnızca kendi görüşmelerini görme yetkisi (liste sunucuda süzülür; burada başlık için).
+export function Calls({ prefix, own = false }: { prefix: string; own?: boolean }) {
+  const t = { prefix };
   const [from, to, setRange] = useRange();
   const [rows, setRows] = useState<CallRow[] | null>(null);
   const [error, setError] = useState("");
@@ -59,7 +61,7 @@ export function Calls({ t }: { t: Tenant }) {
   }, [t.prefix, from, to]);
   return (
     <div className="card">
-      <h3>Görüşmeler</h3>
+      <h3>{own ? "Görüşmelerim" : "Görüşmeler"}</h3>
       <RangePicker from={from} to={to} onChange={setRange} />
       {error && <p className="error">{error}</p>}
       {!rows ? (
@@ -86,7 +88,7 @@ export function Calls({ t }: { t: Tenant }) {
                 <tr key={`${c.callid}-${c.queue}`}>
                   <td className="mono small">{c.started.slice(5, 16).replace("-", ".").replace(" ", " · ")}</td>
                   <td className="mono">{c.caller || <span className="muted">gizli</span>}</td>
-                  <td>{c.queue}</td>
+                  <td>{c.queue.startsWith("ext-") ? `Dahili ${c.queue.slice(4)}` : c.queue}</td>
                   <td>{c.agent ?? <span className="muted">–</span>}</td>
                   <td className="r">{mmss(c.wait_s)}</td>
                   <td className="r">{c.outcome === "answered" ? mmss(c.talk_s) : "–"}</td>
@@ -127,7 +129,8 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
   );
 }
 
-export function Reports({ t }: { t: Tenant }) {
+export function Reports({ prefix }: { prefix: string }) {
+  const t = { prefix };
   const [from, to, setRange] = useRange();
   const [s, setS] = useState<Summary | null>(null);
   const [error, setError] = useState("");
@@ -180,7 +183,7 @@ export function Reports({ t }: { t: Tenant }) {
                 <tbody>
                   {s.byQueue.map((q) => (
                     <tr key={q.queue}>
-                      <td>{q.queue}</td>
+                      <td>{q.queue.startsWith("ext-") ? `Dahili ${q.queue.slice(4)}` : q.queue}</td>
                       <td className="r">{num(q.offered)}</td>
                       <td className="r">{num(q.answered)}</td>
                       <td className="r">{num(q.abandoned + q.timeout + q.noAgent)}</td>

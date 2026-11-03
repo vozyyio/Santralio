@@ -84,9 +84,9 @@ if menu:
 
 print(f"{A} temsilcisi yönetemez")
 s, r = call("GET", "/api/me", tg)
-check("/api/me rolü agent", s == 200 and r.get("role") == "agent")
+check("/api/me: temsilci, panel açamaz", s == 200 and r.get("role") == "tenant_user" and "panel" not in r.get("apps", []))
 s, r = call("GET", "/api/tenants", tg)
-check("kiracı listesi boş", s == 200 and r == [])
+check("kiracı listesi yalnızca kendi kiracısı", s == 200 and [t["prefix"] for t in r] == [A])
 s, _ = call("GET", f"/api/tenants/{A}", tg)
 check(f"{A} ayarlarını göremez -> 404", s == 404)
 s, _ = call("PUT", f"/api/tenants/{A}/menus/ana", tg, {"text": "x"})

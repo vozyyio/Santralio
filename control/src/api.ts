@@ -12,8 +12,9 @@ import pg from "pg";
 import { Ami, reloadTenants } from "./ami.ts";
 import { renderAll } from "./apply.ts";
 import {
+  appsFor,
   burnTime,
-  canAccessTenant,
+  can,
   createSession,
   revokeSession,
   SESSION_DAYS,
@@ -28,13 +29,23 @@ import { recordingDir } from "./render.ts";
 import { listCalls, parseRange, summary } from "./reports.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
+import { ALL_PERMISSIONS, PERMISSIONS, type Permission } from "./permissions.ts";
 import { UserError, type Tenant } from "./ops.ts";
 
 const PORT = Number(process.env.SANTRALIO_API_PORT ?? 8090);
 const HOST = "127.0.0.1";
 const MAX_BODY = 64 * 1024;
-const PANEL_ORIGIN = process.env.SANTRALIO_PANEL_ORIGIN ?? "https://panel.santralio.site";
+// Üç adres: panel (ayarlar), crm (görüşmeler, raporlar, müşteriler), agent (temsilci masası).
+// Oturum çerezi ortak üst alan adına yazılır; tek girişle üç adres arasında geçilir.
+const BASE_DOMAIN = process.env.SANTRALIO_BASE_DOMAIN ?? "santralio.site";
+const ORIGINS = {
+  panel: `https://panel.${BASE_DOMAIN}`,
+  crm: `https://crm.${BASE_DOMAIN}`,
+  agent: `https://agent.${BASE_DOMAIN}`,
+} as const;
+const ALLOWED_ORIGINS = new Set<string>(Object.values(ORIGINS));
 const COOKIE = "santralio_session";
+const COOKIE_ATTRS = `HttpOnly; Secure; SameSite=Lax; Path=/; Domain=.${BASE_DOMAIN}`;
 
 const pool = new pg.Pool({ host: PG_HOST, database: PG_DATABASE, max: 5 });
 
@@ -90,13 +101,21 @@ function need(user: User | null): User {
   return user;
 }
 
-// Kiracıya erişimin tek kapısı.
-async function tenantFor(ctx: Ctx, prefix: string, level: "read" | "admin"): Promise<Tenant> {
+// Kiracıya erişimin tek kapısı: kapsam ve (verilirse) yetkilerden en az biri.
+// Erişilemeyen kiracı ile olmayan kiracı aynı yanıtı alır (404).
+async function tenantFor(ctx: Ctx, prefix: string, ...perms: Permission[]): Promise<Tenant> {
   const user = need(ctx.user);
   const t = await ops.tenantByPrefix(ctx.db, prefix).catch(() => null);
-  if (!t || !canAccessTenant(user, t, level)) throw new UserError("bulunamadı", 404);
-  if (level === "admin" && user.role === "agent") throw new UserError("bulunamadı", 404);
+  if (!t || !can(user, t, ...perms)) throw new UserError("bulunamadı", 404);
   return t;
+}
+
+const has = (ctx: Ctx, p: Permission) => need(ctx.user).permissions.includes(p);
+
+async function myExtension(ctx: Ctx): Promise<string | null> {
+  const id = need(ctx.user).extension_id;
+  if (!id) return null;
+  return (await ctx.db.query("SELECT number FROM extensions WHERE id = $1", [id])).rows[0]?.number ?? null;
 }
 
 const actor = (ctx: Ctx) => `api:${ctx.user!.email}`;
@@ -155,10 +174,11 @@ route(
       u.tenant_id,
       JSON.stringify({ ip: ctx.ip }),
     ]);
-    const user = { email: u.email, name: u.name, role: u.role };
+    const user = { email: u.email, name: u.name };
     if (web) {
-      // Yol "/" : çerez /api'nin yanında temsilci masasının WebSocket bağlantısında (/ws) da gerekir.
-      ctx.res.setHeader("set-cookie", `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_DAYS * 86400}`);
+      // Çerez üç adreste de geçerlidir (Domain=.<alan>) ve temsilci masasının WebSocket bağlantısında (/ws) da gönderilir.
+      // SameSite=Lax: adresler arasında bağlantıyla geçişte oturum korunur; değişiklik istekleri ayrıca Origin ile denetlenir.
+      ctx.res.setHeader("set-cookie", `${COOKIE}=${token}; ${COOKIE_ATTRS}; Max-Age=${SESSION_DAYS * 86400}`);
       return { user };
     }
     return { token, user };
@@ -173,7 +193,9 @@ route("POST", "/api/logout", async (ctx) => {
     ctx.user!.tenant_id,
     JSON.stringify({ ip: ctx.ip }),
   ]);
+  // Eski sürümlerin adrese özel çerezleri de silinir.
   ctx.res.setHeader("set-cookie", [
+    `${COOKIE}=; ${COOKIE_ATTRS}; Max-Age=0`,
     `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`,
     `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=0`,
   ]);
@@ -184,12 +206,65 @@ route("GET", "/api/me", async (ctx) => {
   const u = need(ctx.user);
   const tenant = u.tenant_id ? (await ctx.db.query("SELECT prefix, name FROM tenants WHERE id = $1", [u.tenant_id])).rows[0] : null;
   const ext = u.extension_id ? (await ctx.db.query("SELECT number FROM extensions WHERE id = $1", [u.extension_id])).rows[0] : null;
-  return { email: u.email, name: u.name, role: u.role, tenant, extension: ext?.number ?? null };
+  return {
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    roleName: u.role_name,
+    permissions: u.permissions,
+    apps: appsFor(u),
+    origins: ORIGINS,
+    tenant,
+    extension: ext?.number ?? null,
+  };
+});
+
+// Yetki kataloğu (rol ekranı için).
+route("GET", "/api/permissions", async () => Object.entries(PERMISSIONS).map(([id, label]) => ({ id, label })));
+
+// --- Roller ---
+
+route("GET", "/api/tenants/:prefix/roles", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
+  return (
+    await ctx.db.query(
+      `SELECT r.id, r.name, r.permissions, (SELECT count(*)::int FROM users u WHERE u.role_id = r.id AND NOT u.disabled) AS users
+         FROM roles r WHERE r.tenant_id = $1 ORDER BY r.id`,
+      [t.id],
+    )
+  ).rows;
+});
+
+function rolePermissions(v: unknown): Permission[] {
+  if (!Array.isArray(v) || v.some((p) => typeof p !== "string" || !(ALL_PERMISSIONS as string[]).includes(p))) {
+    throw new UserError("permissions geçerli yetki adlarından oluşan bir liste olmalı");
+  }
+  return [...new Set(v as Permission[])];
+}
+
+route("POST", "/api/tenants/:prefix/roles", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
+  return { id: await ops.saveRole(ctx.db, t, null, str(ctx.body?.name, "name"), rolePermissions(ctx.body?.permissions), actor(ctx)) };
+});
+
+route("PUT", "/api/tenants/:prefix/roles/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
+  const id = Number(ctx.params[1]);
+  const perms = rolePermissions(ctx.body?.permissions);
+  // Kendini kilitlememek için: kendi rolünden personel yönetimi yetkisi kaldırılamaz.
+  if (ctx.user!.role_id === id && !perms.includes("staff.manage")) throw new UserError("kendi rolünüzden personel yönetimi yetkisini kaldıramazsınız");
+  await ops.saveRole(ctx.db, t, id, str(ctx.body?.name, "name"), perms, actor(ctx));
+  return { ok: true };
+});
+
+route("DELETE", "/api/tenants/:prefix/roles/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
+  await ops.deleteRole(ctx.db, t, Number(ctx.params[1]), actor(ctx));
+  return { ok: true };
 });
 
 route("GET", "/api/tenants", async (ctx) => {
   const u = need(ctx.user);
-  if (u.role === "agent") return [];
   const scope = tenantScope(u);
   return (
     await ctx.db.query(
@@ -201,7 +276,7 @@ route("GET", "/api/tenants", async (ctx) => {
 });
 
 route("GET", "/api/tenants/:prefix", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "staff.manage");
   const q = (sql: string) => ctx.db.query(sql, [t.id]).then((r) => r.rows);
   // Gizli alanlar (trunk ve dahili şifreleri) hiçbir zaman döndürülmez.
   const [license] = await q("SELECT source, active, valid_until, max_extensions, max_channels, modules FROM licenses WHERE tenant_id = $1");
@@ -243,12 +318,13 @@ route("GET", "/api/tenants/:prefix", async (ctx) => {
 // Caddy, /ws (SIP-over-WebSocket) bağlantısını açmadan önce buraya sorar: yalnızca dahilisi olan
 // oturumlu kullanıcı geçer. SIP kimlik doğrulaması ayrıca Asterisk'te yapılır.
 route("GET", "/api/auth/ws", async (ctx) => {
-  if (!need(ctx.user).extension_id) throw new UserError("temsilci değil", 403);
+  if (!need(ctx.user).extension_id || !has(ctx, "agent.desk")) throw new UserError("temsilci masası yetkisi yok", 403);
   return { ok: true };
 });
 
 async function agentExtension(ctx: Ctx) {
   const u = need(ctx.user);
+  if (!has(ctx, "agent.desk")) throw new UserError("temsilci masası yetkisi yok", 403);
   if (!u.extension_id) throw new UserError("bu hesaba bağlı dahili yok", 404);
   const e = (
     await ctx.db.query(
@@ -282,7 +358,7 @@ route("GET", "/api/agent", async (ctx) => {
     pausedReason: e.paused_reason,
     queues,
     sip: {
-      wsServer: PANEL_ORIGIN.replace(/^http/, "ws") + "/ws",
+      wsServer: ORIGINS.agent.replace(/^http/, "ws") + "/ws",
       uri: `sip:${e.prefix}_${e.number}_web@sip.santralio.site`,
       username: `${e.prefix}_${e.number}_web`,
       password: open(e.secret_enc, aad.extension(e.tenant_id, e.number), masterKey(e.key_id)),
@@ -337,45 +413,56 @@ route("PUT", "/api/agent/pause", async (ctx) => {
 // --- Personel ---
 
 route("GET", "/api/tenants/:prefix/users", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
   return (
     await ctx.db.query(
-      `SELECT u.email, u.name, u.role, e.number AS extension, u.disabled, u.created_at,
+      `SELECT u.email, u.name, u.role_id AS "roleId", r.name AS "roleName", e.number AS extension, u.disabled, u.created_at,
               (SELECT max(last_seen) FROM sessions s WHERE s.user_id = u.id) AS last_seen
-         FROM users u LEFT JOIN extensions e ON e.id = u.extension_id WHERE u.tenant_id = $1 ORDER BY u.role, u.email`,
+         FROM users u LEFT JOIN extensions e ON e.id = u.extension_id LEFT JOIN roles r ON r.id = u.role_id
+        WHERE u.tenant_id = $1 ORDER BY r.id, u.email`,
       [t.id],
     )
   ).rows;
 });
 
 route("POST", "/api/tenants/:prefix/users", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
   const b = ctx.body ?? {};
   const r = await ops.createStaff(
     ctx.db,
     t,
-    { email: str(b.email, "email"), name: optStr(b.name, "name") ?? "", role: b.role, extension: optStr(b.extension, "extension") },
+    { email: str(b.email, "email"), name: optStr(b.name, "name") ?? "", roleId: Number(b.roleId), extension: optStr(b.extension, "extension") },
     actor(ctx),
   );
   // Geçici şifre yalnızca bu yanıtta bir kez gösterilir.
   return { email: String(b.email).trim().toLowerCase(), temporaryPassword: r.password };
 });
 
+// Personeli günceller: rol, dahili (null: dahilisiz), kapalı/açık. Verilmeyen alan değişmez.
 route("PUT", "/api/tenants/:prefix/users/:email", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
-  if (typeof ctx.body?.disabled !== "boolean") throw new UserError("disabled true/false olmalı");
-  if (ctx.params[1].toLowerCase() === ctx.user!.email) throw new UserError("kendi hesabınızı kapatamazsınız");
-  await ops.setStaffDisabled(ctx.db, t, ctx.params[1], ctx.body.disabled, actor(ctx));
+  const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
+  const b = ctx.body ?? {};
+  const self = ctx.params[1].toLowerCase() === ctx.user!.email;
+  if (b.roleId !== undefined) {
+    if (self) throw new UserError("kendi rolünüzü değiştiremezsiniz");
+    await ops.setStaffRole(ctx.db, t, ctx.params[1], Number(b.roleId), actor(ctx));
+  }
+  if (b.extension !== undefined) await ops.setStaffExtension(ctx.db, t, ctx.params[1], optStr(b.extension, "extension") || null, actor(ctx));
+  if (b.disabled !== undefined) {
+    if (typeof b.disabled !== "boolean") throw new UserError("disabled true/false olmalı");
+    if (self) throw new UserError("kendi hesabınızı kapatamazsınız");
+    await ops.setStaffDisabled(ctx.db, t, ctx.params[1], b.disabled, actor(ctx));
+  }
   return { ok: true };
 });
 
 route("POST", "/api/tenants/:prefix/users/:email/reset-password", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
   return { temporaryPassword: await ops.resetStaffPassword(ctx.db, t, ctx.params[1], actor(ctx)) };
 });
 
 route("PUT", "/api/tenants/:prefix/queues/:name/members", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "staff.manage");
   const m = ctx.body?.members;
   if (!Array.isArray(m) || m.some((x) => typeof x !== "string")) throw new UserError("members dahili numaraları listesi olmalı");
   await ops.setQueueMembers(ctx.db, t, ctx.params[1], m, actor(ctx));
@@ -384,7 +471,7 @@ route("PUT", "/api/tenants/:prefix/queues/:name/members", async (ctx) => {
 });
 
 route("PUT", "/api/tenants/:prefix/queues/:name/number", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   await ops.setQueueNumber(ctx.db, t, ctx.params[1], optStr(ctx.body?.number, "number") || null, actor(ctx));
   applyChanges(ctx.db);
   return { ok: true };
@@ -411,7 +498,7 @@ function auditFilter(ctx: Ctx, where: string[], params: unknown[]) {
 }
 
 route("GET", "/api/tenants/:prefix/audit", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "audit.view");
   const where = ["a.tenant_id = $1"];
   const params: unknown[] = [t.id];
   const limit = auditFilter(ctx, where, params);
@@ -465,7 +552,7 @@ route("GET", "/api/system", async (ctx) => {
 // --- Kayıt ve raporlar ---
 
 route("PUT", "/api/tenants/:prefix/recording", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const b = ctx.body ?? {};
   await ops.setRecording(
     ctx.db,
@@ -480,15 +567,22 @@ route("PUT", "/api/tenants/:prefix/recording", async (ctx) => {
 const query = (ctx: Ctx) => new URL(ctx.req.url ?? "/", "http://localhost").searchParams;
 
 route("GET", "/api/tenants/:prefix/reports/summary", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "reports.view");
   const q = query(ctx);
   return summary(ctx.db, t.prefix, parseRange(q.get("from"), q.get("to")));
 });
 
 route("GET", "/api/tenants/:prefix/calls", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "calls.all", "calls.own");
   const q = query(ctx);
-  const rows = await listCalls(ctx.db, t.prefix, parseRange(q.get("from"), q.get("to")), Number(q.get("limit") ?? 500));
+  let rows = await listCalls(ctx.db, t.prefix, parseRange(q.get("from"), q.get("to")), Number(q.get("limit") ?? 500));
+  // Yalnızca "kendi görüşmeleri" yetkisi olan, kendi dahilisinin cevapladığı görüşmeleri görür.
+  if (!has(ctx, "calls.all")) {
+    const mine = await myExtension(ctx);
+    rows = rows.filter((r) => mine !== null && r.agent === mine);
+  }
+  // Kayıt dinleme yetkisi yoksa kayıt bağlantısı gösterilmez.
+  if (!has(ctx, "recordings.listen")) for (const r of rows) r.recording = null;
   // Saklama süresi dolup silinmiş kayıtlar listede "yok" görünür.
   for (const r of rows) {
     if (r.recording && !(await access(join(recordingDir(t.prefix), r.recording)).then(() => true, () => false))) r.recording = null;
@@ -498,7 +592,7 @@ route("GET", "/api/tenants/:prefix/calls", async (ctx) => {
 
 // Kaydı dinlemek. Her dinleme denetim kaydına yazılır (KVKK: kişisel veriye erişim izi).
 route("GET", "/api/tenants/:prefix/recordings/:callid", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "recordings.listen");
   const callid = ctx.params[1];
   if (!/^\d{6,12}\.\d{1,8}$/.test(callid)) throw new UserError("bulunamadı", 404);
   const ok = (
@@ -508,6 +602,15 @@ route("GET", "/api/tenants/:prefix/recordings/:callid", async (ctx) => {
     ])
   ).rowCount;
   if (!ok) throw new UserError("bulunamadı", 404);
+  // Görüşme görme kapsamı kayıt için de geçerli: "kendi görüşmeleri" yetkisi olan yalnızca kendi cevapladığını dinler.
+  if (!has(ctx, "calls.all")) {
+    const mine = await myExtension(ctx);
+    const own = mine
+      ? (await ctx.db.query("SELECT 1 FROM queue_log WHERE callid = $1 AND agent = $2 AND event IN ('CONNECT', 'SANTRALIO_EXT_DONE') LIMIT 1", [callid, mine]))
+          .rowCount
+      : 0;
+    if (!has(ctx, "calls.own") || !own) throw new UserError("bulunamadı", 404);
+  }
   const data = await readFile(join(recordingDir(t.prefix), `${callid}.wav`)).catch(() => null);
   if (!data) throw new UserError("kayıt yok (saklama süresi dolmuş olabilir)", 404);
   await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, 'recording.listen', $3)", [
@@ -520,7 +623,7 @@ route("GET", "/api/tenants/:prefix/recordings/:callid", async (ctx) => {
 
 // Anonsun üretilmiş sesi (8 kHz WAV), panelde dinlemek için.
 route("GET", "/api/tenants/:prefix/prompts/:name", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const name = ctx.params[1];
   if (!/^(menu|queue|schedule)-[a-z0-9_]{1,32}(-invalid|-unavailable|-closed)?$/.test(name)) throw new UserError("bulunamadı", 404);
   const data = await readFile(join(SOUNDS_DIR, t.prefix, `${name}.wav`)).catch(() => null);
@@ -530,7 +633,7 @@ route("GET", "/api/tenants/:prefix/prompts/:name", async (ctx) => {
 
 // Canlı durum: operatör kaydı ve hangi dahililerin bağlı olduğu (Asterisk'ten).
 route("GET", "/api/tenants/:prefix/status", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const ami = await Ami.open();
   try {
     const regs = await ami.command("pjsip show registrations");
@@ -549,7 +652,7 @@ route("GET", "/api/tenants/:prefix/status", async (ctx) => {
 });
 
 route("POST", "/api/tenants/:prefix/extensions", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const number = str(ctx.body?.number, "number");
   const secret = await ops.addExtension(ctx.db, t, number, optStr(ctx.body?.name, "name") ?? "", actor(ctx));
   applyChanges(ctx.db);
@@ -558,7 +661,7 @@ route("POST", "/api/tenants/:prefix/extensions", async (ctx) => {
 });
 
 route("PUT", "/api/tenants/:prefix/menus/:name", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const name = ctx.params[1];
   const b = ctx.body ?? {};
   await ops.setMenu(
@@ -584,7 +687,7 @@ route("PUT", "/api/tenants/:prefix/menus/:name", async (ctx) => {
 });
 
 route("PUT", "/api/tenants/:prefix/schedules/:name", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const name = ctx.params[1];
   const b = ctx.body ?? {};
   await ops.setSchedule(
@@ -609,21 +712,21 @@ route("PUT", "/api/tenants/:prefix/schedules/:name", async (ctx) => {
 });
 
 route("POST", "/api/tenants/:prefix/schedules/:name/holidays", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   await ops.addScheduleHoliday(ctx.db, t, ctx.params[1], str(ctx.body?.day, "day"), optStr(ctx.body?.note, "note"), actor(ctx));
   applyChanges(ctx.db);
   return { ok: true };
 });
 
 route("PUT", "/api/tenants/:prefix/queues/:name/unavailable-text", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   await ops.setQueueUnavailableText(ctx.db, t, ctx.params[1], str(ctx.body?.text, "text"), actor(ctx));
   applyChanges(ctx.db);
   return { ok: true };
 });
 
 route("PUT", "/api/tenants/:prefix/entry-points/:address", async (ctx) => {
-  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   await ops.setEntryFlow(ctx.db, t, ctx.params[1], str(ctx.body?.flow, "flow"), actor(ctx));
   applyChanges(ctx.db);
   return { ok: true };
@@ -691,7 +794,7 @@ const server = createServer(async (req, res) => {
     const token = bearer ?? cookie;
     // CSRF: çerezle gelen değişiklik istekleri (ve web girişi) yalnızca panelin kaynağından kabul edilir.
     const fromWeb = !bearer && (cookie !== null || req.headers["x-santralio-client"] === "web");
-    if (fromWeb && req.method !== "GET" && req.headers.origin !== PANEL_ORIGIN) return send(res, 403, { error: "geçersiz kaynak" });
+    if (fromWeb && req.method !== "GET" && !ALLOWED_ORIGINS.has(String(req.headers.origin ?? ""))) return send(res, 403, { error: "geçersiz kaynak" });
     const user = token ? await userBySession(db, token) : null;
     if (r.auth && !user) return send(res, 401, { error: "oturum gerekli" });
     const params = (r.pattern.exec(url.pathname) ?? []).slice(1).map(decodeURIComponent);

@@ -299,7 +299,10 @@ exten => i,1,Goto(reject,s,1)
   // Hedefler (queue:<ad>, menu:<ad>) yalnızca bu kiracının nesnelerine çözülür.
   const menus = new Set(t.menus.map((m) => m.name));
   const schedules = new Set(t.schedules.map((x) => x.name));
+  const extensions = new Set(t.extensions.filter((e) => e.enabled).map((e) => e.number));
   const target = (flow: string): string | null => {
+    const ext = /^ext:([0-9]{2,6})$/.exec(flow);
+    if (ext) return extensions.has(ext[1]) ? `${p}-ext,${ext[1]},1` : null;
     const m = /^(queue|menu|schedule):([a-z0-9_]{1,32})$/.exec(flow);
     if (!m) return null;
     const [, kind, name] = m;
@@ -399,11 +402,36 @@ ${recordingSteps(t, p)} same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS},,${t.re
 `);
   }
 
+  // Menüden ya da numaradan doğrudan bir dahiliyi çaldırmak (ext:<numara>). Raporlara "ext-<numara>"
+  // adlı sanal kuyruk olarak girer: giriş olayı, sonuç olayı (kapanışta, hangup handler ile).
+  out.push(`\n[${p}-ext]\n`);
+  for (const e of t.extensions.filter((e) => e.enabled)) {
+    const qlog = `${p}_ext-${e.number}`;
+    out.push(`exten => ${e.number},1,Answer()
+ same => n,Set(__SANTRALIO_QUEUE=ext-${e.number})
+ same => n,Set(__SANTRALIO_QLOG=${qlog})
+ same => n,Set(__SANTRALIO_CALLID=${v("UNIQUEID")})
+ same => n,QueueLog(${qlog},${v("UNIQUEID")},NONE,SANTRALIO_ENTER,${v("SANTRALIO_DID")}|${v("CALLERID(num)")})
+${recordingSteps(t, p)} same => n,Set(CHANNEL(hangup_handler_push)=santralio-lib,ext-done,1(${qlog},${e.number}))
+ same => n,Gosub(santralio-lib,devices,1(${p}_${e.number}))
+ same => n,ExecIf($["${v("GOSUB_RETVAL")}" = ""]?Set(DIALSTATUS=CHANUNAVAIL))
+ same => n,ExecIf($["${v("GOSUB_RETVAL")}" != ""]?Dial(${v("GOSUB_RETVAL")},30,${t.recording.enabled ? "U(santralio-record)" : ""}b(santralio-lib^agent-headers^1)))
+ same => n,GotoIf($["${v("DIALSTATUS")}" = "ANSWER"]?done)
+ same => n,Playback(${promptPath(p, "ext-unavailable")})
+ same => n(done),Hangup(16)
+`);
+  }
+
   // Dahililer yalnızca kendi kiracısının dahililerini ve kuyruklarını arayabilir.
   // Dış arama yok (2. adımın kapsamı dışında).
   out.push(`\n[${p}-internal]\n`);
   for (const e of t.extensions.filter((e) => e.enabled)) {
-    out.push(`exten => ${e.number},1,${limit}\n same => n,Dial(${devices(p, e.number)},30)\n same => n,Hangup()\n`);
+    out.push(`exten => ${e.number},1,${limit}
+ same => n,Gosub(santralio-lib,devices,1(${p}_${e.number}))
+ same => n,GotoIf($["${v("GOSUB_RETVAL")}" = ""]?unavail)
+ same => n,Dial(${v("GOSUB_RETVAL")},30)
+ same => n(unavail),Hangup()
+`);
   }
   for (const q of t.queues.filter((q) => q.number)) {
     assertId(q.number!, "kuyruk numarası");
@@ -419,7 +447,11 @@ ${recordingSteps(t, p)} same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS},,${t.re
   // Ön arama işleyicisi (b) temsilcinin ekranı için kuyruk adını ve aranan numarayı SIP başlığına ekler.
   out.push(`\n[${p}-agent]\n`);
   for (const e of t.extensions.filter((e) => e.enabled)) {
-    out.push(`exten => ${e.number},1,Dial(${devices(p, e.number)},,b(santralio-lib^agent-headers^1))\n same => n,Hangup()\n`);
+    out.push(`exten => ${e.number},1,Gosub(santralio-lib,devices,1(${p}_${e.number}))
+ same => n,GotoIf($["${v("GOSUB_RETVAL")}" = ""]?unavail)
+ same => n,Dial(${v("GOSUB_RETVAL")},,b(santralio-lib^agent-headers^1))
+ same => n(unavail),Hangup()
+`);
   }
   out.push(`exten => _[+*#0-9a-zA-Z].,1,Hangup(21)\n`);
 

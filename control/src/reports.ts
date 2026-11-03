@@ -37,13 +37,13 @@ SELECT e.callid,
        to_char((e.entered AT TIME ZONE 'UTC') AT TIME ZONE $4, 'YYYY-MM-DD') AS day,
        substr(e.queuename, length(split_part(e.queuename, '_', 1)) + 2) AS queue,
        e.caller, e.did,
-       c.agent,
-       COALESCE(c.hold, ab.wait, tmo.wait, 0) AS wait_s,
-       COALESCE(done.talk, 0) AS talk_s,
-       CASE WHEN c.agent IS NOT NULL THEN 'answered'
-            WHEN ab.callid IS NOT NULL THEN 'abandoned'
+       COALESCE(c.agent, CASE WHEN x.status = 'ANSWER' THEN x.agent END) AS agent,
+       COALESCE(c.hold, ab.wait, tmo.wait, x.wait, 0) AS wait_s,
+       COALESCE(done.talk, x.talk, 0) AS talk_s,
+       CASE WHEN c.agent IS NOT NULL OR x.status = 'ANSWER' THEN 'answered'
+            WHEN ab.callid IS NOT NULL OR x.status = 'CANCEL' THEN 'abandoned'
             WHEN tmo.callid IS NOT NULL THEN 'timeout'
-            WHEN na.callid IS NOT NULL THEN 'no_agent'
+            WHEN na.callid IS NOT NULL OR x.status IN ('NOANSWER', 'BUSY', 'CHANUNAVAIL', 'CONGESTION') THEN 'no_agent'
             ELSE 'open' END AS outcome,
        rec.file AS recording
   FROM enter e
@@ -53,6 +53,10 @@ SELECT e.callid,
   LEFT JOIN LATERAL (SELECT callid, data3::int AS wait FROM ev WHERE callid = e.callid AND queuename = e.queuename AND event = 'EXITWITHTIMEOUT' LIMIT 1) tmo ON true
   LEFT JOIN LATERAL (SELECT callid FROM ev WHERE callid = e.callid AND queuename = e.queuename AND event = 'SANTRALIO_NOAGENT' LIMIT 1) na ON true
   LEFT JOIN LATERAL (SELECT data1 AS file FROM ev WHERE callid = e.callid AND event = 'SANTRALIO_RECORDING' LIMIT 1) rec ON true
+  -- Doğrudan dahili araması (ext:<numara>): durum | toplam süre | konuşma süresi
+  LEFT JOIN LATERAL (SELECT agent, data1 AS status, GREATEST(COALESCE(NULLIF(data2, '')::int, 0) - COALESCE(NULLIF(data3, '')::int, 0), 0) AS wait,
+                            COALESCE(NULLIF(data3, '')::int, 0) AS talk
+                       FROM ev WHERE callid = e.callid AND queuename = e.queuename AND event = 'SANTRALIO_EXT_DONE' LIMIT 1) x ON true
 `;
 
 export type CallRow = {
