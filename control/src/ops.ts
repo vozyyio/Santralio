@@ -236,24 +236,22 @@ export async function setRecording(db: Db, t: Tenant, r: RecordingInput, actor?:
 // --- Personel (panel kullanıcıları) ---
 // Kiracı yöneticisi kendi kiracısına yalnızca tenant_admin ve agent açabilir. Şifre rastgele üretilir ve
 // bir kez gösterilir; kullanıcı ilk girişten sonra değiştirmelidir. E-posta adresi bütün platformda tekildir.
+// Temsilci yalnızca önceden tanımlanmış ve en az bir kuyruğa bağlı bir dahiliye atanır; dahili burada açılmaz.
 
-export type StaffInput = { email: string; name: string; role: "tenant_admin" | "agent"; extension?: string | null; extensionName?: string };
+export type StaffInput = { email: string; name: string; role: "tenant_admin" | "agent"; extension?: string | null };
 
-export async function createStaff(db: Db, t: Tenant, s: StaffInput, actor?: string): Promise<{ password: string; sipPassword: string | null }> {
+export async function createStaff(db: Db, t: Tenant, s: StaffInput, actor?: string): Promise<{ password: string }> {
   const email = s.email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new UserError("geçersiz e-posta");
   if (s.role !== "tenant_admin" && s.role !== "agent") throw new UserError("rol tenant_admin ya da agent olmalı");
   if (s.name.length > 100) throw new UserError("ad en fazla 100 karakter");
   let extensionId: number | null = null;
-  let sipPassword: string | null = null;
   if (s.role === "agent") {
     if (!s.extension) throw new UserError("temsilci için dahili gerekli");
-    let e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2", [t.id, s.extension])).rows[0];
-    // Dahili yoksa açılır (lisanstaki dahili sınırına tabidir).
-    if (!e) {
-      sipPassword = await addExtension(db, t, s.extension, s.extensionName ?? s.name, actor);
-      e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2", [t.id, s.extension])).rows[0];
-    }
+    const e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2 AND enabled", [t.id, s.extension])).rows[0];
+    if (!e) throw new UserError(`dahili ${s.extension} tanımlı değil; önce "Dahililer" sekmesinden açın`);
+    const inQueue = (await db.query("SELECT 1 FROM queue_members WHERE extension_id = $1 LIMIT 1", [e.id])).rowCount;
+    if (!inQueue) throw new UserError(`dahili ${s.extension} hiçbir kuyrukta değil; önce "Kuyruklar" sekmesinden bir kuyruğa ekleyin`);
     const taken = (await db.query("SELECT email FROM users WHERE extension_id = $1 AND NOT disabled", [e.id])).rows[0];
     if (taken) throw new UserError(`dahili ${s.extension} zaten ${taken.email} hesabına bağlı`);
     extensionId = e.id;
@@ -273,7 +271,7 @@ export async function createStaff(db: Db, t: Tenant, s: StaffInput, actor?: stri
       throw err;
     });
   await audit(db, "user.add", t.id, { email, role: s.role, extension: s.extension ?? null }, actor);
-  return { password, sipPassword };
+  return { password };
 }
 
 async function staffOf(db: Db, t: Tenant, email: string) {
