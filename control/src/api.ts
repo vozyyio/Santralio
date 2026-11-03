@@ -26,7 +26,8 @@ import {
 import { masterKey, PG_DATABASE, PG_HOST, SOUNDS_DIR } from "./config.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
-import { listCalls, parseRange, summary } from "./reports.ts";
+import { listCalls, parseRange, summary, type CallRow } from "./reports.ts";
+import * as crm from "./crm.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
 import { dialPatterns, TEMPLATES, type Policy } from "./outbound.ts";
@@ -361,6 +362,7 @@ route("GET", "/api/agent", async (ctx) => {
     extension: e.number,
     // Dış arama: rolde yetki, politikada açık en az bir numara türü ve operatör hattı.
     outbound: has(ctx, "agent.outbound") && pol.enabled && !!trunk?.enabled ? dialPatterns(pol).map((d) => d.label) : null,
+    crm: has(ctx, "crm.use"),
     displayName: e.display_name,
     paused: e.paused,
     pausedReason: e.paused_reason,
@@ -626,19 +628,127 @@ route("GET", "/api/tenants/:prefix/reports/summary", async (ctx) => {
 route("GET", "/api/tenants/:prefix/calls", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "calls.all", "calls.own");
   const q = query(ctx);
-  let rows = await listCalls(ctx.db, t.prefix, parseRange(q.get("from"), q.get("to")), Number(q.get("limit") ?? 500));
-  // Yalnızca "kendi görüşmeleri" yetkisi olan, kendi dahilisinin cevapladığı görüşmeleri görür.
+  return visibleCalls(ctx, t, await listCalls(ctx.db, t.prefix, parseRange(q.get("from"), q.get("to")), Number(q.get("limit") ?? 500)));
+});
+
+// Kullanıcının görebileceği görüşmeler: "kendi görüşmeleri" yetkisi olan yalnızca kendi dahilisinin görüşmelerini görür;
+// kayıt dinleme yetkisi yoksa kayıt bağlantısı gösterilmez. Görüşme notları ve sonuç kodları eklenir.
+async function visibleCalls(ctx: Ctx, t: Tenant, all: CallRow[]) {
+  let rows = all;
   if (!has(ctx, "calls.all")) {
     const mine = await myExtension(ctx);
-    rows = rows.filter((r) => mine !== null && r.agent === mine);
+    rows = has(ctx, "calls.own") && mine !== null ? rows.filter((r) => r.agent === mine) : [];
   }
-  // Kayıt dinleme yetkisi yoksa kayıt bağlantısı gösterilmez.
   if (!has(ctx, "recordings.listen")) for (const r of rows) r.recording = null;
   // Saklama süresi dolup silinmiş kayıtlar listede "yok" görünür.
   for (const r of rows) {
     if (r.recording && !(await access(join(recordingDir(t.prefix), r.recording)).then(() => true, () => false))) r.recording = null;
   }
-  return rows;
+  const ids = rows.map((r) => r.callid);
+  const notes = ids.length
+    ? (
+        await ctx.db.query(
+          `SELECT i.external_id, string_agg(NULLIF(i.note, ''), ' · ' ORDER BY i.id) AS note, string_agg(d.name, ', ' ORDER BY i.id) AS disposition
+             FROM interactions i LEFT JOIN dispositions d ON d.id = i.disposition_id
+            WHERE i.tenant_id = $1 AND i.external_id = ANY ($2) GROUP BY i.external_id`,
+          [t.id, ids],
+        )
+      ).rows
+    : [];
+  const byId = new Map(notes.map((n) => [n.external_id, n]));
+  return rows.map((r) => ({ ...r, note: byId.get(r.callid)?.note ?? null, disposition: byId.get(r.callid)?.disposition ?? null }));
+}
+
+// --- CRM ---
+
+route("GET", "/api/tenants/:prefix/contacts", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "crm.use");
+  return crm.searchContacts(ctx.db, t, query(ctx).get("q") ?? "");
+});
+
+function contactBody(b: any): crm.ContactInput {
+  return { name: str(b?.name, "name"), company: optStr(b?.company, "company") ?? "", email: optStr(b?.email, "email") ?? "", phones: b?.phones ?? [], tags: b?.tags ?? [] };
+}
+
+route("POST", "/api/tenants/:prefix/contacts", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "crm.use");
+  return { id: await crm.saveContact(ctx.db, t, null, contactBody(ctx.body), actor(ctx)) };
+});
+
+route("PUT", "/api/tenants/:prefix/contacts/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "crm.use");
+  await crm.saveContact(ctx.db, t, Number(ctx.params[1]), contactBody(ctx.body), actor(ctx));
+  return { ok: true };
+});
+
+// Kart sayfası: bilgiler, notlar ve arama geçmişi (son bir yıl; görüşme görme yetkisine göre).
+route("GET", "/api/tenants/:prefix/contacts/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "crm.use");
+  const c = await crm.getContact(ctx.db, t, Number(ctx.params[1]));
+  const today = new Date();
+  const from = new Date(today.getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
+  const calls = (await listCalls(ctx.db, t.prefix, parseRange(from, today.toISOString().slice(0, 10)), 2000)).filter((r) => c.phones.includes(r.caller));
+  return { ...c, notes: await crm.interactionsOf(ctx.db, t, { contactId: c.id }), calls: await visibleCalls(ctx, t, calls) };
+});
+
+// Temsilci ekranı: gelen/giden aramada numaradan kart ve son notlar.
+route("GET", "/api/tenants/:prefix/lookup", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "crm.use");
+  const r = await crm.lookupByPhone(ctx.db, t, query(ctx).get("phone") ?? "");
+  const notes = r.contact
+    ? await crm.interactionsOf(ctx.db, t, { contactId: r.contact.id }, 5)
+    : r.phone
+      ? await crm.interactionsOf(ctx.db, t, { phone: r.phone }, 5)
+      : [];
+  return { ...r, notes };
+});
+
+route("POST", "/api/tenants/:prefix/notes", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "crm.use");
+  const b = ctx.body ?? {};
+  const id = await crm.saveNote(ctx.db, t, ctx.user!, {
+    callid: optStr(b.callid, "callid"),
+    phone: optStr(b.phone, "phone"),
+    contactId: b.contactId == null ? null : Number(b.contactId),
+    direction: b.direction === "in" || b.direction === "out" ? b.direction : null,
+    dispositionId: b.dispositionId == null ? null : Number(b.dispositionId),
+    note: optStr(b.note, "note") ?? "",
+    followUpAt: optStr(b.followUpAt, "followUpAt"),
+  });
+  return { id };
+});
+
+// Geri aranacaklar: tarihi verilmiş notlar. "Bütün görüşmeler" yetkisi olan herkesinkini, diğerleri kendininkini görür.
+route("GET", "/api/tenants/:prefix/follow-ups", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "crm.use");
+  const all = has(ctx, "calls.all");
+  return (
+    await ctx.db.query(
+      `SELECT i.id, i.phone, i.note, i.user_email AS "user", d.name AS disposition, c.id AS "contactId", c.name AS "contactName",
+              to_char(i.follow_up_at AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD HH24:MI') AS "followUpAt", i.follow_up_at < now() AS due
+         FROM interactions i LEFT JOIN dispositions d ON d.id = i.disposition_id LEFT JOIN contacts c ON c.id = i.contact_id
+        WHERE i.tenant_id = $1 AND i.follow_up_at IS NOT NULL AND i.follow_up_at > now() - interval '7 days'
+          ${all ? "" : "AND i.user_email = $2"}
+        ORDER BY i.follow_up_at LIMIT 200`,
+      all ? [t.id] : [t.id, ctx.user!.email],
+    )
+  ).rows;
+});
+
+route("GET", "/api/tenants/:prefix/dispositions", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "crm.use", "settings.manage");
+  return crm.listDispositions(ctx.db, t, query(ctx).get("all") === "1" && has(ctx, "settings.manage"));
+});
+
+route("POST", "/api/tenants/:prefix/dispositions", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return { id: await crm.saveDisposition(ctx.db, t, null, str(ctx.body?.name, "name"), true, actor(ctx)) };
+});
+
+route("PUT", "/api/tenants/:prefix/dispositions/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  await crm.saveDisposition(ctx.db, t, Number(ctx.params[1]), str(ctx.body?.name, "name"), ctx.body?.enabled !== false, actor(ctx));
+  return { ok: true };
 });
 
 // Kaydı dinlemek. Her dinleme denetim kaydına yazılır (KVKK: kişisel veriye erişim izi).

@@ -133,6 +133,8 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | `operator_ip_ranges` | Operatör başına izinli sinyal IP aralıkları |
 | `interactions` | Kanaldan bağımsız konuşma kaydı: kiracı, kanal, giriş noktası, kuyruk, temsilci, sonuç |
 | `ai_providers` | Kiracı bazında STT/TTS/LLM sağlayıcısı ve şifreli API anahtarı (5. adımda kullanılır) |
+| `contacts`, `contact_phones` | CRM müşteri kartları ve numaraları (numara kiracı içinde tekil) |
+| `dispositions` | Sonuç kodları |
 | `queue_log` | Asterisk kuyruk olayları ve Santralio olayları (raporların kaynağı). Asterisk yalnızca satır ekler |
 | `audit_log` | Kim, ne zaman, neyi değiştirdi (CLI'de sistem kullanıcısı, API'de `api:<e-posta>`) |
 | `resellers` | Bayiler. Platform sahibi de bir bayidir (`Platform`, id 1) |
@@ -233,6 +235,15 @@ Bilerek sonraya bırakılanlar:
 - **İşlem günlüğü:** Giriş, çıkış, ayar değişiklikleri, personel işlemleri, kayıt dinleme, mola ve temsilci masasına bağlanma `audit_log`'a yazılır: kim, ne zaman, hangi IP'den. Kiracı yöneticisi kendi kiracısının günlüğünü, platform yöneticisi bütün günlüğü görür.
 - **Sistem durumu:** Yalnızca platform yöneticisi görür. İçeriği: santralin çalışma süresi, süren arama sayısı, operatör hatlarının kaydı, disk ve son 50 santral uyarısı.
 - **Aktarma:** Temsilci görüşmeyi tarayıcıdan bir kuyruğa (`q-<kuyruk>`) ya da bir dahiliye kör aktarır (SIP REFER). Hedef, temsilcinin kendi kiracısının `tN-internal` context'inde çözülür; başka bir kiracıya ya da dış hatta aktarma yapılamaz. Aktarılan görüşme yeni kuyrukta ayrı bir satır olarak rapora girer.
+
+## CRM
+
+- **Müşteri kartı** (`contacts`, `contact_phones`): ad, firma, e-posta, etiketler ve en fazla 10 telefon. Telefonlar tek biçimde saklanır (`normalizeNumber`: "0532…", yurt dışı "0049…"); "+90 532…", "90532…" ve "532…" aynı numaradır. Bir numara kiracı içinde tek bir karta aittir. Kartlar kiracının `crm.use` yetkili bütün personeline ortaktır.
+- **Görüşme notu** (`interactions`): sonuç kodu, not ve isteğe bağlı geri arama zamanı. Gelen aramada not görüşmeye bağlanır: santral temsilciye giden aramaya `X-Santralio-CallId` başlığını ekler. Aynı görüşmeye aynı kişinin ikinci notu öncekini günceller. Not numaradan karta kendiliğinden bağlanır. Notlar görüşme listesinde ve kart sayfasında görünür.
+- **Sonuç kodları** (`dispositions`): kiracı bazında, panelden (Genel → Sonuç kodları) eklenir ve kapatılır. Başlangıçta Çözüldü, Bilgi verildi, Geri aranacak, Satış, Şikâyet ve Yanlış numara gelir.
+- **Temsilci ekranı:** Arama gelince ya da yapılınca numaradan kart ve son 5 not açılır. Kart yoksa tek tıkla oluşturulur. Görüşme bitince not paneli, not kaydedilene ya da kapatılana kadar açık kalır.
+- **Kart sayfası (crm):** Bilgiler, notlar ve son bir yılın arama geçmişi. Arama geçmişi kullanıcının görüşme yetkisine göre süzülür: "kendi görüşmeleri" yetkisi olan yalnızca kendi görüşmelerini görür; kayıtlar `recordings.listen` yetkisine bağlıdır.
+- **Geri aramalar:** Tarih verilmiş notlar. "Bütün görüşmeler" yetkisi olan herkesinkini, diğerleri yalnızca kendininkini görür.
 
 ## Dış arama
 

@@ -87,6 +87,7 @@ export function Calls({ prefix, own = false }: { prefix: string; own?: boolean }
                 <th className="r">Bekleme</th>
                 <th className="r">Konuşma</th>
                 <th>Sonuç</th>
+                <th>Not</th>
                 <th>Kayıt</th>
               </tr>
             </thead>
@@ -104,6 +105,9 @@ export function Calls({ prefix, own = false }: { prefix: string; own?: boolean }
                   <td className="r">{c.outcome === "answered" ? mmss(c.talk_s) : "–"}</td>
                   <td>
                     <span className={`badge ${OUTCOME[c.outcome][1] ? "ok" : "off"}`}>{OUTCOME[c.outcome][0]}</span>
+                  </td>
+                  <td className="small">
+                    {c.disposition && <span className="tag">{c.disposition}</span>} {c.note}
                   </td>
                   <td>
                     {c.recording ? (

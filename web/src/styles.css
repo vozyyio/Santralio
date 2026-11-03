@@ -131,3 +131,12 @@ input.role-name { font-weight: 600; font-size: 1.05rem; max-width: 320px; }
 button.x { padding: 0 6px; border: none; font-size: 1rem; line-height: 1; }
 .dialer { display: flex; gap: 8px; margin-top: 12px; }
 .dialer input { flex: 1; font-size: 1.1rem; }
+
+.tag { display: inline-block; padding: 0 8px; margin: 2px 4px 2px 0; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: 0.78rem; }
+.notes { list-style: none; margin: 8px 0 0; padding: 0; }
+.notes li { border-top: 1px solid var(--line); padding: 8px 0; }
+.note-text { white-space: pre-wrap; margin-top: 4px; }
+.note-form { margin: 8px 0 12px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 14px; margin-bottom: 8px; }
+.form-grid .actions, .form-grid .error { grid-column: 1 / -1; }
+.caller-panel h4 { margin-top: 12px; }

@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { AgentDesk } from "./AgentDesk";
 import { Audit, Roles, Staff, SystemPage } from "./Admin";
+import { Contacts, DispositionsCard, FollowUps } from "./Crm";
 import { OutboundPolicyCard } from "./Outbound";
 import { Calls, Reports } from "./Reports";
 import { api, ApiError, type AppName, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
@@ -107,7 +108,7 @@ function AppLinks({ me, app }: { me: Me; app: AppName }) {
 
 function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => void }) {
   const [hash, go] = useHash();
-  const m = /^#\/t\/([^/]+)(?:\/([a-z]+))?/.exec(hash);
+  const m = /^#\/t\/([^/]+)(?:\/([a-z]+))?(?:\/(\d+))?/.exec(hash);
   const allowed = me.apps.includes(app);
   const scoped = me.role !== "tenant_user";
   return (
@@ -154,7 +155,11 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
         ) : app === "panel" && hash.startsWith("#/sistem") && me.role === "platform_admin" ? (
           <SystemPage />
         ) : m ? (
-          app === "crm" ? <CrmPage me={me} prefix={m[1]} tab={m[2] ?? ""} /> : <TenantPage me={me} prefix={m[1]} tab={m[2] ?? "genel"} />
+          app === "crm" ? (
+            <CrmPage me={me} prefix={m[1]} tab={m[2] ?? ""} id={m[3] ? Number(m[3]) : null} />
+          ) : (
+            <TenantPage me={me} prefix={m[1]} tab={m[2] ?? "genel"} />
+          )
         ) : scoped ? (
           <TenantList go={go} />
         ) : (
@@ -280,12 +285,14 @@ function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; ta
 
 // CRM sekmeleri ve gereken yetki.
 const CRM_TABS: [string, string, string[]][] = [
+  ["musteriler", "Müşteriler", ["crm.use"]],
+  ["geriarama", "Geri aramalar", ["crm.use"]],
   ["gorusmeler", "Görüşmeler", ["calls.all", "calls.own"]],
   ["raporlar", "Raporlar", ["reports.view"]],
   ["gunluk", "İşlem günlüğü", ["audit.view"]],
 ];
 
-function CrmPage({ me, prefix, tab: requested }: { me: Me; prefix: string; tab: string }) {
+function CrmPage({ me, prefix, tab: requested, id }: { me: Me; prefix: string; tab: string; id: number | null }) {
   const tabs = CRM_TABS.filter(([, , perms]) => can(me, ...perms)).map(([id, label]) => [id, label] as [string, string]);
   const tab = tabs.some(([id]) => id === requested) ? requested : (tabs[0]?.[0] ?? "");
   const name = me.tenant?.prefix === prefix ? me.tenant.name : prefix;
@@ -296,6 +303,8 @@ function CrmPage({ me, prefix, tab: requested }: { me: Me; prefix: string; tab: 
         <span className="mono muted">{prefix}</span>
       </div>
       <Tabs prefix={prefix} tabs={tabs} active={tab} />
+      {tab === "musteriler" && <Contacts prefix={prefix} contactId={id} />}
+      {tab === "geriarama" && <FollowUps prefix={prefix} />}
       {tab === "gorusmeler" && <Calls prefix={prefix} own={!can(me, "calls.all")} />}
       {tab === "raporlar" && <Reports prefix={prefix} />}
       {tab === "gunluk" && <Audit prefix={prefix} />}
@@ -416,6 +425,7 @@ function General({ t, reload }: { t: Tenant; reload: () => void }) {
       </div>
       <RecordingSettings t={t} reload={reload} />
       <OutboundPolicyCard prefix={t.prefix} />
+      <DispositionsCard prefix={t.prefix} />
       <div className="card wide">
         <h3>Numaralar</h3>
         {t.entryPoints.length === 0 && <p className="muted">Numara yok.</p>}

@@ -5,9 +5,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Invitation, Inviter, Registerer, RegistererState, SessionState, UserAgent, Web, type Session } from "sip.js";
 import { api, type Agent } from "./api";
+import { CallerPanel } from "./Crm";
 
 type Phase = "idle" | "connecting" | "ready" | "ringing" | "calling" | "talking" | "error";
-type Call = { from: string; name: string; queue: string | null; did: string | null; startedAt: number | null };
+type Call = { from: string; name: string; queue: string | null; did: string | null; startedAt: number | null; callid: string | null };
 
 const QUEUE_LABEL = (q: string | null) => (q ? q.charAt(0).toLocaleUpperCase("tr") + q.slice(1) : null);
 
@@ -82,6 +83,12 @@ export function AgentDesk() {
   const [directory, setDirectory] = useState<{ queues: { name: string; number: string | null }[]; extensions: { number: string; name: string }[] } | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [dial, setDial] = useState("");
+  // Görüşme bitince müşteri paneli, not kaydedilene ya da kapatılana kadar açık kalır.
+  const [lastCall, setLastCall] = useState<Call | null>(null);
+  const callRef = useRef<Call | null>(null);
+  useEffect(() => {
+    callRef.current = call;
+  }, [call]);
   const ua = useRef<UserAgent | null>(null);
   const registerer = useRef<Registerer | null>(null);
   const session = useRef<Session | null>(null);
@@ -130,11 +137,13 @@ export function AgentDesk() {
       return;
     }
     session.current = inv;
+    setLastCall(null);
     setCall({
       from: inv.remoteIdentity.uri.user ?? "",
       name: inv.remoteIdentity.displayName ?? "",
       queue: inv.request.getHeader("X-Santralio-Queue") ?? null,
       did: inv.request.getHeader("X-Santralio-DID") ?? null,
+      callid: inv.request.getHeader("X-Santralio-CallId") ?? null,
       startedAt: null,
     });
     setMuted(false);
@@ -155,6 +164,7 @@ export function AgentDesk() {
       if (state === SessionState.Terminated) {
         ringer.current.stop();
         session.current = null;
+        if (callRef.current) setLastCall(callRef.current);
         setCall(null);
         setTransferOpen(false);
         setPhase((p) => (p === "error" ? p : "ready"));
@@ -176,7 +186,8 @@ export function AgentDesk() {
       sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
     });
     session.current = inv;
-    setCall({ from: n!, name: "", queue: "out", did: null, startedAt: null });
+    setLastCall(null);
+    setCall({ from: n!, name: "", queue: "out", did: null, startedAt: null, callid: null });
     setMuted(false);
     setPhase("calling");
     watch(inv);
@@ -402,6 +413,24 @@ export function AgentDesk() {
               </div>
             </div>
           )}
+        </div>
+      )}
+      {agent && agent.crm && (call ?? lastCall) && (call ?? lastCall)!.from && (
+        <div className="card">
+          <div className="row spread">
+            <h3>{call ? "Arayan" : "Görüşme sonrası"}</h3>
+            {!call && (
+              <button className="ghost" onClick={() => setLastCall(null)}>
+                Kapat
+              </button>
+            )}
+          </div>
+          <CallerPanel
+            prefix={agent.tenant}
+            phone={(call ?? lastCall)!.from}
+            callid={(call ?? lastCall)!.callid}
+            direction={(call ?? lastCall)!.queue === "out" ? "out" : "in"}
+          />
         </div>
       )}
       <audio ref={audio} autoPlay />

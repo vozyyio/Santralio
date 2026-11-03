@@ -179,7 +179,7 @@ sudo infra/web-deploy.sh        # paneli derler ve kurar; Caddy sertifikayı ken
 sudo certbot reconfigure --cert-name sip.santralio.site --webroot --webroot-path /var/lib/santralio-acme
 ```
 
-Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu), `control/tests/roles_sso.py` (roller ve tek giriş), `infra/asterisk/tests/check_ws.mjs` (temsilci masasının WSS yolu); kullanımlar dosyaların başında.
+Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu), `control/tests/roles_sso.py` (roller ve tek giriş), `control/tests/crm_e2e.py` (CRM), `infra/asterisk/tests/check_ws.mjs` (temsilci masasının WSS yolu); kullanımlar dosyaların başında.
 
 Arama kaydı (varsayılan kapalı; panelde "Genel" sekmesinden de açılır):
 
