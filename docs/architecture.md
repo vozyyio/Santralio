@@ -275,7 +275,7 @@ Yazılım her iki modda da aynıdır; değişen yalnızca kaç kiracının hangi
 
 Otomatik kurulum için planlanan yapı:
 
-1. **Tek komutla kurulum (`infra/install-all.sh`).** Boş bir Ubuntu sunucusunda bütün adımları sırayla ve tekrar çalıştırılabilir biçimde yapar: paketler, Piper, Asterisk ayarları, sertifikalar, kontrol servisi, panel, güvenlik duvarı ve fail2ban. Bugün bu adımlar `deploy.sh`, `install.sh` ve `web-deploy.sh` olarak ayrı duruyor; alan adları ve IP birkaç yerde sabit yazılı. Önce bunlar tek bir ayar dosyasına (`/etc/santralio/site.env`: alan adları, genel IP, e-posta) bağlanacak.
+1. **Tek komutla kurulum (`infra/install-all.sh`), yapıldı.** Boş bir Ubuntu 26.04 sunucusunda bütün adımları sırayla ve tekrar çalıştırılabilir biçimde yapar: paketler, swap, güvenlik duvarı, fail2ban, Piper, sertifikalar, Asterisk, kontrol servisi, panel ve sağlık kontrolü. Sunucuya özgü değerler (alan adı, SIP adresi, genel IP, Cloudflare kullanımı, ACME e-postası) yalnızca `/etc/santralio/site.env` dosyasındadır. Asterisk ayarları ve Caddyfile bu değerlerle doldurulan şablonlardır. Kontrol servisi aynı dosyayı systemd `EnvironmentFile` ile okur.
 2. **Sunucu açma ve DNS (`infra/provision`).** Hetzner API'si ile sunucuyu açar, Cloudflare API'si ile `sip.<alan>` (proxy'siz) ve `panel.<alan>` (proxy'li) kayıtlarını oluşturur, SSH ile `install-all.sh`'yi belirli bir sürümle (git etiketi) çalıştırır. Müşteri kendi sunucusunu verirse yalnızca son adım çalışır.
 3. **Sürüm ve güncelleme.** Her kurulum bir sürüm etiketine bağlıdır. Güncelleme aynı betiği yeni etiketle yeniden çalıştırır; veritabanı migration'ları sırayla uygulanır.
 4. **Lisans.** Müşteriye özel sunucu da lisansını Vozyy'den okur. Lisans kapanırsa o sunucudaki kiracı kapanır.

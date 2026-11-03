@@ -1,15 +1,16 @@
-# Santralio: HTTPS ters vekil. infra/web-deploy.sh kurar (/etc/caddy/Caddyfile).
+# Santralio: HTTPS ters vekil. Şablondur: infra/web-deploy.sh, /etc/santralio/site.env değerleriyle doldurup
+# /etc/caddy/Caddyfile olarak kurar (@SANTRALIO_…@ yer tutucuları, bkz. infra/lib/site.sh).
 #
-# panel.santralio.site Cloudflare proxy'si (turuncu bulut) arkasındadır:
+# Panel adresleri Cloudflare proxy'si (turuncu bulut) arkasındaysa (SANTRALIO_CLOUDFLARE=yes):
 # - Yalnızca Cloudflare'den gelen bağlantılar kabul edilir; böylece CF-Connecting-IP başlığına güvenilir
 #   ve API'nin giriş sınırı gerçek istemci IP'siyle çalışır.
-# - Cloudflare IP listesi: https://www.cloudflare.com/ips (değişirse burası güncellenir).
+# - Cloudflare IP listesi: infra/caddy/cloudflare-ips.txt (https://www.cloudflare.com/ips).
 #
-# sip.santralio.site proxy'sizdir; Caddy yalnızca certbot'un webroot doğrulama dosyalarını sunar.
+# SIP adresi proxy'sizdir; Caddy yalnızca certbot'un webroot doğrulama dosyalarını sunar.
 # Asterisk'in TLS sertifikası certbot ile alınır ve yenilenir (infra/asterisk/cert-hook.sh).
 
 (cloudflare) {
-	@not_cloudflare not remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	@not_cloudflare @SANTRALIO_CADDY_NOT_ALLOWED@
 }
 
 # Üç adres aynı paneli ve aynı API'yi sunar; panel hangi ekranı açacağını adresten anlar:
@@ -31,11 +32,11 @@
 
 	# route içindekiler yazıldığı sırayla çalışır: önce Cloudflare dışı bağlantı reddedilir.
 	route {
-		respond @not_cloudflare "Yalnızca santralio.site adresleri üzerinden erişilebilir." 403
+		respond @not_cloudflare "Yalnızca @SANTRALIO_BASE_DOMAIN@ adresleri üzerinden erişilebilir." 403
 
 		handle /api/* {
 			reverse_proxy 127.0.0.1:8090 {
-				header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@
 			}
 		}
 
@@ -53,18 +54,18 @@
 	header Content-Security-Policy "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self' {args[0]}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 }
 
-panel.santralio.site {
+panel.@SANTRALIO_BASE_DOMAIN@ {
 	import csp ""
 	import santralio_app
 }
 
-crm.santralio.site {
+crm.@SANTRALIO_BASE_DOMAIN@ {
 	import csp ""
 	import santralio_app
 }
 
-agent.santralio.site {
-	import csp wss://agent.santralio.site
+agent.@SANTRALIO_BASE_DOMAIN@ {
+	import csp wss://agent.@SANTRALIO_BASE_DOMAIN@
 	# Temsilci masası: SIP-over-WebSocket. Önce oturum (çerez) API'de doğrulanır,
 	# yalnızca temsilci masası yetkisi ve dahilisi olan kullanıcı Asterisk'e (yalnızca localhost) bağlanır.
 	# route, snippet'teki route'tan önce çalışsın diye ayrı bir route bloğundadır.
@@ -78,7 +79,7 @@ agent.santralio.site {
 	import santralio_app
 }
 
-http://sip.santralio.site {
+http://@SANTRALIO_SIP_HOST@ {
 	handle /.well-known/acme-challenge/* {
 		root * /var/lib/santralio-acme
 		file_server

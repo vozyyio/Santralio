@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { Ami, reloadTenants } from "./ami.ts";
 import { renderAll } from "./apply.ts";
-import { CURRENT_KEY_ID, masterKey } from "./config.ts";
+import { CURRENT_KEY_ID, masterKey, SIP_HOST } from "./config.ts";
 import { aad, open, randomToken, seal } from "./crypto.ts";
 import { audit, connect, migrate, tx, type Db } from "./db.ts";
 import { hashPassword } from "./auth.ts";
@@ -641,7 +641,7 @@ async function resellerId(db: Db, name: string): Promise<number> {
 
 function printSip(prefix: string, number: string, secret: string) {
   console.log(`Dahili ${number} SIP bilgileri:
-  sunucu      : sip.santralio.site
+  sunucu      : ${SIP_HOST}
   port        : 5061 (TLS)
   kullanıcı   : ${prefix}_${number}
   şifre       : ${secret}

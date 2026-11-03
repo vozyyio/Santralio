@@ -9,13 +9,13 @@ const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbu
 const daysAgo = (n: number) => new Date(Date.parse(today()) - n * 86_400_000).toISOString().slice(0, 10);
 
 // Bir kez gösterilen geçici şifre.
-function Secret({ title, email, password, onClose }: { title: string; email: string; password: string; onClose: () => void }) {
+function Secret({ title, email, password, login, onClose }: { title: string; email: string; password: string; login: string; onClose: () => void }) {
   return (
     <div className="notice">
       <strong>{title} — şifre yalnızca şimdi gösteriliyor, kişiye güvenli bir yoldan iletin.</strong>
       <dl>
         <dt>Giriş</dt>
-        <dd className="mono">panel / crm / agent .santralio.site</dd>
+        <dd className="mono">{login}</dd>
         <dt>E-posta</dt>
         <dd className="mono">{email}</dd>
         <dt>Geçici şifre</dt>
@@ -72,7 +72,7 @@ export function Staff({ t, me, reload }: { t: Tenant; me: Me; reload: () => void
     <div className="card">
       <h3>Personel</h3>
       {error && <p className="error">{error}</p>}
-      {shown && <Secret {...shown} onClose={() => setShown(null)} />}
+      {shown && <Secret {...shown} login={`${me.origins.agent} · ${me.origins.crm} · ${me.origins.panel}`} onClose={() => setShown(null)} />}
       {!rows ? (
         <p className="muted">Yükleniyor…</p>
       ) : (

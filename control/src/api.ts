@@ -25,7 +25,7 @@ import {
   verifyPassword,
   type User,
 } from "./auth.ts";
-import { masterKey, PG_DATABASE, PG_HOST, SOUNDS_DIR } from "./config.ts";
+import { BASE_DOMAIN, masterKey, PG_DATABASE, PG_HOST, SIP_HOST, SOUNDS_DIR } from "./config.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
 import { listCalls, parseRange, summary, type CallRow } from "./reports.ts";
@@ -42,7 +42,6 @@ const MAX_BODY = 64 * 1024;
 const VOICE_SAMPLES_DIR = "/var/lib/santralio/voice-samples";
 // Üç adres: panel (ayarlar), crm (görüşmeler, raporlar, müşteriler), agent (temsilci masası).
 // Oturum çerezi ortak üst alan adına yazılır; tek girişle üç adres arasında geçilir.
-const BASE_DOMAIN = process.env.SANTRALIO_BASE_DOMAIN ?? "santralio.site";
 const ORIGINS = {
   panel: `https://panel.${BASE_DOMAIN}`,
   crm: `https://crm.${BASE_DOMAIN}`,
@@ -375,7 +374,8 @@ route("GET", "/api/agent", async (ctx) => {
     queues,
     sip: {
       wsServer: ORIGINS.agent.replace(/^http/, "ws") + "/ws",
-      uri: `sip:${e.prefix}_${e.number}_web@sip.santralio.site`,
+      uri: `sip:${e.prefix}_${e.number}_web@${SIP_HOST}`,
+      domain: SIP_HOST,
       username: `${e.prefix}_${e.number}_web`,
       password: open(e.secret_enc, aad.extension(e.tenant_id, e.number), masterKey(e.key_id)),
     },
@@ -935,7 +935,7 @@ route("POST", "/api/tenants/:prefix/extensions", async (ctx) => {
   const secret = await ops.addExtension(ctx.db, t, number, optStr(ctx.body?.name, "name") ?? "", actor(ctx));
   applyChanges(ctx.db);
   // SIP şifresi yalnızca bu yanıtta bir kez gösterilir.
-  return { number, sip: { server: "sip.santralio.site", port: 5061, transport: "tls", username: `${t.prefix}_${number}`, password: secret } };
+  return { number, sip: { server: SIP_HOST, port: 5061, transport: "tls", username: `${t.prefix}_${number}`, password: secret } };
 });
 
 route("PUT", "/api/tenants/:prefix/menus/:name", async (ctx) => {
