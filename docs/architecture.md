@@ -208,6 +208,30 @@ Bilerek sonraya bırakılanlar:
 - Arama kaydı ve CDR (4. adım)
 - Çalışma saatleri ve tuşlamalı menü (karşılama ve yönlendirme kapsamı)
 
+## Personel, işlem günlüğü ve aktarma
+
+- **Personel:** Kiracı yöneticisi panelden kendi kiracısına yönetici (`tenant_admin`) ve temsilci (`agent`) açar. Daha üst roller yalnızca CLI'den açılır. Geçici şifre rastgele üretilir ve yalnızca bir kez gösterilir. Temsilcinin dahilisi yoksa lisans sınırı içinde otomatik açılır; bir dahili aynı anda tek bir açık hesaba bağlanabilir. Hesap kapatılınca o hesabın açık oturumları da kapanır. Yönetici kendi hesabını kapatamaz.
+- **İşlem günlüğü:** Giriş, çıkış, ayar değişiklikleri, personel işlemleri, kayıt dinleme, mola ve temsilci masasına bağlanma `audit_log`'a yazılır: kim, ne zaman, hangi IP'den. Kiracı yöneticisi kendi kiracısının günlüğünü, platform yöneticisi bütün günlüğü görür.
+- **Sistem durumu:** Yalnızca platform yöneticisi görür. İçeriği: santralin çalışma süresi, süren arama sayısı, operatör hatlarının kaydı, disk ve son 50 santral uyarısı.
+- **Aktarma:** Temsilci görüşmeyi tarayıcıdan bir kuyruğa (`q-<kuyruk>`) ya da bir dahiliye kör aktarır (SIP REFER). Hedef, temsilcinin kendi kiracısının `tN-internal` context'inde çözülür; başka bir kiracıya ya da dış hatta aktarma yapılamaz. Aktarılan görüşme yeni kuyrukta ayrı bir satır olarak rapora girer.
+
+## Kurulum modları: paylaşımlı ve müşteriye özel sunucu
+
+Yazılım her iki modda da aynıdır; değişen yalnızca kaç kiracının hangi sunucuda çalıştığıdır.
+
+| Mod | Ne zaman | Nasıl |
+| --- | --- | --- |
+| **Paylaşımlı** | Varsayılan. Küçük ve orta müşteriler | Kiracılar Santralio'nun sunucularında, birbirinden izole çalışır (bugünkü yapı) |
+| **Müşteriye özel sunucu** | Veri yerelliği (KVKK), yüksek hacim ya da kurumsal talep | Müşteri için ayrı bir sunucuya tam bir Santralio kurulur: kendi veritabanı, kendi santrali, kendi paneli |
+
+Otomatik kurulum için planlanan yapı:
+
+1. **Tek komutla kurulum (`infra/install-all.sh`).** Boş bir Ubuntu sunucusunda bütün adımları sırayla ve tekrar çalıştırılabilir biçimde yapar: paketler, Piper, Asterisk ayarları, sertifikalar, kontrol servisi, panel, güvenlik duvarı ve fail2ban. Bugün bu adımlar `deploy.sh`, `install.sh` ve `web-deploy.sh` olarak ayrı duruyor; alan adları ve IP birkaç yerde sabit yazılı. Önce bunlar tek bir ayar dosyasına (`/etc/santralio/site.env`: alan adları, genel IP, e-posta) bağlanacak.
+2. **Sunucu açma ve DNS (`infra/provision`).** Hetzner API'si ile sunucuyu açar, Cloudflare API'si ile `sip.<alan>` (proxy'siz) ve `panel.<alan>` (proxy'li) kayıtlarını oluşturur, SSH ile `install-all.sh`'yi belirli bir sürümle (git etiketi) çalıştırır. Müşteri kendi sunucusunu verirse yalnızca son adım çalışır.
+3. **Sürüm ve güncelleme.** Her kurulum bir sürüm etiketine bağlıdır. Güncelleme aynı betiği yeni etiketle yeniden çalıştırır; veritabanı migration'ları sırayla uygulanır.
+4. **Lisans.** Müşteriye özel sunucu da lisansını Vozyy'den okur. Lisans kapanırsa o sunucudaki kiracı kapanır.
+5. **Yedek ve izleme.** Veritabanı ve kayıtlar her gece sunucu dışına yedeklenir. Merkezi bir izleme ekranı bütün sunucuların sağlık durumunu toplar.
+
 ## Kapasite ve büyüme
 
 İlk sunucu Hetzner ARM64, 2 vCPU ve 4 GB RAM. Pilot için yeterli: birkaç kiracı ve 20–30 eş zamanlı G.711 çağrısı, ses dönüştürmesi olmadan.

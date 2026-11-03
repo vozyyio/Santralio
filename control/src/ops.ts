@@ -2,6 +2,7 @@
 // Her işlem kiracı kimliğiyle çağrılır ve yalnızca o kiracının kayıtlarına dokunur.
 // Doğrulama hataları UserError olarak fırlatılır: CLI "hata:" diye yazar, API 400/404 döner.
 
+import { hashPassword } from "./auth.ts";
 import { CURRENT_KEY_ID, masterKey } from "./config.ts";
 import { aad, randomToken, seal } from "./crypto.ts";
 import { audit, tx, type Db } from "./db.ts";
@@ -230,4 +231,102 @@ export async function setRecording(db: Db, t: Tenant, r: RecordingInput, actor?:
     [r.enabled, r.retentionDays ?? null, r.noticeText ?? null, t.id],
   );
   await audit(db, "recording.settings", t.id, r, actor);
+}
+
+// --- Personel (panel kullanıcıları) ---
+// Kiracı yöneticisi kendi kiracısına yalnızca tenant_admin ve agent açabilir. Şifre rastgele üretilir ve
+// bir kez gösterilir; kullanıcı ilk girişten sonra değiştirmelidir. E-posta adresi bütün platformda tekildir.
+
+export type StaffInput = { email: string; name: string; role: "tenant_admin" | "agent"; extension?: string | null; extensionName?: string };
+
+export async function createStaff(db: Db, t: Tenant, s: StaffInput, actor?: string): Promise<{ password: string; sipPassword: string | null }> {
+  const email = s.email.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new UserError("geçersiz e-posta");
+  if (s.role !== "tenant_admin" && s.role !== "agent") throw new UserError("rol tenant_admin ya da agent olmalı");
+  if (s.name.length > 100) throw new UserError("ad en fazla 100 karakter");
+  let extensionId: number | null = null;
+  let sipPassword: string | null = null;
+  if (s.role === "agent") {
+    if (!s.extension) throw new UserError("temsilci için dahili gerekli");
+    let e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2", [t.id, s.extension])).rows[0];
+    // Dahili yoksa açılır (lisanstaki dahili sınırına tabidir).
+    if (!e) {
+      sipPassword = await addExtension(db, t, s.extension, s.extensionName ?? s.name, actor);
+      e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2", [t.id, s.extension])).rows[0];
+    }
+    const taken = (await db.query("SELECT email FROM users WHERE extension_id = $1 AND NOT disabled", [e.id])).rows[0];
+    if (taken) throw new UserError(`dahili ${s.extension} zaten ${taken.email} hesabına bağlı`);
+    extensionId = e.id;
+  }
+  const password = randomToken(14);
+  await db
+    .query("INSERT INTO users (email, name, password_hash, role, tenant_id, extension_id) VALUES ($1, $2, $3, $4, $5, $6)", [
+      email,
+      s.name,
+      await hashPassword(password),
+      s.role,
+      t.id,
+      extensionId,
+    ])
+    .catch((err) => {
+      if (err.code === "23505") throw new UserError(`bu e-posta zaten kayıtlı: ${email}`);
+      throw err;
+    });
+  await audit(db, "user.add", t.id, { email, role: s.role, extension: s.extension ?? null }, actor);
+  return { password, sipPassword };
+}
+
+async function staffOf(db: Db, t: Tenant, email: string) {
+  const u = (await db.query("SELECT * FROM users WHERE email = $1 AND tenant_id = $2", [email.toLowerCase(), t.id])).rows[0];
+  if (!u) throw new UserError("kullanıcı bulunamadı", 404);
+  return u;
+}
+
+export async function setStaffDisabled(db: Db, t: Tenant, email: string, disabled: boolean, actor?: string) {
+  const u = await staffOf(db, t, email);
+  await db.query("UPDATE users SET disabled = $1 WHERE id = $2", [disabled, u.id]);
+  if (disabled) await db.query("UPDATE sessions SET revoked = true WHERE user_id = $1", [u.id]);
+  await audit(db, disabled ? "user.disable" : "user.enable", t.id, { email: u.email }, actor);
+}
+
+export async function resetStaffPassword(db: Db, t: Tenant, email: string, actor?: string): Promise<string> {
+  const u = await staffOf(db, t, email);
+  const password = randomToken(14);
+  await db.query("UPDATE users SET password_hash = $1 WHERE id = $2", [await hashPassword(password), u.id]);
+  await db.query("UPDATE sessions SET revoked = true WHERE user_id = $1", [u.id]);
+  await audit(db, "user.password_reset", t.id, { email: u.email }, actor);
+  return password;
+}
+
+// Kuyruğun temsilcilerini verilen dahili listesiyle değiştirir. Yalnızca aynı kiracının dahilileri.
+export async function setQueueMembers(db: Db, t: Tenant, queue: string, numbers: string[], actor?: string) {
+  const q = (await db.query("SELECT id FROM queues WHERE tenant_id = $1 AND name = $2", [t.id, queue])).rows[0];
+  if (!q) throw new UserError(`${t.prefix}: kuyruk yok: ${queue}`, 404);
+  const ids: number[] = [];
+  for (const n of new Set(numbers)) {
+    const e = (await db.query("SELECT id FROM extensions WHERE tenant_id = $1 AND number = $2", [t.id, n])).rows[0];
+    if (!e) throw new UserError(`${t.prefix}: dahili yok: ${n}`);
+    ids.push(e.id);
+  }
+  await tx(db, async () => {
+    await db.query("DELETE FROM queue_members WHERE queue_id = $1", [q.id]);
+    for (const id of ids) await db.query("INSERT INTO queue_members (queue_id, extension_id) VALUES ($1, $2)", [q.id, id]);
+    await audit(db, "queue.members", t.id, { queue, members: [...new Set(numbers)] }, actor);
+  });
+}
+
+// Kuyruğa panelden ve aktarma listesinden kullanılacak bir iç numara verir (ör. 8001).
+export async function setQueueNumber(db: Db, t: Tenant, queue: string, number: string | null, actor?: string) {
+  if (number !== null && !/^[0-9]{2,6}$/.test(number)) throw new UserError("iç numara 2–6 haneli olmalı");
+  if (number && (await db.query("SELECT 1 FROM extensions WHERE tenant_id = $1 AND number = $2", [t.id, number])).rowCount) {
+    throw new UserError(`${number} bir dahili numarası; kuyruğa verilemez`);
+  }
+  const r = await db
+    .query("UPDATE queues SET number = $1 WHERE tenant_id = $2 AND name = $3", [number, t.id, queue])
+    .catch((err) => {
+      if (err.code === "23505") throw new UserError(`${number} başka bir kuyrukta kullanılıyor`);
+      throw err;
+    });
+  if (!r.rowCount) throw new UserError(`${t.prefix}: kuyruk yok: ${queue}`, 404);
+  await audit(db, "queue.number", t.id, { queue, number }, actor);
 }

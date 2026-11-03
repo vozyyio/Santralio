@@ -62,6 +62,15 @@ export type Tenant = {
   }[];
 };
 export type Status = { registration: string; onlineExtensions: string[] };
+export type StaffRow = { email: string; name: string; role: Role; extension: string | null; disabled: boolean; last_seen: string | null };
+export type AuditRow = { id: number; at: string; actor: string; action: string; tenant: string | null; details: Record<string, unknown> };
+export type SystemStatus = {
+  asterisk: { uptimeS: number; activeCalls: number; registrations: { name: string; status: string }[] };
+  disk: { freeBytes: number; totalBytes: number };
+  tenants: number;
+  users: number;
+  recentProblems: string[];
+};
 export type Outcome = "answered" | "abandoned" | "timeout" | "no_agent" | "open";
 export type CallRow = {
   callid: string;
@@ -129,5 +138,16 @@ export const api = {
   summary: (p: string, from: string, to: string) => call<Summary>("GET", `${t(p)}/reports/summary?from=${from}&to=${to}`),
   calls: (p: string, from: string, to: string) => call<CallRow[]>("GET", `${t(p)}/calls?from=${from}&to=${to}`),
   recordingUrl: (p: string, callid: string) => `${t(p)}/recordings/${seg(callid)}`,
+  users: (p: string) => call<StaffRow[]>("GET", `${t(p)}/users`),
+  addUser: (p: string, body: { email: string; name: string; role: string; extension: string | null }) =>
+    call<{ email: string; temporaryPassword: string; extensionCreated: boolean }>("POST", `${t(p)}/users`, body),
+  setUserDisabled: (p: string, email: string, disabled: boolean) => call("PUT", `${t(p)}/users/${seg(email)}`, { disabled }),
+  resetPassword: (p: string, email: string) => call<{ temporaryPassword: string }>("POST", `${t(p)}/users/${seg(email)}/reset-password`),
+  setQueueMembers: (p: string, q: string, members: string[]) => call("PUT", `${t(p)}/queues/${seg(q)}/members`, { members }),
+  setQueueNumber: (p: string, q: string, number: string | null) => call("PUT", `${t(p)}/queues/${seg(q)}/number`, { number }),
+  audit: (p: string | null, from: string, to: string, action = "") =>
+    call<AuditRow[]>("GET", `${p ? `${t(p)}/audit` : "/api/audit"}?from=${from}&to=${to}${action ? `&action=${encodeURIComponent(action)}` : ""}`),
+  system: () => call<SystemStatus>("GET", "/api/system"),
+  directory: () => call<{ queues: { name: string; number: string | null }[]; extensions: { number: string; name: string }[] }>("GET", "/api/agent/directory"),
   setPause: (paused: boolean, reason?: string) => call<{ paused: boolean }>("PUT", "/api/agent/pause", { paused, reason: reason ?? null }),
 };

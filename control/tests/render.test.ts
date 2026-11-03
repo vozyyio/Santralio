@@ -256,3 +256,10 @@ test("kayıt açıkken anons çalar, kayıt temsilci açınca kendi kiracı dizi
   assert.ok(q.includes("Set(__SANTRALIO_RECDIR=/var/lib/santralio/recordings/t1)"));
   assert.ok(q.includes("Queue(t1_destek,t,,,300,,santralio-record)"));
 });
+
+test("aktarma: her kuyruk kendi kiracısının internal context'inde q-<ad> ile aranabilir", () => {
+  const ext = renderTenant(tenant(1))["extensions.conf"];
+  const internal = ext.slice(ext.indexOf("[t1-internal]"), ext.indexOf("[t1-agent]"));
+  assert.ok(internal.includes("exten => q-destek,1,Goto(t1-queue-destek,s,1)"));
+  assert.ok(!internal.includes("t2"));
+});

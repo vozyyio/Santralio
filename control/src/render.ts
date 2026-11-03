@@ -409,6 +409,10 @@ ${recordingSteps(t, p)} same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS},,${t.re
     assertId(q.number!, "kuyruk numarası");
     out.push(`exten => ${q.number},1,${limit}\n same => n,Goto(${p}-queue-${q.name},s,1)\n`);
   }
+  // Aktarma hedefi: temsilci aramayı q-<kuyruk> adresine aktarır (iç numarası olmayan kuyruklar dahil).
+  for (const q of t.queues) {
+    out.push(`exten => q-${q.name.replace(/_/g, "-")},1,Goto(${p}-queue-${q.name},s,1)\n`);
+  }
   out.push(`exten => _[+*#0-9a-zA-Z].,1,Goto(reject,s,1)\nexten => i,1,Goto(reject,s,1)\n`);
 
   // Kuyruğun temsilciyi çaldırdığı yer. Yalnızca queues.conf'taki Local üyeleri buraya girer.
