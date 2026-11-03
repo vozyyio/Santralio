@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { AgentDesk } from "./AgentDesk";
+import { Audit, Staff, SystemPage } from "./Admin";
 import { Calls, Reports } from "./Reports";
 import { api, ApiError, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
 
@@ -90,6 +91,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <a href="#/" className="brand">
           Santralio
         </a>
+        {me.role === "platform_admin" && (
+          <a href="#/sistem" className="small">
+            Sistem
+          </a>
+        )}
         <span className="spacer" />
         <span className="muted small">
           {me.email} · {ROLE[me.role]}
@@ -101,6 +107,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       <main>
         {me.role === "agent" ? (
           <AgentDesk />
+        ) : hash.startsWith("#/sistem") && me.role === "platform_admin" ? (
+          <SystemPage />
         ) : m ? (
           <TenantPage prefix={m[1]} tab={m[2] ?? "genel"} go={go} />
         ) : (
@@ -168,7 +176,9 @@ const TABS: [string, string][] = [
   ["menuler", "Menüler"],
   ["saatler", "Çalışma saatleri"],
   ["kuyruklar", "Kuyruklar"],
+  ["personel", "Personel"],
   ["dahililer", "Dahililer"],
+  ["gunluk", "İşlem günlüğü"],
 ];
 
 function TenantPage({ prefix, tab: requested }: { prefix: string; tab: string; go: (h: string) => void }) {
@@ -206,6 +216,8 @@ function TenantPage({ prefix, tab: requested }: { prefix: string; tab: string; g
       {tab === "saatler" && t.schedules.length === 0 && <p className="muted">Bu müşteride henüz çalışma saati tanımı yok.</p>}
       {tab === "kuyruklar" && t.queues.map((q) => <QueueEditor key={q.name} t={t} q={q} reload={reload} />)}
       {tab === "dahililer" && <Extensions t={t} reload={reload} />}
+      {tab === "personel" && <Staff t={t} reload={reload} />}
+      {tab === "gunluk" && <Audit prefix={t.prefix} />}
     </>
   );
 }
@@ -553,7 +565,12 @@ function ScheduleEditor({ t, sc, reload }: { t: Tenant; sc: Tenant["schedules"][
 
 function QueueEditor({ t, q, reload }: { t: Tenant; q: Tenant["queues"][number]; reload: () => void }) {
   const [text, setText] = useState(q.unavailable_text);
+  const [members, setMembers] = useState<string[]>(q.members);
+  const [number, setNumber] = useState(q.number ?? "");
   const save = useSave(reload);
+  const saveMembers = useSave(reload);
+  const saveNumber = useSave(reload);
+  const toggle = (n: string) => setMembers(members.includes(n) ? members.filter((x) => x !== n) : [...members, n].sort());
   return (
     <div className="card">
       <h3>
@@ -564,6 +581,33 @@ function QueueEditor({ t, q, reload }: { t: Tenant; q: Tenant["queues"][number];
         Temsilciler: {q.members.length ? q.members.join(", ") : <span className="muted">yok</span>} · Strateji: {q.strategy} · Çalma {q.ring_s} sn · En
         fazla bekleme {q.max_wait_s} sn
       </p>
+      <h4>Temsilciler</h4>
+      <div className="row">
+        {t.extensions.map((e) => (
+          <label key={e.number} className="check chip">
+            <input type="checkbox" checked={members.includes(e.number)} onChange={() => toggle(e.number)} />
+            {e.number}
+            {e.display_name ? ` · ${e.display_name}` : ""}
+          </label>
+        ))}
+        <button
+          disabled={saveMembers.busy || members.join() === [...q.members].sort().join()}
+          onClick={() => saveMembers.run(() => api.setQueueMembers(t.prefix, q.name, members))}
+        >
+          Kaydet
+        </button>
+        {saveMembers.view}
+      </div>
+      <div className="row">
+        <label className="inline">
+          İç numara (dahililerden aranır, ör. 8001)
+          <input value={number} onChange={(e) => setNumber(e.target.value.replace(/\D/g, ""))} maxLength={6} />
+        </label>
+        <button disabled={saveNumber.busy || number === (q.number ?? "")} onClick={() => saveNumber.run(() => api.setQueueNumber(t.prefix, q.name, number || null))}>
+          Kaydet
+        </button>
+        {saveNumber.view}
+      </div>
       <label>
         Müsait temsilci yokken anons
         <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} maxLength={500} />

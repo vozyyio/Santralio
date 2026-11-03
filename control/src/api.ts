@@ -168,6 +168,11 @@ route(
 
 route("POST", "/api/logout", async (ctx) => {
   await revokeSession(ctx.db, ctx.token!);
+  await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, 'user.logout', $3)", [
+    actor(ctx),
+    ctx.user!.tenant_id,
+    JSON.stringify({ ip: ctx.ip }),
+  ]);
   ctx.res.setHeader("set-cookie", [
     `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`,
     `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=0`,
@@ -285,6 +290,19 @@ route("GET", "/api/agent", async (ctx) => {
   };
 });
 
+// Aktarma rehberi: temsilcinin aramayı aktarabileceği kuyruklar ve dahililer (yalnızca kendi kiracısı).
+route("GET", "/api/agent/directory", async (ctx) => {
+  const e = await agentExtension(ctx);
+  const queues = (await ctx.db.query("SELECT name, number FROM queues WHERE tenant_id = $1 ORDER BY name", [e.tenant_id])).rows;
+  const extensions = (
+    await ctx.db.query("SELECT number, display_name AS name FROM extensions WHERE tenant_id = $1 AND enabled AND id <> $2 ORDER BY number", [
+      e.tenant_id,
+      e.id,
+    ])
+  ).rows;
+  return { queues, extensions };
+});
+
 // Müsait / molada. Durum veritabanına yazılır (yeniden yüklemede korunur) ve hemen Asterisk'e iletilir.
 route("PUT", "/api/agent/pause", async (ctx) => {
   const e = await agentExtension(ctx);
@@ -314,6 +332,135 @@ route("PUT", "/api/agent/pause", async (ctx) => {
     await ami.close();
   }
   return { paused };
+});
+
+// --- Personel ---
+
+route("GET", "/api/tenants/:prefix/users", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  return (
+    await ctx.db.query(
+      `SELECT u.email, u.name, u.role, e.number AS extension, u.disabled, u.created_at,
+              (SELECT max(last_seen) FROM sessions s WHERE s.user_id = u.id) AS last_seen
+         FROM users u LEFT JOIN extensions e ON e.id = u.extension_id WHERE u.tenant_id = $1 ORDER BY u.role, u.email`,
+      [t.id],
+    )
+  ).rows;
+});
+
+route("POST", "/api/tenants/:prefix/users", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const b = ctx.body ?? {};
+  const r = await ops.createStaff(
+    ctx.db,
+    t,
+    { email: str(b.email, "email"), name: optStr(b.name, "name") ?? "", role: b.role, extension: optStr(b.extension, "extension") },
+    actor(ctx),
+  );
+  if (r.sipPassword) applyChanges(ctx.db);
+  // Geçici şifre yalnızca bu yanıtta bir kez gösterilir.
+  return { email: String(b.email).trim().toLowerCase(), temporaryPassword: r.password, extensionCreated: !!r.sipPassword };
+});
+
+route("PUT", "/api/tenants/:prefix/users/:email", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  if (typeof ctx.body?.disabled !== "boolean") throw new UserError("disabled true/false olmalı");
+  if (ctx.params[1].toLowerCase() === ctx.user!.email) throw new UserError("kendi hesabınızı kapatamazsınız");
+  await ops.setStaffDisabled(ctx.db, t, ctx.params[1], ctx.body.disabled, actor(ctx));
+  return { ok: true };
+});
+
+route("POST", "/api/tenants/:prefix/users/:email/reset-password", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  return { temporaryPassword: await ops.resetStaffPassword(ctx.db, t, ctx.params[1], actor(ctx)) };
+});
+
+route("PUT", "/api/tenants/:prefix/queues/:name/members", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const m = ctx.body?.members;
+  if (!Array.isArray(m) || m.some((x) => typeof x !== "string")) throw new UserError("members dahili numaraları listesi olmalı");
+  await ops.setQueueMembers(ctx.db, t, ctx.params[1], m, actor(ctx));
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+
+route("PUT", "/api/tenants/:prefix/queues/:name/number", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  await ops.setQueueNumber(ctx.db, t, ctx.params[1], optStr(ctx.body?.number, "number") || null, actor(ctx));
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+
+// --- İşlem günlüğü ve sistem durumu ---
+
+const AUDIT_SQL = `SELECT a.id, to_char(a.at AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD HH24:MI:SS') AS at, a.actor, a.action,
+                          t.prefix AS tenant, a.details
+                     FROM audit_log a LEFT JOIN tenants t ON t.id = a.tenant_id`;
+
+function auditFilter(ctx: Ctx, where: string[], params: unknown[]) {
+  const q = query(ctx);
+  const r = parseRange(q.get("from"), q.get("to"));
+  params.push(r.from, r.to);
+  where.push(`a.at >= ($${params.length - 1}::date::timestamp AT TIME ZONE 'Europe/Istanbul')`);
+  where.push(`a.at < (($${params.length}::date + 1)::timestamp AT TIME ZONE 'Europe/Istanbul')`);
+  const action = q.get("action");
+  if (action) {
+    params.push(`${action.replace(/[\\%_]/g, "")}%`);
+    where.push(`a.action LIKE $${params.length}`);
+  }
+  return Math.min(Math.max(Number(q.get("limit") ?? 500), 1), 2000);
+}
+
+route("GET", "/api/tenants/:prefix/audit", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const where = ["a.tenant_id = $1"];
+  const params: unknown[] = [t.id];
+  const limit = auditFilter(ctx, where, params);
+  return (await ctx.db.query(`${AUDIT_SQL} WHERE ${where.join(" AND ")} ORDER BY a.id DESC LIMIT ${limit}`, params)).rows;
+});
+
+// Platform yöneticisi: bütün işlem günlüğü (kiracısız kayıtlar dahil) ve sistem durumu.
+function platformOnly(ctx: Ctx) {
+  if (need(ctx.user).role !== "platform_admin") throw new UserError("bulunamadı", 404);
+}
+
+route("GET", "/api/audit", async (ctx) => {
+  platformOnly(ctx);
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const limit = auditFilter(ctx, where, params);
+  return (await ctx.db.query(`${AUDIT_SQL} WHERE ${where.join(" AND ")} ORDER BY a.id DESC LIMIT ${limit}`, params)).rows;
+});
+
+route("GET", "/api/system", async (ctx) => {
+  platformOnly(ctx);
+  const ami = await Ami.open();
+  let asterisk: Record<string, unknown>;
+  try {
+    const uptime = await ami.command("core show uptime seconds");
+    const channels = await ami.command("core show channels count");
+    const regs = await ami.command("pjsip show registrations");
+    asterisk = {
+      uptimeS: Number(/System uptime: (\d+)/.exec(uptime.join(" "))?.[1] ?? 0),
+      activeCalls: Number(/(\d+) active call/.exec(channels.join(" "))?.[1] ?? 0),
+      registrations: regs
+        .filter((l) => /_trunk_reg\//.test(l))
+        .map((l) => ({ name: l.trim().split(/\s+/)[0].split("/")[0], status: /(Registered|Unregistered|Rejected|Stopped|Retrying)/.exec(l)?.[1] ?? "?" })),
+    };
+  } finally {
+    await ami.close();
+  }
+  const { statfs } = await import("node:fs/promises");
+  const fs = await statfs("/var/lib/santralio");
+  const log = (await readFile("/var/log/asterisk/messages.log", "utf8").catch(() => "")).split("\n");
+  const problems = log.filter((l) => /\] (ERROR|WARNING)\[/.test(l)).slice(-50).reverse();
+  return {
+    asterisk,
+    disk: { freeBytes: fs.bavail * fs.bsize, totalBytes: fs.blocks * fs.bsize },
+    tenants: Number((await ctx.db.query("SELECT count(*) FROM tenants")).rows[0].count),
+    users: Number((await ctx.db.query("SELECT count(*) FROM users WHERE NOT disabled")).rows[0].count),
+    recentProblems: problems,
+  };
 });
 
 // --- Kayıt ve raporlar ---

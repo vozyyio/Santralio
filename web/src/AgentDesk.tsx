@@ -60,6 +60,8 @@ export function AgentDesk() {
   const [muted, setMuted] = useState(false);
   const [paused, setPaused] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [directory, setDirectory] = useState<{ queues: { name: string; number: string | null }[]; extensions: { number: string; name: string }[] } | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
   const ua = useRef<UserAgent | null>(null);
   const registerer = useRef<Registerer | null>(null);
   const session = useRef<Session | null>(null);
@@ -144,6 +146,7 @@ export function AgentDesk() {
       mic.getTracks().forEach((t) => t.stop());
       const a = await api.agent();
       setAgent(a);
+      api.directory().then(setDirectory).catch(() => setDirectory(null));
       setPaused(a.paused);
       const userAgent = new UserAgent({
         uri: UserAgent.makeURI(a.sip.uri),
@@ -207,6 +210,16 @@ export function AgentDesk() {
     if (s instanceof Invitation && s.state === SessionState.Initial) void s.reject();
     else if (s.state === SessionState.Established) void s.bye();
     else void s.dispose();
+  };
+
+  // Aktarma (kör): arayan seçilen kuyruğa ya da dahiliye gider, temsilcinin bağlantısı kapanır.
+  // Hedefler kiracının kendi iç numaralarıdır; santral bunları yalnızca kendi kiracısında çözer.
+  const transfer = (target: string) => {
+    const s = session.current;
+    const uri = UserAgent.makeURI(`sip:${target}@sip.santralio.site`);
+    if (!s || !uri || s.state !== SessionState.Established) return;
+    setTransferOpen(false);
+    void s.refer(uri).catch((e) => setError(`Aktarma başarısız: ${e instanceof Error ? e.message : String(e)}`));
   };
 
   const toggleMute = () => {
@@ -276,10 +289,35 @@ export function AgentDesk() {
                 {muted ? "Sesi aç" : "Sessize al"}
               </button>
             )}
+            {phase === "talking" && directory && (
+              <button className="ghost" onClick={() => setTransferOpen(!transferOpen)}>
+                Aktar
+              </button>
+            )}
             <button className="danger" onClick={hangup}>
               {phase === "ringing" ? "Reddet" : "Kapat"}
             </button>
           </div>
+          {transferOpen && directory && (
+            <div className="transfer">
+              <p className="muted small">Aramayı aktar (arayan seçilen yere geçer, sizin bağlantınız kapanır):</p>
+              <div className="row">
+                {directory.queues.map((q) => (
+                  <button key={q.name} className="ghost" onClick={() => transfer(`q-${q.name.replace(/_/g, "-")}`)}>
+                    {QUEUE_LABEL(q.name)}
+                  </button>
+                ))}
+              </div>
+              <div className="row">
+                {directory.extensions.map((e) => (
+                  <button key={e.number} className="ghost" onClick={() => transfer(e.number)}>
+                    {e.number}
+                    {e.name ? ` · ${e.name}` : ""}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
       <audio ref={audio} autoPlay />
