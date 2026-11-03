@@ -315,3 +315,12 @@ test("beklemeye alınınca kiracının bekleme müziği (moh_suggest) iki uç no
   const soft = pj.slice(pj.indexOf("[t1_1001]\ntype=endpoint"), pj.indexOf("[t1_1001]\ntype=aor"));
   assert.ok(web.includes("moh_suggest=t1") && soft.includes("moh_suggest=t1"));
 });
+
+test("santral kapalıyken bütün numaralar kapalı anonsuna gider", () => {
+  const ext = renderTenant(tenant(1, { pbxOpen: false }))["extensions.conf"];
+  const did = ext.slice(ext.indexOf("[t1-did]"), ext.indexOf("[t1-did]") + 300);
+  assert.ok(did.includes("Goto(t1-pbxclosed,s,1)") && !did.includes("t1-queue-destek"));
+  assert.ok(ext.includes("Playback(/var/lib/asterisk/sounds/santralio/t1/pbx-closed)"));
+  const open = renderTenant(tenant(1))["extensions.conf"];
+  assert.ok(!open.includes("pbxclosed"));
+});

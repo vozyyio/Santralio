@@ -37,6 +37,8 @@ fi
 # Arama kayıtları: Asterisk yazar, kontrol servisi okur ve saklama süresi dolanı siler.
 install -d -m 0755 /var/lib/santralio
 install -d -m 2770 -o "$USER_NAME" -g asterisk /var/lib/santralio/recordings
+# Ses örnekleri (panelde ses seçmeden önce dinlemek için)
+install -d -m 0750 -o "$USER_NAME" -g "$USER_NAME" /var/lib/santralio/voice-samples
 
 # 3. Gizli bilgiler (yalnızca yoksa üretilir; var olan anahtar asla değiştirilmez)
 install -d -m 0700 "$CREDS"

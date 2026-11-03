@@ -1,18 +1,20 @@
 // Santralio: veritabanından kiracı modellerini okur, dosyaları yazar ve Asterisk'i yeniden yükler.
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { aad, open } from "./crypto.ts";
-import { masterKey, PIPER_BIN, PIPER_MODEL, SOUNDS_DIR, TENANTS_DIR } from "./config.ts";
+import { masterKey, SOUNDS_DIR, TENANTS_DIR } from "./config.ts";
 import type { Db } from "./db.ts";
-import { getPolicy } from "./ops.ts";
+import { getPolicy, UserError } from "./ops.ts";
+import { DEFAULT_VOICE, resolveVoice, synthesize } from "./voices.ts";
 import { recordingDir, renderTenant, type RenderedFiles, type TenantModel } from "./render.ts";
 
 export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel> {
   const t = (
     await db.query(
-      `SELECT t.id, t.prefix, t.name, t.status, t.recording_enabled, l.active, l.valid_until, l.max_channels
+      `SELECT t.id, t.prefix, t.name, t.status, t.recording_enabled, t.pbx_open, l.active, l.valid_until, l.max_channels
          FROM tenants t LEFT JOIN licenses l ON l.tenant_id = t.id WHERE t.id = $1`,
       [tenantId],
     )
@@ -124,18 +126,19 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
     entryPoints: entries.map((e) => ({ address: e.address, flow: e.flow, enabled: e.enabled })),
     recording: { enabled: t.recording_enabled },
     outbound: pol,
+    pbxOpen: t.pbx_open,
   };
 }
 
 // Anons metninden 8 kHz, tek kanallı, 16 bit WAV üretir (Asterisk'in yerel biçimi).
-// Metin ya da ses motoru değişmedikçe dosya yeniden üretilmez; ikisi yanındaki .txt dosyasında tutulur.
-export function writePrompt(prefix: string, name: string, text: string): boolean {
+// Metin ya da ses değişmedikçe dosya yeniden üretilmez; ikisi yanındaki .txt dosyasında tutulur.
+export function writePrompt(prefix: string, name: string, text: string, voiceId: string = DEFAULT_VOICE): boolean {
   const dir = join(SOUNDS_DIR, prefix);
   mkdirSync(dir, { recursive: true, mode: 0o2750 });
   const wav = join(dir, `${name}.wav`);
   const txt = join(dir, `${name}.txt`);
-  const engine = existsSync(PIPER_BIN) && existsSync(PIPER_MODEL) ? "piper" : "espeak";
-  const marker = `${engine}\n${text}`;
+  const voice = resolveVoice(voiceId);
+  const marker = `${voice.id}\n${text}`;
   let current: string | null = null;
   try {
     current = readFileSync(txt, "utf8");
@@ -143,47 +146,71 @@ export function writePrompt(prefix: string, name: string, text: string): boolean
     current = null;
   }
   if (current === marker) return false;
-
-  // Metin argüman olarak değil standart girdiden verilir: "-" ile başlayan metin seçenek sanılmaz.
   // Ses diske yazılmadan doğrudan sox'a verilir.
+  const { audio, soxInput } = synthesize(voice, text);
   const tmp = `${wav}.tmp-${process.pid}.wav`;
-  let input: string[];
-  let tts;
-  if (engine === "piper") {
-    tts = spawnSync(PIPER_BIN, ["--model", PIPER_MODEL, "--output_raw"], { input: text, maxBuffer: 64 << 20 });
-    const rate = String(JSON.parse(readFileSync(`${PIPER_MODEL}.json`, "utf8")).audio.sample_rate);
-    input = ["-t", "raw", "-r", rate, "-e", "signed", "-b", "16", "-c", "1", "-"];
-  } else {
-    tts = spawnSync("espeak-ng", ["-v", "mb-tr2", "-s", "140", "--stdin", "--stdout"], { input: text, maxBuffer: 64 << 20 });
-    input = ["-t", "wav", "-"];
-  }
-  if (tts.status !== 0) throw new Error(`anons üretilemedi (${name}, ${engine}): ${tts.stderr.toString().trim().split("\n").pop()}`);
-  const conv = spawnSync("sox", [...input, "-r", "8000", "-c", "1", "-b", "16", tmp, "norm", "-1"], { input: tts.stdout });
+  const conv = spawnSync("sox", [...soxInput, "-r", "8000", "-c", "1", "-b", "16", tmp, "norm", "-1"], { input: audio });
   if (conv.status !== 0) throw new Error(`anons dönüştürülemedi (${name}): ${conv.stderr.toString().trim()}`);
   renameSync(tmp, wav);
   writeFileSync(txt, marker, { mode: 0o640 });
   return true;
 }
 
+// Kiracının yüklediği ses dosyasını (mp3, wav, m4a, ogg, webm…) anons olarak kurar: 8 kHz, tek kanal, en fazla 5 dakika,
+// ses düzeyi dengelenir. Bu anons artık metinden üretilmez (.txt "upload" olarak işaretlenir).
+export function installUploadedPrompt(prefix: string, name: string, data: Buffer): number {
+  const dir = join(SOUNDS_DIR, prefix);
+  mkdirSync(dir, { recursive: true, mode: 0o2750 });
+  const work = mkdtempSync(join(tmpdir(), "santralio-upload-"));
+  const input = join(work, "in");
+  const out = join(dir, `${name}.wav.tmp-${process.pid}.wav`);
+  try {
+    writeFileSync(input, data);
+    const r = spawnSync(
+      "ffmpeg",
+      ["-v", "error", "-y", "-i", input, "-t", "300", "-vn", "-af", "highpass=f=80,dynaudnorm", "-ar", "8000", "-ac", "1", "-c:a", "pcm_s16le", out],
+      { maxBuffer: 16 << 20 },
+    );
+    if (r.status !== 0) throw new UserError("ses dosyası okunamadı (desteklenen: mp3, wav, m4a, ogg, webm, flac)");
+    const seconds = (statSync(out).size - 44) / 16000;
+    if (seconds < 0.3) throw new UserError("ses dosyası boş ya da çok kısa");
+    renameSync(out, join(dir, `${name}.wav`));
+    writeFileSync(join(dir, `${name}.txt`), `upload\n${new Date().toISOString()}`, { mode: 0o640 });
+    return Math.round(seconds * 10) / 10;
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(out, { force: true });
+  }
+}
+
+// Kiracının bütün anonsları: dosya adı, panelde görünen ad ve metni. Üretim ve yükleme ekranı bu listeyi kullanır.
+export async function tenantPrompts(db: Db, tenantId: number): Promise<{ name: string; label: string; text: string }[]> {
+  const out: { name: string; label: string; text: string }[] = [];
+  for (const m of (await db.query("SELECT name, prompt_text, invalid_text FROM menus WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows) {
+    out.push({ name: `menu-${m.name}`, label: `Menü ${m.name}: karşılama`, text: m.prompt_text });
+    out.push({ name: `menu-${m.name}-invalid`, label: `Menü ${m.name}: geçersiz tuş`, text: m.invalid_text });
+  }
+  for (const q of (await db.query("SELECT name, unavailable_text FROM queues WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows) {
+    out.push({ name: `queue-${q.name}-unavailable`, label: `Kuyruk ${q.name}: müsait temsilci yok`, text: q.unavailable_text });
+  }
+  for (const x of (await db.query("SELECT name, closed_text FROM schedules WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows) {
+    out.push({ name: `schedule-${x.name}-closed`, label: `Çalışma saati ${x.name}: mesai dışı`, text: x.closed_text });
+  }
+  const t = (await db.query("SELECT recording_notice_text, ext_unavailable_text, pbx_closed_text FROM tenants WHERE id = $1", [tenantId])).rows[0];
+  out.push({ name: "recording-notice", label: "Kayıt bilgilendirmesi (KVKK)", text: t.recording_notice_text });
+  out.push({ name: "ext-unavailable", label: "Dahiliye ulaşılamıyor", text: t.ext_unavailable_text });
+  out.push({ name: "pbx-closed", label: "Santral kapalı", text: t.pbx_closed_text });
+  return out;
+}
+
 async function writePrompts(db: Db, tenantId: number, prefix: string): Promise<string[]> {
-  const rows = (await db.query("SELECT name, prompt_text, invalid_text FROM menus WHERE tenant_id = $1", [tenantId])).rows;
+  const voice = (await db.query("SELECT tts_voice FROM tenants WHERE id = $1", [tenantId])).rows[0].tts_voice;
+  const uploaded = new Set((await db.query("SELECT name FROM prompt_uploads WHERE tenant_id = $1", [tenantId])).rows.map((r) => r.name));
   const changed: string[] = [];
-  for (const m of rows) {
-    if (writePrompt(prefix, `menu-${m.name}`, m.prompt_text)) changed.push(`ses/menu-${m.name}`);
-    if (writePrompt(prefix, `menu-${m.name}-invalid`, m.invalid_text)) changed.push(`ses/menu-${m.name}-invalid`);
-  }
-  const queues = (await db.query("SELECT name, unavailable_text FROM queues WHERE tenant_id = $1", [tenantId])).rows;
-  for (const q of queues) {
-    const name = `queue-${q.name}-unavailable`;
-    if (writePrompt(prefix, name, q.unavailable_text)) changed.push(`ses/${name}`);
-  }
-  const tenant = (await db.query("SELECT recording_notice_text, ext_unavailable_text FROM tenants WHERE id = $1", [tenantId])).rows[0];
-  if (writePrompt(prefix, "recording-notice", tenant.recording_notice_text)) changed.push("ses/recording-notice");
-  if (writePrompt(prefix, "ext-unavailable", tenant.ext_unavailable_text)) changed.push("ses/ext-unavailable");
-  const schedules = (await db.query("SELECT name, closed_text FROM schedules WHERE tenant_id = $1", [tenantId])).rows;
-  for (const x of schedules) {
-    const name = `schedule-${x.name}-closed`;
-    if (writePrompt(prefix, name, x.closed_text)) changed.push(`ses/${name}`);
+  for (const pr of await tenantPrompts(db, tenantId)) {
+    // Kiracının kendi yüklediği kayıt metinden üretilenle ezilmez.
+    if (uploaded.has(pr.name)) continue;
+    if (writePrompt(prefix, pr.name, pr.text, voice)) changed.push(`ses/${pr.name}`);
   }
   return changed;
 }

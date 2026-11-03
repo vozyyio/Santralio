@@ -20,7 +20,7 @@ RestartSec=2
 # Sandbox: dosya sistemi salt okunur; yalnızca kiracı ayarları ve anonslar yazılabilir.
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/etc/asterisk/tenants /var/lib/asterisk/sounds/santralio /var/lib/santralio/recordings
+ReadWritePaths=/etc/asterisk/tenants /var/lib/asterisk/sounds/santralio /var/lib/santralio/recordings /var/lib/santralio/voice-samples
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

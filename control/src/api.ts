@@ -5,12 +5,14 @@
 //   Çerezle gelen değişiklik istekleri yalnızca panelin kaynağından (Origin) kabul edilir (CSRF).
 // Kullanıcının erişemediği kiracı için 404 döner: başka kiracıların varlığı dışarıdan anlaşılmaz.
 
-import { access, readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { access, mkdir, readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import pg from "pg";
 import { Ami, reloadTenants } from "./ami.ts";
-import { renderAll } from "./apply.ts";
+import { installUploadedPrompt, renderAll, tenantPrompts } from "./apply.ts";
+import { listVoices, synthesize } from "./voices.ts";
 import {
   appsFor,
   burnTime,
@@ -37,6 +39,7 @@ import { UserError, type Tenant } from "./ops.ts";
 const PORT = Number(process.env.SANTRALIO_API_PORT ?? 8090);
 const HOST = "127.0.0.1";
 const MAX_BODY = 64 * 1024;
+const VOICE_SAMPLES_DIR = "/var/lib/santralio/voice-samples";
 // Üç adres: panel (ayarlar), crm (görüşmeler, raporlar, müşteriler), agent (temsilci masası).
 // Oturum çerezi ortak üst alan adına yazılır; tek girişle üç adres arasında geçilir.
 const BASE_DOMAIN = process.env.SANTRALIO_BASE_DOMAIN ?? "santralio.site";
@@ -72,17 +75,19 @@ class Raw {
   }
 }
 type Handler = (ctx: Ctx) => Promise<unknown>;
-type Route = { method: string; pattern: RegExp; auth: boolean; handler: Handler };
+type Route = { method: string; pattern: RegExp; auth: boolean; raw: boolean; handler: Handler };
 
 // Değişiklik yapan istekler tek bir veritabanı işleminde çalışır: bir adım reddedilirse hiçbiri kalmaz.
 // Asterisk'e uygulama, işlem tamamlandıktan sonra yapılır.
 const pendingApply = new WeakSet<Db>();
 
 const routes: Route[] = [];
-const route = (method: string, path: string, handler: Handler, auth = true) => {
+// raw: gövde JSON değil ham baytlardır (ör. ses dosyası yükleme), en fazla MAX_RAW_BODY.
+const route = (method: string, path: string, handler: Handler, auth = true, raw = false) => {
   const pattern = new RegExp("^" + path.replace(/:[a-z]+/g, "([^/]+)") + "$");
-  routes.push({ method, pattern, auth, handler });
+  routes.push({ method, pattern, auth, raw, handler });
 };
+const MAX_RAW_BODY = 12 * 1024 * 1024;
 
 // --- Giriş denemesi sınırı: IP başına 15 dakikada 10 başarısız deneme ---
 const failures = new Map<string, { count: number; since: number }>();
@@ -292,6 +297,7 @@ route("GET", "/api/tenants/:prefix", async (ctx) => {
     name: t.name,
     status: t.status,
     recording: rec,
+    ...(await q(`SELECT tts_voice AS voice, pbx_open AS "pbxOpen", pbx_closed_text AS "pbxClosedText" FROM tenants WHERE id = $1`))[0],
     license: license ?? null,
     trunk: trunk ?? null,
     entryPoints: await q("SELECT channel, address, flow, enabled FROM entry_points WHERE tenant_id = $1 ORDER BY address"),
@@ -418,6 +424,115 @@ route("PUT", "/api/agent/pause", async (ctx) => {
     await ami.close();
   }
   return { paused };
+});
+
+// --- Anons sesleri, kendi kaydını yükleme, santrali açıp kapatma ---
+
+route("GET", "/api/voices", async (ctx) => {
+  need(ctx.user);
+  return listVoices().map(({ id, label }) => ({ id, label }));
+});
+
+// Sesin örneği (seçmeden önce dinlemek için); ilk istekte üretilir, sonra saklanır.
+const SAMPLE_TEXT = "Merhaba, aradığınız için teşekkür ederiz. Bu, anonslarınız için seçebileceğiniz seslerden biridir.";
+route("GET", "/api/voices/:id/sample", async (ctx) => {
+  need(ctx.user);
+  const voice = listVoices().find((v) => v.id === ctx.params[0]);
+  if (!voice) throw new UserError("bulunamadı", 404);
+  const file = join(VOICE_SAMPLES_DIR, `${voice.id.replace(":", "_")}.wav`);
+  let data = await readFile(file).catch(() => null);
+  if (!data) {
+    const { audio, soxInput } = synthesize(voice, SAMPLE_TEXT);
+    await mkdir(VOICE_SAMPLES_DIR, { recursive: true });
+    const r = spawnSync("sox", [...soxInput, "-r", "8000", "-c", "1", "-b", "16", file, "norm", "-1"], { input: audio });
+    if (r.status !== 0) throw new Error(`örnek üretilemedi: ${r.stderr.toString()}`);
+    data = await readFile(file);
+  }
+  return new Raw("audio/wav", data);
+});
+
+route("PUT", "/api/tenants/:prefix/voice", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const voice = str(ctx.body?.voice, "voice");
+  if (!listVoices().some((v) => v.id === voice)) throw new UserError("ses bulunamadı");
+  await ctx.db.query("UPDATE tenants SET tts_voice = $1 WHERE id = $2", [voice, t.id]);
+  await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, 'voice.set', $3)", [actor(ctx), t.id, JSON.stringify({ voice })]);
+  // Bütün anonslar (yüklenenler hariç) yeni sesle yeniden üretilir.
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+
+route("GET", "/api/tenants/:prefix/prompts", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const uploads = (
+    await ctx.db.query(
+      `SELECT name, original_name AS "originalName", duration_s::float AS "durationS", uploaded_by AS "uploadedBy",
+              to_char(uploaded_at AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD HH24:MI') AS "uploadedAt"
+         FROM prompt_uploads WHERE tenant_id = $1`,
+      [t.id],
+    )
+  ).rows;
+  const byName = new Map(uploads.map((u) => [u.name, u]));
+  return (await tenantPrompts(ctx.db, t.id)).map((p) => ({ ...p, upload: byName.get(p.name) ?? null }));
+});
+
+// Kendi kaydını yükleme: gövde ham ses dosyasıdır (mp3, wav, m4a, ogg, webm…). Dosya adı x-filename başlığında.
+route(
+  "POST",
+  "/api/tenants/:prefix/prompts/:name/upload",
+  async (ctx) => {
+    const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+    const name = ctx.params[1];
+    if (!(await tenantPrompts(ctx.db, t.id)).some((p) => p.name === name)) throw new UserError("anons bulunamadı", 404);
+    if (!Buffer.isBuffer(ctx.body) || ctx.body.length < 100) throw new UserError("ses dosyası gerekli");
+    const original = decodeURIComponent(String(ctx.req.headers["x-filename"] ?? "")).replace(/[\r\n]/g, "").slice(0, 200);
+    const seconds = installUploadedPrompt(t.prefix, name, ctx.body);
+    await ctx.db.query(
+      `INSERT INTO prompt_uploads (tenant_id, name, original_name, duration_s, uploaded_by) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (tenant_id, name) DO UPDATE SET original_name = $3, duration_s = $4, uploaded_by = $5, uploaded_at = now()`,
+      [t.id, name, original, seconds, ctx.user!.email],
+    );
+    await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, 'prompt.upload', $3)", [
+      actor(ctx),
+      t.id,
+      JSON.stringify({ name, original, seconds }),
+    ]);
+    return { ok: true, durationS: seconds };
+  },
+  true,
+  true,
+);
+
+// Yüklenen kaydı kaldırır: anons yeniden metinden, seçili sesle üretilir.
+route("DELETE", "/api/tenants/:prefix/prompts/:name/upload", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const r = await ctx.db.query("DELETE FROM prompt_uploads WHERE tenant_id = $1 AND name = $2", [t.id, ctx.params[1]]);
+  if (!r.rowCount) throw new UserError("yüklenmiş kayıt yok", 404);
+  await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, 'prompt.upload_remove', $3)", [
+    actor(ctx),
+    t.id,
+    JSON.stringify({ name: ctx.params[1] }),
+  ]);
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+
+// Santrali açıp kapatma. Kapalıyken gelen aramalar kapalı anonsunu duyup kapanır; iç ve dış aramalar sürer.
+route("PUT", "/api/tenants/:prefix/pbx", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  if (typeof b.open !== "boolean") throw new UserError("open true/false olmalı");
+  const text = optStr(b.closedText, "closedText");
+  if (text !== null && (!text.trim() || text.length > 500)) throw new UserError("kapalı anonsu 1–500 karakter olmalı");
+  await ctx.db.query("UPDATE tenants SET pbx_open = $1, pbx_closed_text = COALESCE($2, pbx_closed_text) WHERE id = $3", [b.open, text, t.id]);
+  await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, $3, $4)", [
+    actor(ctx),
+    t.id,
+    b.open ? "pbx.open" : "pbx.close",
+    JSON.stringify({ closedText: text }),
+  ]);
+  applyChanges(ctx.db);
+  return { ok: true };
 });
 
 // --- Dış arama politikası ---
@@ -786,7 +901,9 @@ route("GET", "/api/tenants/:prefix/recordings/:callid", async (ctx) => {
 route("GET", "/api/tenants/:prefix/prompts/:name", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const name = ctx.params[1];
-  if (!/^(menu|queue|schedule)-[a-z0-9_]{1,32}(-invalid|-unavailable|-closed)?$/.test(name)) throw new UserError("bulunamadı", 404);
+  if (!/^((menu|queue|schedule)-[a-z0-9_]{1,32}(-invalid|-unavailable|-closed)?|recording-notice|ext-unavailable|pbx-closed)$/.test(name)) {
+    throw new UserError("bulunamadı", 404);
+  }
   const data = await readFile(join(SOUNDS_DIR, t.prefix, `${name}.wav`)).catch(() => null);
   if (!data) throw new UserError("bulunamadı", 404);
   return new Raw("audio/wav", data);
@@ -909,15 +1026,16 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(data);
 }
 
-async function readBody(req: IncomingMessage): Promise<any> {
+async function readBody(req: IncomingMessage, raw: boolean): Promise<any> {
   if (req.method === "GET" || req.method === "HEAD") return null;
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
     size += (c as Buffer).length;
-    if (size > MAX_BODY) throw new UserError("istek çok büyük", 413);
+    if (size > (raw ? MAX_RAW_BODY : MAX_BODY)) throw new UserError(raw ? "dosya en fazla 12 MB olabilir" : "istek çok büyük", 413);
     chunks.push(c as Buffer);
   }
+  if (raw) return Buffer.concat(chunks);
   if (!size) return null;
   if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new UserError("içerik application/json olmalı", 415);
   try {
@@ -959,7 +1077,7 @@ const server = createServer(async (req, res) => {
     const user = token ? await userBySession(db, token) : null;
     if (r.auth && !user) return send(res, 401, { error: "oturum gerekli" });
     const params = (r.pattern.exec(url.pathname) ?? []).slice(1).map(decodeURIComponent);
-    const body = await readBody(req);
+    const body = await readBody(req, r.raw);
     const ctx = { req, res, db, user, token, params, body, ip: clientIp(req) };
     const result = req.method === "GET" ? await r.handler(ctx) : await tx(db, () => r.handler(ctx));
     if (pendingApply.has(db)) {
