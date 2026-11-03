@@ -1,0 +1,10 @@
+# Santralio: kayıt temizliği her gece 03:30 (UTC).
+[Unit]
+Description=Santralio arama kayıtları temizliği (her gece)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

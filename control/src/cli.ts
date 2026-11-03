@@ -1,6 +1,7 @@
 // Santralio kontrol CLI'si. Sunucuda /usr/local/bin/santralio ile çalıştırılır.
 // Komutlar için: santralio help
 
+import { readdirSync, statSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -11,6 +12,7 @@ import { aad, open, randomToken, seal } from "./crypto.ts";
 import { audit, connect, migrate, tx, type Db } from "./db.ts";
 import { hashPassword } from "./auth.ts";
 import * as ops from "./ops.ts";
+import { recordingDir } from "./render.ts";
 import { assertTarget, tenantByPrefix, UserError } from "./ops.ts";
 
 const HELP = `santralio <komut>
@@ -53,6 +55,9 @@ const HELP = `santralio <komut>
   user password <e-posta>                  Şifreyi değiştirir ve açık oturumları kapatır
   user disable|enable <e-posta>
   user list
+  recording set <önek> --enabled yes|no [--retention gün] [--notice "anons"]
+                                           Arama kaydı (varsayılan kapalı). Açıkken arayan önce anonsu duyar
+  recordings purge                         Saklama süresi dolan kayıtları siler (her gece zamanlayıcıyla çalışır)
   operator ip add <operatör> <cidr> [--note metin]
   apply                                    Konfigürasyonu üretir ve Asterisk'i yeniden yükler
   status [<önek>]                          Trunk kaydı ve dahililerin durumu
@@ -144,6 +149,9 @@ async function main() {
       reseller: { type: "string" },
       tenant: { type: "string" },
       ext: { type: "string" },
+      enabled: { type: "string" },
+      retention: { type: "string" },
+      notice: { type: "string" },
       closed: { type: "string" },
       "closed-text": { type: "string" },
       tz: { type: "string" },
@@ -524,6 +532,45 @@ async function main() {
             )
           ).rows,
         );
+        break;
+      }
+
+      case "recording set": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const e = values.enabled ?? fail("--enabled yes|no gerekli");
+        if (e !== "yes" && e !== "no") fail("--enabled yes ya da no olmalı");
+        await ops.setRecording(db, t, {
+          enabled: e === "yes",
+          retentionDays: values.retention === undefined ? undefined : int(values.retention, "retention"),
+          noticeText: values.notice,
+        });
+        console.log(`${t.prefix}: kayıt ${e === "yes" ? "açık" : "kapalı"}. Uygulamak için: santralio apply`);
+        break;
+      }
+
+      case "recordings purge": {
+        // Her kiracının kendi dizininde, kendi saklama süresinden eski .wav dosyaları silinir.
+        const rows = (await db.query("SELECT id, prefix, recording_retention_days AS days FROM tenants ORDER BY id")).rows;
+        for (const t of rows) {
+          const dir = recordingDir(t.prefix);
+          let files: string[] = [];
+          try {
+            files = readdirSync(dir).filter((f) => /^\d+\.\d+\.wav$/.test(f));
+          } catch {
+            continue;
+          }
+          const cutoff = Date.now() - t.days * 86_400_000;
+          let removed = 0;
+          for (const f of files) {
+            const path = join(dir, f);
+            if (statSync(path).mtimeMs < cutoff) {
+              unlinkSync(path);
+              removed++;
+            }
+          }
+          if (removed) await audit(db, "recordings.purge", t.id, { removed, retentionDays: t.days });
+          console.log(`${t.prefix}: ${removed} kayıt silindi (saklama ${t.days} gün, kalan ${files.length - removed})`);
+        }
         break;
       }
 

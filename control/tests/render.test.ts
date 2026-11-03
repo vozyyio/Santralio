@@ -42,6 +42,7 @@ function tenant(id: number, over: Partial<TenantModel> = {}): TenantModel {
     ],
     menus: [],
     schedules: [],
+    recording: { enabled: false },
     entryPoints: [{ address: `90850000000${id}`, flow: "queue:destek", enabled: true }],
     ...over,
   };
@@ -175,10 +176,11 @@ test("menü: tuşlar yalnızca kendi kiracısının hedeflerine gider", () => {
   }
 });
 
-test("kuyruğa bağlanılamazsa arayana anons çalınır, sonra kapatılır", () => {
+test("kuyruğa bağlanılamazsa olay yazılır, arayana anons çalınır, sonra kapatılır", () => {
   const ext = renderTenant(tenant(1))["extensions.conf"];
   const q = ext.slice(ext.indexOf("[t1-queue-destek]"));
-  assert.match(q, /ExecIf\(\$\[\$\{REGEX\("\^\(TIMEOUT\|FULL\|JOINEMPTY\|LEAVEEMPTY\|JOINUNAVAIL\|LEAVEUNAVAIL\)\$" \$\{QUEUESTATUS\}\)\}\]\?Playback\(\/var\/lib\/asterisk\/sounds\/santralio\/t1\/queue-destek-unavailable\)\)\n same => n,Hangup\(16\)/);
+  assert.ok(q.includes('GotoIf($[${REGEX("^(TIMEOUT|FULL|JOINEMPTY|LEAVEEMPTY|JOINUNAVAIL|LEAVEUNAVAIL)$" ${QUEUESTATUS})}]?failed)'));
+  assert.match(q, /n\(failed\),QueueLog\([^\n]+\n same => n,Playback\(\/var\/lib\/asterisk\/sounds\/santralio\/t1\/queue-destek-unavailable\)\n same => n,Hangup\(16\)/);
 });
 
 test("çalışma saatleri: tatil önce, sonra aralıklar; mesai dışı kapalı anonsu", () => {
@@ -235,4 +237,22 @@ test("kuyruk üyesi Local kanalı, durum hint'ten, mola veritabanından", () => 
   assert.ok(q.includes("member => Local/1001@t1-agent/n,0,1001,hint:1001@t1-hints,no,,0"));
   assert.ok(q.includes("member => Local/1002@t1-agent/n,0,1002,hint:1002@t1-hints,no,,1"));
   assert.ok(!q.includes("PJSIP/"));
+});
+
+test("kayıt kapalıyken anons ve MixMonitor yok; olaylar yine de yazılır", () => {
+  const ext = renderTenant(tenant(1))["extensions.conf"];
+  const q = ext.slice(ext.indexOf("[t1-queue-destek]"), ext.indexOf("[t1-internal]"));
+  assert.ok(!q.includes("recording-notice"));
+  assert.ok(q.includes("Queue(t1_destek,t,,,300,,)"));
+  assert.ok(q.includes("QueueLog(t1_destek,${UNIQUEID},NONE,SANTRALIO_ENTER,${SANTRALIO_DID}|${CALLERID(num)})"));
+  assert.ok(q.includes("n(failed),QueueLog(t1_destek,${UNIQUEID},NONE,SANTRALIO_NOAGENT,${QUEUESTATUS})"));
+});
+
+test("kayıt açıkken anons çalar, kayıt temsilci açınca kendi kiracı dizinine yapılır", () => {
+  const ext = renderTenant(tenant(1, { recording: { enabled: true } }))["extensions.conf"];
+  const q = ext.slice(ext.indexOf("[t1-queue-destek]"), ext.indexOf("[t1-internal]"));
+  const notice = q.indexOf("Playback(/var/lib/asterisk/sounds/santralio/t1/recording-notice)");
+  assert.ok(notice > 0 && notice < q.indexOf("Queue(t1_destek"), "anons kuyruktan önce");
+  assert.ok(q.includes("Set(__SANTRALIO_RECDIR=/var/lib/santralio/recordings/t1)"));
+  assert.ok(q.includes("Queue(t1_destek,t,,,300,,santralio-record)"));
 });

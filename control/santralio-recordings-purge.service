@@ -1,0 +1,8 @@
+# Santralio: saklama süresi dolan arama kayıtlarını siler (KVKK). control/install.sh kurar.
+[Unit]
+Description=Santralio arama kayıtları temizliği
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/santralio recordings purge

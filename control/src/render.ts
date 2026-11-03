@@ -43,7 +43,11 @@ export type TenantModel = {
     holidays: string[]; // "YYYY-MM-DD"
   }[];
   entryPoints: { address: string; flow: string; enabled: boolean }[];
+  recording: { enabled: boolean };
 };
+
+// Arama kayıtları: Asterisk yazar (MixMonitor), kontrol servisi saklama süresi dolanı siler.
+export const recordingDir = (prefix: string) => `/var/lib/santralio/recordings/${prefix}`;
 
 // Kiracının anons dosyaları: /var/lib/asterisk/sounds/santralio/<önek>/<ad>.wav
 // Asterisk göreli yolları paketin dizininde (/usr/share/asterisk/sounds) aradığı için mutlak yol, uzantısız.
@@ -233,6 +237,15 @@ password=${e.secret}
 // Bir dahilinin iki cihazı: masaüstü/mobil softphone ve tarayıcı. Arama ikisinde birden çalar.
 const devices = (p: string, number: string) => `PJSIP/${p}_${number}&PJSIP/${p}_${number}_web`;
 
+// Kayıt açıksa: kuyruğa girmeden önce bilgilendirme anonsu; kayıt temsilci açınca başlar
+// (Queue gosub -> santralio-record,s,1). Böylece bekleme müziği kayda girmez.
+function recordingSteps(t: TenantModel, p: string): string {
+  if (!t.recording.enabled) return "";
+  return ` same => n,Playback(${promptPath(p, "recording-notice")})
+ same => n,Set(__SANTRALIO_RECDIR=${recordingDir(p)})
+`;
+}
+
 // Arayanın temsilciye bağlanamadığı Queue() sonuçları: müsait temsilci yok, kuyruk dolu ya da süre doldu.
 const QUEUE_FAILED = "^(TIMEOUT|FULL|JOINEMPTY|LEAVEEMPTY|JOINUNAVAIL|LEAVEUNAVAIL)$";
 
@@ -327,6 +340,7 @@ exten => s,1,Set(TODAY=${v(`STRFTIME(${v("EPOCH")},${sc.timezone},%F)`)})
       }
     }
     out.push(` same => n(closed),Answer()
+ same => n,QueueLog(${p}__schedule_${sc.name},${v("UNIQUEID")},NONE,SANTRALIO_CLOSED,${v("SANTRALIO_DID")}|${v("CALLERID(num)")})
  same => n,Wait(0.5)
  same => n,Playback(${promptPath(p, `schedule-${sc.name}-closed`)})
  same => n,${closed ? `Goto(${closed})` : "Hangup(16)"}
@@ -372,9 +386,15 @@ exten => s,1,Answer()
  same => n,Set(CHANNEL(musicclass)=${p})
  same => n,ExecIf($[${v(`STAT(e,${welcome}.wav)`)}]?Playback(${welcome}))
  same => n,Set(__SANTRALIO_QUEUE=${q.name})
- same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS})
+ same => n,Set(__SANTRALIO_QLOG=${p}_${q.name})
+ same => n,Set(__SANTRALIO_CALLID=${v("UNIQUEID")})
+ same => n,QueueLog(${p}_${q.name},${v("UNIQUEID")},NONE,SANTRALIO_ENTER,${v("SANTRALIO_DID")}|${v("CALLERID(num)")})
+${recordingSteps(t, p)} same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS},,${t.recording.enabled ? "santralio-record" : ""})
  same => n,NoOp(Santralio ${p}_${q.name}: ${v("QUEUESTATUS")})
- same => n,ExecIf($[${v(`REGEX("${QUEUE_FAILED}" ${v("QUEUESTATUS")})`)}]?Playback(${promptPath(p, `queue-${q.name}-unavailable`)}))
+ same => n,GotoIf($[${v(`REGEX("${QUEUE_FAILED}" ${v("QUEUESTATUS")})`)}]?failed)
+ same => n,Hangup(16)
+ same => n(failed),QueueLog(${p}_${q.name},${v("UNIQUEID")},NONE,SANTRALIO_NOAGENT,${v("QUEUESTATUS")})
+ same => n,Playback(${promptPath(p, `queue-${q.name}-unavailable`)})
  same => n,Hangup(16)
 `);
   }

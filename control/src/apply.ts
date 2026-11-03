@@ -1,17 +1,17 @@
 // Santralio: veritabanından kiracı modellerini okur, dosyaları yazar ve Asterisk'i yeniden yükler.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { aad, open } from "./crypto.ts";
 import { masterKey, PIPER_BIN, PIPER_MODEL, SOUNDS_DIR, TENANTS_DIR } from "./config.ts";
 import type { Db } from "./db.ts";
-import { renderTenant, type RenderedFiles, type TenantModel } from "./render.ts";
+import { recordingDir, renderTenant, type RenderedFiles, type TenantModel } from "./render.ts";
 
 export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel> {
   const t = (
     await db.query(
-      `SELECT t.id, t.prefix, t.name, t.status, l.active, l.valid_until, l.max_channels
+      `SELECT t.id, t.prefix, t.name, t.status, t.recording_enabled, l.active, l.valid_until, l.max_channels
          FROM tenants t LEFT JOIN licenses l ON l.tenant_id = t.id WHERE t.id = $1`,
       [tenantId],
     )
@@ -111,6 +111,7 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       holidays: holidays.filter((h) => h.schedule_id === x.id).map((h) => h.day),
     })),
     entryPoints: entries.map((e) => ({ address: e.address, flow: e.flow, enabled: e.enabled })),
+    recording: { enabled: t.recording_enabled },
   };
 }
 
@@ -164,6 +165,8 @@ async function writePrompts(db: Db, tenantId: number, prefix: string): Promise<s
     const name = `queue-${q.name}-unavailable`;
     if (writePrompt(prefix, name, q.unavailable_text)) changed.push(`ses/${name}`);
   }
+  const tenant = (await db.query("SELECT recording_notice_text FROM tenants WHERE id = $1", [tenantId])).rows[0];
+  if (writePrompt(prefix, "recording-notice", tenant.recording_notice_text)) changed.push("ses/recording-notice");
   const schedules = (await db.query("SELECT name, closed_text FROM schedules WHERE tenant_id = $1", [tenantId])).rows;
   for (const x of schedules) {
     const name = `schedule-${x.name}-closed`;
@@ -204,6 +207,10 @@ export async function renderAll(db: Db): Promise<{ prefix: string; changed: stri
     const result = [];
     for (const id of ids) {
       const model = await loadTenant(db, id);
+      // Kayıt dizini: kontrol servisine ait, grup asterisk (yazar), setgid.
+      // Servis umask'ı (0027) grup yazmayı kaldırdığı için izin açıkça verilir.
+      mkdirSync(recordingDir(model.prefix), { recursive: true });
+      chmodSync(recordingDir(model.prefix), 0o2770);
       const sounds = model.licensed ? await writePrompts(db, id, model.prefix) : [];
       result.push({ prefix: model.prefix, changed: [...writeTenantFiles(model.prefix, renderTenant(model)), ...sounds] });
     }

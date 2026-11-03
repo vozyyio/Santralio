@@ -5,7 +5,7 @@
 //   Çerezle gelen değişiklik istekleri yalnızca panelin kaynağından (Origin) kabul edilir (CSRF).
 // Kullanıcının erişemediği kiracı için 404 döner: başka kiracıların varlığı dışarıdan anlaşılmaz.
 
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import pg from "pg";
@@ -24,6 +24,8 @@ import {
 } from "./auth.ts";
 import { masterKey, PG_DATABASE, PG_HOST, SOUNDS_DIR } from "./config.ts";
 import { aad, open } from "./crypto.ts";
+import { recordingDir } from "./render.ts";
+import { listCalls, parseRange, summary } from "./reports.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
 import { UserError, type Tenant } from "./ops.ts";
@@ -199,10 +201,12 @@ route("GET", "/api/tenants/:prefix", async (ctx) => {
   // Gizli alanlar (trunk ve dahili şifreleri) hiçbir zaman döndürülmez.
   const [license] = await q("SELECT source, active, valid_until, max_extensions, max_channels, modules FROM licenses WHERE tenant_id = $1");
   const [trunk] = await q("SELECT operator, server, port, transport, username, enabled FROM trunks WHERE tenant_id = $1");
+  const [rec] = await q("SELECT recording_enabled AS enabled, recording_retention_days AS \"retentionDays\", recording_notice_text AS \"noticeText\" FROM tenants WHERE id = $1");
   return {
     prefix: t.prefix,
     name: t.name,
     status: t.status,
+    recording: rec,
     license: license ?? null,
     trunk: trunk ?? null,
     entryPoints: await q("SELECT channel, address, flow, enabled FROM entry_points WHERE tenant_id = $1 ORDER BY address"),
@@ -310,6 +314,62 @@ route("PUT", "/api/agent/pause", async (ctx) => {
     await ami.close();
   }
   return { paused };
+});
+
+// --- Kayıt ve raporlar ---
+
+route("PUT", "/api/tenants/:prefix/recording", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const b = ctx.body ?? {};
+  await ops.setRecording(
+    ctx.db,
+    t,
+    { enabled: b.enabled, retentionDays: optInt(b.retentionDays, "retentionDays"), noticeText: optStr(b.noticeText, "noticeText") ?? undefined },
+    actor(ctx),
+  );
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+
+const query = (ctx: Ctx) => new URL(ctx.req.url ?? "/", "http://localhost").searchParams;
+
+route("GET", "/api/tenants/:prefix/reports/summary", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const q = query(ctx);
+  return summary(ctx.db, t.prefix, parseRange(q.get("from"), q.get("to")));
+});
+
+route("GET", "/api/tenants/:prefix/calls", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const q = query(ctx);
+  const rows = await listCalls(ctx.db, t.prefix, parseRange(q.get("from"), q.get("to")), Number(q.get("limit") ?? 500));
+  // Saklama süresi dolup silinmiş kayıtlar listede "yok" görünür.
+  for (const r of rows) {
+    if (r.recording && !(await access(join(recordingDir(t.prefix), r.recording)).then(() => true, () => false))) r.recording = null;
+  }
+  return rows;
+});
+
+// Kaydı dinlemek. Her dinleme denetim kaydına yazılır (KVKK: kişisel veriye erişim izi).
+route("GET", "/api/tenants/:prefix/recordings/:callid", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "admin");
+  const callid = ctx.params[1];
+  if (!/^\d{6,12}\.\d{1,8}$/.test(callid)) throw new UserError("bulunamadı", 404);
+  const ok = (
+    await ctx.db.query("SELECT 1 FROM queue_log WHERE callid = $1 AND event = 'SANTRALIO_RECORDING' AND queuename LIKE $2 LIMIT 1", [
+      callid,
+      `${t.prefix}\\_%`,
+    ])
+  ).rowCount;
+  if (!ok) throw new UserError("bulunamadı", 404);
+  const data = await readFile(join(recordingDir(t.prefix), `${callid}.wav`)).catch(() => null);
+  if (!data) throw new UserError("kayıt yok (saklama süresi dolmuş olabilir)", 404);
+  await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, 'recording.listen', $3)", [
+    actor(ctx),
+    t.id,
+    JSON.stringify({ callid, ip: ctx.ip }),
+  ]);
+  return new Raw("audio/wav", data);
 });
 
 // Anonsun üretilmiş sesi (8 kHz WAV), panelde dinlemek için.

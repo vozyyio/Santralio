@@ -36,6 +36,7 @@ export type Tenant = {
   prefix: string;
   name: string;
   status: string;
+  recording: { enabled: boolean; retentionDays: number; noticeText: string };
   license: { source: string; active: boolean; valid_until: string | null; max_extensions: number; max_channels: number } | null;
   trunk: { operator: string; server: string; port: number; transport: string; username: string; enabled: boolean } | null;
   entryPoints: { channel: string; address: string; flow: string; enabled: boolean }[];
@@ -61,6 +62,39 @@ export type Tenant = {
   }[];
 };
 export type Status = { registration: string; onlineExtensions: string[] };
+export type Outcome = "answered" | "abandoned" | "timeout" | "no_agent" | "open";
+export type CallRow = {
+  callid: string;
+  started: string;
+  queue: string;
+  caller: string;
+  did: string;
+  agent: string | null;
+  wait_s: number;
+  talk_s: number;
+  outcome: Outcome;
+  recording: string | null;
+};
+export type Totals = {
+  offered: number;
+  answered: number;
+  abandoned: number;
+  timeout: number;
+  noAgent: number;
+  answerRate: number | null;
+  serviceLevel: number | null;
+  avgWaitS: number;
+  maxWaitS: number;
+  avgTalkS: number;
+  totalTalkS: number;
+};
+export type Summary = {
+  slaSeconds: number;
+  totals: Totals & { closedHours: number };
+  byQueue: (Totals & { queue: string })[];
+  byAgent: { agent: string; answered: number; totalTalkS: number; avgTalkS: number; missedRings: number }[];
+  byDay: (Totals & { day: string })[];
+};
 export type Sip = { server: string; port: number; transport: string; username: string; password: string };
 export type Agent = {
   tenant: string;
@@ -91,5 +125,9 @@ export const api = {
   setFlow: (p: string, address: string, flow: string) => call("PUT", `${t(p)}/entry-points/${seg(address)}`, { flow }),
   addExtension: (p: string, number: string, name: string) => call<{ number: string; sip: Sip }>("POST", `${t(p)}/extensions`, { number, name }),
   agent: () => call<Agent>("GET", "/api/agent"),
+  saveRecording: (p: string, body: { enabled: boolean; retentionDays: number; noticeText: string }) => call("PUT", `${t(p)}/recording`, body),
+  summary: (p: string, from: string, to: string) => call<Summary>("GET", `${t(p)}/reports/summary?from=${from}&to=${to}`),
+  calls: (p: string, from: string, to: string) => call<CallRow[]>("GET", `${t(p)}/calls?from=${from}&to=${to}`),
+  recordingUrl: (p: string, callid: string) => `${t(p)}/recordings/${seg(callid)}`,
   setPause: (paused: boolean, reason?: string) => call<{ paused: boolean }>("PUT", "/api/agent/pause", { paused, reason: reason ?? null }),
 };

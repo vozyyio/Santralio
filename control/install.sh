@@ -29,6 +29,15 @@ if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'sant
   sudo -u postgres createdb -O "$USER_NAME" santralio
 fi
 
+# Asterisk'in rolü: yalnızca queue_log'a yazar (izinler 007 migration'ında verilir).
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'asterisk'" | grep -q 1; then
+  sudo -u postgres psql -qc "CREATE ROLE asterisk LOGIN"
+fi
+
+# Arama kayıtları: Asterisk yazar, kontrol servisi okur ve saklama süresi dolanı siler.
+install -d -m 0755 /var/lib/santralio
+install -d -m 2770 -o "$USER_NAME" -g asterisk /var/lib/santralio/recordings
+
 # 3. Gizli bilgiler (yalnızca yoksa üretilir; var olan anahtar asla değiştirilmez)
 install -d -m 0700 "$CREDS"
 new_cred() {
@@ -80,4 +89,9 @@ install -m 0644 "$REPO/control/santralio-api.service" /etc/systemd/system/santra
 systemctl daemon-reload
 systemctl enable --quiet santralio-api
 systemctl restart santralio-api
+
+# 9. Saklama süresi dolan arama kayıtlarının temizliği (her gece)
+install -m 0644 "$REPO/control/santralio-recordings-purge.service" "$REPO/control/santralio-recordings-purge.timer" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --quiet --now santralio-recordings-purge.timer
 echo "Kontrol servisi kuruldu."

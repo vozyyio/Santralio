@@ -180,6 +180,13 @@ sudo certbot reconfigure --cert-name sip.santralio.site --webroot --webroot-path
 
 Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu), `infra/asterisk/tests/check_ws.mjs` (temsilci masasının WSS yolu); kullanımlar dosyaların başında.
 
+Arama kaydı (varsayılan kapalı; panelde "Genel" sekmesinden de açılır):
+
+```sh
+santralio recording set t2 --enabled yes --retention 90
+santralio apply
+```
+
 Temsilci hesabı (panelde tarayıcıdan arama alır):
 
 ```sh

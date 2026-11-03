@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { AgentDesk } from "./AgentDesk";
+import { Calls, Reports } from "./Reports";
 import { api, ApiError, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
 
 const ROLE: Record<string, string> = {
@@ -162,6 +163,8 @@ function TenantList({ me, go }: { me: Me; go: (h: string) => void }) {
 
 const TABS: [string, string][] = [
   ["genel", "Genel"],
+  ["gorusmeler", "Görüşmeler"],
+  ["raporlar", "Raporlar"],
   ["menuler", "Menüler"],
   ["saatler", "Çalışma saatleri"],
   ["kuyruklar", "Kuyruklar"],
@@ -195,6 +198,8 @@ function TenantPage({ prefix, tab: requested }: { prefix: string; tab: string; g
         ))}
       </nav>
       {tab === "genel" && <General t={t} reload={reload} />}
+      {tab === "gorusmeler" && <Calls t={t} />}
+      {tab === "raporlar" && <Reports t={t} />}
       {tab === "menuler" && t.menus.map((m) => <MenuEditor key={m.name} t={t} menu={m} reload={reload} />)}
       {tab === "menuler" && t.menus.length === 0 && <p className="muted">Bu müşteride henüz menü yok.</p>}
       {tab === "saatler" && t.schedules.map((s) => <ScheduleEditor key={s.name} t={t} sc={s} reload={reload} />)}
@@ -310,12 +315,52 @@ function General({ t, reload }: { t: Tenant; reload: () => void }) {
           <p className="muted">Operatör hattı tanımlı değil.</p>
         )}
       </div>
+      <RecordingSettings t={t} reload={reload} />
       <div className="card wide">
         <h3>Numaralar</h3>
         {t.entryPoints.length === 0 && <p className="muted">Numara yok.</p>}
         {t.entryPoints.map((e) => (
           <EntryPoint key={e.address} t={t} address={e.address} flow={e.flow} reload={reload} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function RecordingSettings({ t, reload }: { t: Tenant; reload: () => void }) {
+  const [enabled, setEnabled] = useState(t.recording.enabled);
+  const [days, setDays] = useState(t.recording.retentionDays);
+  const [notice, setNotice] = useState(t.recording.noticeText);
+  const save = useSave(reload);
+  const changed = enabled !== t.recording.enabled || days !== t.recording.retentionDays || notice !== t.recording.noticeText;
+  return (
+    <div className="card wide">
+      <h3>Arama kaydı</h3>
+      <label className="check">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        Görüşmeleri kaydet
+      </label>
+      <p className="muted small">
+        Kayıt, temsilci aramayı açtığında başlar; bekleme müziği kaydedilmez. Kayıt açıkken arayan önce aşağıdaki bilgilendirme anonsunu duyar.
+        Kayıtları dinleyen her erişim denetim kaydına yazılır.
+      </p>
+      <label>
+        Bilgilendirme anonsu (KVKK)
+        <textarea rows={2} value={notice} onChange={(e) => setNotice(e.target.value)} maxLength={500} />
+      </label>
+      <Prompt t={t} name="recording-notice" version={t.recording.noticeText} />
+      <div className="row">
+        <label className="inline">
+          Saklama süresi (gün)
+          <input type="number" min={1} max={3650} value={days} onChange={(e) => setDays(Number(e.target.value))} />
+        </label>
+        <span className="muted small">Süresi dolan kayıtlar her gece kalıcı olarak silinir.</span>
+      </div>
+      <div className="actions">
+        <button disabled={save.busy || !changed} onClick={() => save.run(() => api.saveRecording(t.prefix, { enabled, retentionDays: days, noticeText: notice }))}>
+          Kaydet
+        </button>
+        {save.view}
       </div>
     </div>
   );

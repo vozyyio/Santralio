@@ -133,6 +133,7 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | `operator_ip_ranges` | Operatör başına izinli sinyal IP aralıkları |
 | `interactions` | Kanaldan bağımsız konuşma kaydı: kiracı, kanal, giriş noktası, kuyruk, temsilci, sonuç |
 | `ai_providers` | Kiracı bazında STT/TTS/LLM sağlayıcısı ve şifreli API anahtarı (5. adımda kullanılır) |
+| `queue_log` | Asterisk kuyruk olayları ve Santralio olayları (raporların kaynağı). Asterisk yalnızca satır ekler |
 | `audit_log` | Kim, ne zaman, neyi değiştirdi (CLI'de sistem kullanıcısı, API'de `api:<e-posta>`) |
 | `resellers` | Bayiler. Platform sahibi de bir bayidir (`Platform`, id 1) |
 | `users` | Panel/API kullanıcıları: rol, kapsam (bayi, kiracı, temsilcinin dahilisi), scrypt şifre özeti |
@@ -164,6 +165,15 @@ Hiyerarşi: **platform → bayi → kiracı (müşteri) → temsilci**. Web pane
 - Oturum belirteci `HttpOnly; Secure; SameSite=Strict` çerezde durur; JavaScript belirteci görmez. Çerezle gelen değişiklik istekleri yalnızca `https://panel.santralio.site` kaynağından kabul edilir (CSRF).
 - İçerik güvenlik politikası (CSP) yalnızca aynı kaynaktan betik, stil ve ses yüklenmesine izin verir.
 - Mobil uygulama aynı API'yi `Authorization: Bearer` belirteciyle kullanır.
+
+## Arama kaydı ve raporlar
+
+- **Kuyruk olayları** (`queue_log`: kuyruğa giriş, bağlanma, konuşma, terk, süre dolması) Asterisk tarafından doğrudan PostgreSQL'e yazılır (`res_config_pgsql`, `extconfig.conf`) ve yedek olarak dosyaya da yazılır. Asterisk'in `asterisk` veritabanı rolü yalnızca bu tabloya satır ekleyebilir; başka hiçbir tabloyu okuyamaz. Bağlantı Unix soketi ve yerel kullanıcı eşlemesiyle yapılır, şifre yoktur. Realtime yalnızca bu yazma yönü için kullanılır; kiracı ayarları ve şifreler realtime ile okunmaz.
+- Santralio dialplan'i kendi olaylarını da yazar: `SANTRALIO_ENTER` (aranan numara, arayan), `SANTRALIO_NOAGENT` (müsait temsilci yok), `SANTRALIO_CLOSED` (mesai dışı), `SANTRALIO_RECORDING` (kayıt dosyası). Böylece hiç kuyruğa giremeyen aramalar da rapora girer.
+- **Raporlar** bu olaylardan hesaplanır: gelen, cevaplanan, kaçan, cevaplanma oranı, hizmet seviyesi (20 sn), bekleme ve konuşma süreleri; kuyruk, temsilci ve gün bazında. Gün sınırları İstanbul saatine göredir.
+- **Arama kaydı** kiracı bazında açılır, varsayılan olarak kapalıdır. Açıkken arayan kuyruğa girmeden önce bilgilendirme anonsunu (KVKK) duyar. Kayıt, temsilci aramayı açtığında `Queue()`'nun gosub parametresiyle başlar (`santralio-record`) ve yalnızca arayanla temsilci bağlıyken yapılır; bekleme müziği kaydedilmez.
+- Kayıtlar `/var/lib/santralio/recordings/<önek>/<callid>.wav` altında durur (8 kHz WAV, dakikada yaklaşık 1 MB). Dizin kontrol servisine aittir; Asterisk grup üyesi olarak yazar.
+- Kayıtları yalnızca kiracının yöneticileri dinleyebilir; her dinleme `audit_log`'a (`recording.listen`) yazılır. Saklama süresi kiracı bazındadır (varsayılan 90 gün); süresi dolan kayıtlar her gece `santralio-recordings-purge.timer` ile silinir.
 
 ### Temsilci masası (tarayıcıdan arama)
 

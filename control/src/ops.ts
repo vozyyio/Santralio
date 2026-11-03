@@ -214,3 +214,20 @@ export async function setQueueUnavailableText(db: Db, t: Tenant, queue: string, 
   if (!r.rowCount) throw new UserError(`${t.prefix}: kuyruk yok: ${queue}`, 404);
   await audit(db, "queue.unavailable_text", t.id, { queue, text }, actor);
 }
+
+export type RecordingInput = { enabled: boolean; retentionDays?: number; noticeText?: string };
+
+// Arama kaydı ayarı. Açıkken arayan önce bilgilendirme anonsunu duyar (KVKK aydınlatma).
+export async function setRecording(db: Db, t: Tenant, r: RecordingInput, actor?: string) {
+  if (typeof r.enabled !== "boolean") throw new UserError("enabled true/false olmalı");
+  if (r.retentionDays !== undefined && (!Number.isInteger(r.retentionDays) || r.retentionDays < 1 || r.retentionDays > 3650)) {
+    throw new UserError("saklama süresi 1–3650 gün olmalı");
+  }
+  if (r.noticeText !== undefined && (!r.noticeText || r.noticeText.length > 500)) throw new UserError("bilgilendirme anonsu 1–500 karakter olmalı");
+  await db.query(
+    `UPDATE tenants SET recording_enabled = $1, recording_retention_days = COALESCE($2, recording_retention_days),
+       recording_notice_text = COALESCE($3, recording_notice_text) WHERE id = $4`,
+    [r.enabled, r.retentionDays ?? null, r.noticeText ?? null, t.id],
+  );
+  await audit(db, "recording.settings", t.id, r, actor);
+}
