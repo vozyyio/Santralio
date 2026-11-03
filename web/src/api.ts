@@ -92,6 +92,10 @@ export type SystemStatus = {
   recentProblems: string[];
 };
 export type Outcome = "answered" | "abandoned" | "timeout" | "no_agent" | "open";
+export type Contact = { id: number; name: string; company: string; email: string; tags: string[]; phones: string[] };
+export type Note = { id: number; callid: string | null; direction: "in" | "out" | null; phone: string | null; note: string; user: string; disposition: string | null; at: string; followUpAt: string | null };
+export type ContactDetail = Contact & { notes: Note[]; calls: CallRow[] };
+export type Disposition = { id: number; name: string; sort: number; enabled: boolean };
 export type CallRow = {
   callid: string;
   started: string;
@@ -103,6 +107,8 @@ export type CallRow = {
   talk_s: number;
   outcome: Outcome;
   recording: string | null;
+  note?: string | null;
+  disposition?: string | null;
 };
 export type Totals = {
   offered: number;
@@ -134,6 +140,7 @@ export type Agent = {
   pausedReason: string | null;
   queues: string[];
   outbound: string[] | null;
+  crm: boolean;
   sip: { wsServer: string; uri: string; username: string; password: string };
 };
 export type Policy = {
@@ -184,6 +191,16 @@ export const api = {
   deleteRole: (p: string, id: number) => call("DELETE", `${t(p)}/roles/${id}`),
   permissions: () => call<{ id: string; label: string }[]>("GET", "/api/permissions"),
   outboundPolicy: (p: string) => call<PolicyView>("GET", `${t(p)}/outbound-policy`),
+  contacts: (p: string, q: string) => call<Contact[]>("GET", `${t(p)}/contacts?q=${encodeURIComponent(q)}`),
+  contact: (p: string, id: number) => call<ContactDetail>("GET", `${t(p)}/contacts/${id}`),
+  addContact: (p: string, body: object) => call<{ id: number }>("POST", `${t(p)}/contacts`, body),
+  saveContact: (p: string, id: number, body: object) => call("PUT", `${t(p)}/contacts/${id}`, body),
+  lookup: (p: string, phone: string) => call<{ phone: string | null; contact: Contact | null; notes: Note[] }>("GET", `${t(p)}/lookup?phone=${encodeURIComponent(phone)}`),
+  addNote: (p: string, body: object) => call<{ id: number }>("POST", `${t(p)}/notes`, body),
+  followUps: (p: string) => call<any[]>("GET", `${t(p)}/follow-ups`),
+  dispositions: (p: string, all = false) => call<Disposition[]>("GET", `${t(p)}/dispositions${all ? "?all=1" : ""}`),
+  addDisposition: (p: string, name: string) => call("POST", `${t(p)}/dispositions`, { name }),
+  saveDisposition: (p: string, id: number, name: string, enabled: boolean) => call("PUT", `${t(p)}/dispositions/${id}`, { name, enabled }),
   saveOutboundPolicy: (p: string, policy: Policy) => call<{ policy: Policy; patterns: string[] }>("PUT", `${t(p)}/outbound-policy`, policy),
   resetPassword: (p: string, email: string) => call<{ temporaryPassword: string }>("POST", `${t(p)}/users/${seg(email)}/reset-password`),
   setQueueMembers: (p: string, q: string, members: string[]) => call("PUT", `${t(p)}/queues/${seg(q)}/members`, { members }),

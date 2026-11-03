@@ -11,6 +11,7 @@ import { CURRENT_KEY_ID, masterKey } from "./config.ts";
 import { aad, open, randomToken, seal } from "./crypto.ts";
 import { audit, connect, migrate, tx, type Db } from "./db.ts";
 import { hashPassword } from "./auth.ts";
+import { createDefaultDispositions } from "./crm.ts";
 import * as ops from "./ops.ts";
 import { dialPatterns, TEMPLATES } from "./outbound.ts";
 import { recordingDir } from "./render.ts";
@@ -216,6 +217,7 @@ async function main() {
             ])
           ).rows[0];
           await ops.createDefaultRoles(db, r.id);
+          await createDefaultDispositions(db, r.id);
           await db.query("INSERT INTO outbound_policies (tenant_id, template) VALUES ($1, 'inbound_only') ON CONFLICT DO NOTHING", [r.id]);
           await audit(db, "tenant.create", r.id, { name });
           return r;
