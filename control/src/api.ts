@@ -29,6 +29,7 @@ import { recordingDir } from "./render.ts";
 import { listCalls, parseRange, summary } from "./reports.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
+import { dialPatterns, TEMPLATES, type Policy } from "./outbound.ts";
 import { ALL_PERMISSIONS, PERMISSIONS, type Permission } from "./permissions.ts";
 import { UserError, type Tenant } from "./ops.ts";
 
@@ -244,7 +245,8 @@ function rolePermissions(v: unknown): Permission[] {
 
 route("POST", "/api/tenants/:prefix/roles", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "staff.manage");
-  return { id: await ops.saveRole(ctx.db, t, null, str(ctx.body?.name, "name"), rolePermissions(ctx.body?.permissions), actor(ctx)) };
+  const id = await ops.saveRole(ctx.db, t, null, str(ctx.body?.name, "name"), rolePermissions(ctx.body?.permissions), actor(ctx));
+  return { id };
 });
 
 route("PUT", "/api/tenants/:prefix/roles/:id", async (ctx) => {
@@ -254,6 +256,8 @@ route("PUT", "/api/tenants/:prefix/roles/:id", async (ctx) => {
   // Kendini kilitlememek için: kendi rolünden personel yönetimi yetkisi kaldırılamaz.
   if (ctx.user!.role_id === id && !perms.includes("staff.manage")) throw new UserError("kendi rolünüzden personel yönetimi yetkisini kaldıramazsınız");
   await ops.saveRole(ctx.db, t, id, str(ctx.body?.name, "name"), perms, actor(ctx));
+  // Rolün dış arama yetkisi değişmiş olabilir: o roldeki dahililerin santral context'i güncellenir.
+  applyChanges(ctx.db);
   return { ok: true };
 });
 
@@ -350,9 +354,13 @@ route("GET", "/api/agent", async (ctx) => {
     e.tenant_id,
     JSON.stringify({ number: e.number, ip: ctx.ip }),
   ]);
+  const pol = await ops.getPolicy(ctx.db, e.tenant_id);
+  const trunk = (await ctx.db.query("SELECT enabled FROM trunks WHERE tenant_id = $1", [e.tenant_id])).rows[0];
   return {
     tenant: e.prefix,
     extension: e.number,
+    // Dış arama: rolde yetki, politikada açık en az bir numara türü ve operatör hattı.
+    outbound: has(ctx, "agent.outbound") && pol.enabled && !!trunk?.enabled ? dialPatterns(pol).map((d) => d.label) : null,
     displayName: e.display_name,
     paused: e.paused,
     pausedReason: e.paused_reason,
@@ -410,6 +418,47 @@ route("PUT", "/api/agent/pause", async (ctx) => {
   return { paused };
 });
 
+// --- Dış arama politikası ---
+// Kiracının yöneticileri görür; yalnızca platform yöneticisi değiştirir (ücret ve kötüye kullanım riski).
+
+function policyView(p: Policy) {
+  return { policy: p, patterns: dialPatterns(p).map((d) => d.label) };
+}
+
+route("GET", "/api/tenants/:prefix/outbound-policy", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "staff.manage");
+  return {
+    ...policyView(await ops.getPolicy(ctx.db, t.id)),
+    editable: ctx.user!.role === "platform_admin",
+    templates: Object.entries(TEMPLATES).map(([id, x]) => ({ id, label: x.label, policy: { template: id, ...x.policy } })),
+  };
+});
+
+route("PUT", "/api/tenants/:prefix/outbound-policy", async (ctx) => {
+  platformOnly(ctx);
+  const t = await tenantFor(ctx, ctx.params[0]);
+  const b = ctx.body ?? {};
+  await ops.setPolicy(
+    ctx.db,
+    t,
+    {
+      template: optStr(b.template, "template") ?? "custom",
+      enabled: b.enabled,
+      trMobile: b.trMobile,
+      trLandline: b.trLandline,
+      trNational: b.trNational,
+      trTollfree: b.trTollfree,
+      countries: b.countries,
+      maxConcurrent: b.maxConcurrent,
+      dailyLimit: b.dailyLimit,
+      maxMinutes: b.maxMinutes,
+    },
+    actor(ctx),
+  );
+  applyChanges(ctx.db);
+  return policyView(await ops.getPolicy(ctx.db, t.id));
+});
+
 // --- Personel ---
 
 route("GET", "/api/tenants/:prefix/users", async (ctx) => {
@@ -434,6 +483,7 @@ route("POST", "/api/tenants/:prefix/users", async (ctx) => {
     { email: str(b.email, "email"), name: optStr(b.name, "name") ?? "", roleId: Number(b.roleId), extension: optStr(b.extension, "extension") },
     actor(ctx),
   );
+  applyChanges(ctx.db);
   // Geçici şifre yalnızca bu yanıtta bir kez gösterilir.
   return { email: String(b.email).trim().toLowerCase(), temporaryPassword: r.password };
 });
@@ -453,6 +503,7 @@ route("PUT", "/api/tenants/:prefix/users/:email", async (ctx) => {
     if (self) throw new UserError("kendi hesabınızı kapatamazsınız");
     await ops.setStaffDisabled(ctx.db, t, ctx.params[1], b.disabled, actor(ctx));
   }
+  applyChanges(ctx.db);
   return { ok: true };
 });
 

@@ -12,6 +12,7 @@ import { aad, open, randomToken, seal } from "./crypto.ts";
 import { audit, connect, migrate, tx, type Db } from "./db.ts";
 import { hashPassword } from "./auth.ts";
 import * as ops from "./ops.ts";
+import { dialPatterns, TEMPLATES } from "./outbound.ts";
 import { recordingDir } from "./render.ts";
 import { assertTarget, tenantByPrefix, UserError } from "./ops.ts";
 
@@ -55,6 +56,9 @@ const HELP = `santralio <komut>
   user password <e-posta>                  Şifreyi değiştirir ve açık oturumları kapatır
   user disable|enable <e-posta>
   user list
+  outbound set <önek> --template inbound_only|agency|hotel|health_tourism
+                                           Dış arama politikası (şablondan; ayrıntı panelde, platform yöneticisi)
+  outbound show <önek>
   recording set <önek> --enabled yes|no [--retention gün] [--notice "anons"]
                                            Arama kaydı (varsayılan kapalı). Açıkken arayan önce anonsu duyar
   recordings purge                         Saklama süresi dolan kayıtları siler (her gece zamanlayıcıyla çalışır)
@@ -153,6 +157,7 @@ async function main() {
       enabled: { type: "string" },
       retention: { type: "string" },
       notice: { type: "string" },
+      template: { type: "string" },
       closed: { type: "string" },
       "closed-text": { type: "string" },
       tz: { type: "string" },
@@ -211,6 +216,7 @@ async function main() {
             ])
           ).rows[0];
           await ops.createDefaultRoles(db, r.id);
+          await db.query("INSERT INTO outbound_policies (tenant_id, template) VALUES ($1, 'inbound_only') ON CONFLICT DO NOTHING", [r.id]);
           await audit(db, "tenant.create", r.id, { name });
           return r;
         });
@@ -540,6 +546,24 @@ async function main() {
             )
           ).rows,
         );
+        break;
+      }
+
+      case "outbound set": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const tpl = values.template ?? fail("--template gerekli");
+        const x = TEMPLATES[tpl] ?? fail(`şablon yok: ${tpl} (${Object.keys(TEMPLATES).join(", ")})`);
+        await ops.setPolicy(db, t, { template: tpl, ...x.policy });
+        console.log(`${t.prefix}: dış arama politikası "${x.label}". Uygulamak için: santralio apply`);
+        break;
+      }
+
+      case "outbound show": {
+        const t = await tenantByPrefix(db, rest[0]);
+        const p = await ops.getPolicy(db, t.id);
+        console.log(`${t.prefix}: ${TEMPLATES[p.template]?.label ?? p.template} · ${p.enabled ? "açık" : "kapalı"}`);
+        console.log(`  açık numaralar: ${dialPatterns(p).map((d) => d.label).join(", ") || "yok"}`);
+        console.log(`  eş zamanlı ${p.maxConcurrent} · günlük ${p.dailyLimit} · en uzun ${p.maxMinutes} dk`);
         break;
       }
 

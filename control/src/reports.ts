@@ -37,7 +37,8 @@ SELECT e.callid,
        to_char((e.entered AT TIME ZONE 'UTC') AT TIME ZONE $4, 'YYYY-MM-DD') AS day,
        substr(e.queuename, length(split_part(e.queuename, '_', 1)) + 2) AS queue,
        e.caller, e.did,
-       COALESCE(c.agent, CASE WHEN x.status = 'ANSWER' THEN x.agent END) AS agent,
+       -- Dış aramada (…_out) arayan personel her zaman bellidir; gelen aramada yalnızca cevaplayan.
+       COALESCE(c.agent, CASE WHEN x.status = 'ANSWER' OR e.queuename LIKE '%\\_out' ESCAPE '\\' THEN x.agent END) AS agent,
        COALESCE(c.hold, ab.wait, tmo.wait, x.wait, 0) AS wait_s,
        COALESCE(done.talk, x.talk, 0) AS talk_s,
        CASE WHEN c.agent IS NOT NULL OR x.status = 'ANSWER' THEN 'answered'
@@ -109,7 +110,10 @@ function groupBy<T>(rows: T[], key: (r: T) => string): Map<string, T[]> {
 
 export async function summary(db: Db, prefix: string, r: Range) {
   // Özet için bütün görüşmeler gerekir (liste sınırı uygulanmaz).
-  const rows: CallRow[] = (await db.query(CALLS, params(prefix, r))).rows;
+  // Dış aramalar ("out") gelen çağrı oranlarına karışmaz; ayrı özetlenir.
+  const all: CallRow[] = (await db.query(CALLS, params(prefix, r))).rows;
+  const rows = all.filter((c) => c.queue !== "out");
+  const out = all.filter((c) => c.queue === "out");
   const closed = Number(
     (
       await db.query(
@@ -141,9 +145,23 @@ export async function summary(db: Db, prefix: string, r: Range) {
     if (!agents.some((a) => a.agent === m.agent)) agents.push({ agent: m.agent, answered: 0, totalTalkS: 0, avgTalkS: 0, missedRings: m.n });
   }
 
+  const outAnswered = out.filter((c) => c.outcome === "answered");
+  const outTalk = outAnswered.reduce((a, c) => a + c.talk_s, 0);
   return {
     range: r,
     slaSeconds: SLA_S,
+    outbound: {
+      calls: out.length,
+      answered: outAnswered.length,
+      totalTalkS: outTalk,
+      avgTalkS: outAnswered.length ? Math.round(outTalk / outAnswered.length) : 0,
+      byAgent: [...groupBy(out, (c) => c.agent ?? "?")].map(([agent, cs]) => ({
+        agent,
+        calls: cs.length,
+        answered: cs.filter((c) => c.outcome === "answered").length,
+        totalTalkS: cs.filter((c) => c.outcome === "answered").reduce((a, c) => a + c.talk_s, 0),
+      })),
+    },
     totals: { ...summarize(rows), closedHours: closed },
     byQueue: [...groupBy(rows, (c) => c.queue)].map(([queue, cs]) => ({ queue, ...summarize(cs) })).sort((a, b) => a.queue.localeCompare(b.queue)),
     byAgent: agents.sort((a, b) => a.agent.localeCompare(b.agent)),

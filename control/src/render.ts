@@ -2,6 +2,8 @@
 // Saf fonksiyonlar: veritabanına, diske ya da Asterisk'e dokunmaz.
 // Her nesnenin adı kiracı önekiyle başlar (bkz. docs/architecture.md, "Kiracı izolasyonu").
 
+import { dialPatterns, type Policy } from "./outbound.ts";
+
 export type TenantModel = {
   id: number;
   prefix: string;
@@ -18,7 +20,8 @@ export type TenantModel = {
     contactToken: string;
     enabled: boolean;
   };
-  extensions: { number: string; displayName: string; secret: string; enabled: boolean; paused: boolean }[];
+  // outbound: bu dahiliye bağlı açık bir hesabın rolünde dış arama yetkisi var.
+  extensions: { number: string; displayName: string; secret: string; enabled: boolean; paused: boolean; outbound?: boolean }[];
   queues: {
     name: string;
     number: string | null;
@@ -44,7 +47,12 @@ export type TenantModel = {
   }[];
   entryPoints: { address: string; flow: string; enabled: boolean }[];
   recording: { enabled: boolean };
+  outbound?: Policy | null;
 };
+
+// Dış arama: politika açık, hat var ve lisans aktifse.
+const outboundOn = (t: TenantModel) => !!(t.outbound && t.outbound.enabled && t.trunk && t.trunk.enabled && dialPatterns(t.outbound).length);
+const extContext = (t: TenantModel, p: string, e: { outbound?: boolean }) => (outboundOn(t) && e.outbound ? `${p}-internal-out` : `${p}-internal`);
 
 // Arama kayıtları: Asterisk yazar (MixMonitor), kontrol servisi saklama süresi dolanı siler.
 export const recordingDir = (prefix: string) => `/var/lib/santralio/recordings/${prefix}`;
@@ -177,7 +185,7 @@ match_request_uri=/^sips?:${tr.contactToken}@/
 ; --- Dahili ${e.number} ---
 [${name}]
 type=endpoint
-context=${p}-internal
+context=${extContext(t, p, e)}
 disallow=all
 allow=alaw,ulaw
 aors=${name}
@@ -208,7 +216,7 @@ password=${e.secret}
 ; Ses G.711 kalır: operatör hattıyla arasında dönüştürme yapılmaz.
 [${name}_web]
 type=endpoint
-context=${p}-internal
+context=${extContext(t, p, e)}
 disallow=all
 allow=alaw,ulaw
 webrtc=yes
@@ -236,6 +244,45 @@ password=${e.secret}
 
 // Bir dahilinin iki cihazı: masaüstü/mobil softphone ve tarayıcı. Arama ikisinde birden çalar.
 const devices = (p: string, number: string) => `PJSIP/${p}_${number}&PJSIP/${p}_${number}_web`;
+
+// Dış arama. Yalnızca dış arama yetkisi olan personelin dahilisi tN-internal-out context'ini kullanır:
+// önce politikanın desenleri (tN-outbound), sonra normal iç aramalar (tN-internal). Desene uymayan numara,
+// tN-internal'ın sonundaki "reject" kuralına düşer. Sınırlar: eş zamanlı (kanal grubu), günlük (AstDB sayacı),
+// en uzun görüşme (Dial S). Karşı tarafa kiracının hat numarası gösterilir.
+function renderOutbound(t: TenantModel, p: string): string {
+  const pol = t.outbound!;
+  const tr = t.trunk!;
+  const qlog = `${p}_out`;
+  const lines = [`\n[${p}-internal-out]\ninclude => ${p}-outbound\ninclude => ${p}-internal\n`, `\n[${p}-outbound]\n`];
+  // Aranan numara Goto'dan önce saklanır (Goto'dan sonra EXTEN "s" olur).
+  for (const d of dialPatterns(pol)) lines.push(`exten => ${d.pattern},1,Set(OUTNUM=${v("EXTEN")}) ; ${d.label}\n same => n,Goto(${p}-outbound-dial,s,1)\n`);
+  // Arayan dahilinin numarası, karşı tarafa hat numarası gösterilmeden önce alınır.
+  lines.push(`
+[${p}-outbound-dial]
+exten => s,1,Set(AGENTEXT=${v("CALLERID(num)")})
+ same => n,${`Gosub(santralio-lib,limit,1(${t.maxChannels}))`}
+ same => n,Set(GROUP(santralio-out)=${p})
+ same => n,GotoIf($[${v(`GROUP_COUNT(${p}@santralio-out)`)} > ${pol.maxConcurrent}]?busy)
+ same => n,Set(DAY=${v("STRFTIME(${EPOCH},Europe/Istanbul,%Y%m%d)")})
+ same => n,Set(USED=${v(`DB(santralio_out/${p}/${v("DAY")})`)})
+ same => n,GotoIf($[0${v("USED")} >= ${pol.dailyLimit}]?quota)
+ same => n,Set(DB(santralio_out/${p}/${v("DAY")})=$[0${v("USED")} + 1])
+ same => n,Set(__SANTRALIO_CALLID=${v("UNIQUEID")})
+ same => n,Set(__SANTRALIO_QLOG=${qlog})
+ same => n,QueueLog(${qlog},${v("UNIQUEID")},NONE,SANTRALIO_ENTER,|${v("OUTNUM")})
+ same => n,Set(CHANNEL(hangup_handler_push)=santralio-lib,ext-done,1(${qlog},${v("AGENTEXT")}))
+${t.recording.enabled ? ` same => n,MixMonitor(${recordingDir(p)}/${v("UNIQUEID")}.wav,b)
+ same => n,QueueLog(${qlog},${v("UNIQUEID")},NONE,SANTRALIO_RECORDING,${v("UNIQUEID")}.wav)
+` : ""} same => n,Set(CALLERID(all)=<${tr.username}>)
+ same => n,Dial(PJSIP/${v("OUTNUM")}@${p}_trunk,60,S(${pol.maxMinutes * 60})${t.recording.enabled ? `A(${promptPath(p, "recording-notice")})` : ""})
+ same => n,Hangup()
+ same => n(busy),NoOp(Santralio ${p}: eş zamanlı dış arama sınırı ${pol.maxConcurrent})
+ same => n,Hangup(34)
+ same => n(quota),NoOp(Santralio ${p}: günlük dış arama sınırı ${pol.dailyLimit})
+ same => n,Hangup(21)
+`);
+  return lines.join("");
+}
 
 // Kayıt açıksa: kuyruğa girmeden önce bilgilendirme anonsu; kayıt temsilci açınca başlar
 // (Queue gosub -> santralio-record,s,1). Böylece bekleme müziği kayda girmez.
@@ -459,6 +506,8 @@ ${recordingSteps(t, p)} same => n,Set(CHANNEL(hangup_handler_push)=santralio-lib
   for (const e of t.extensions.filter((e) => e.enabled)) {
     out.push(`exten => ${e.number},hint,${devices(p, e.number)}\n`);
   }
+
+  if (outboundOn(t)) out.push(renderOutbound(t, p));
   return out.join("");
 }
 

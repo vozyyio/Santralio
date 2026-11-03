@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { AgentDesk } from "./AgentDesk";
 import { Audit, Roles, Staff, SystemPage } from "./Admin";
+import { OutboundPolicyCard } from "./Outbound";
 import { Calls, Reports } from "./Reports";
 import { api, ApiError, type AppName, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
 
@@ -414,6 +415,7 @@ function General({ t, reload }: { t: Tenant; reload: () => void }) {
         )}
       </div>
       <RecordingSettings t={t} reload={reload} />
+      <OutboundPolicyCard prefix={t.prefix} />
       <div className="card wide">
         <h3>Numaralar</h3>
         {t.entryPoints.length === 0 && <p className="muted">Numara yok.</p>}
