@@ -106,8 +106,79 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 | --- | --- |
 | `README.md` | Ürün çerçevesi |
 | `docs/architecture.md` | Çağrı altyapısı mimarisi (öneri) |
+| `infra/asterisk/` | Ortak Asterisk ayarları, kurulum betiği (`deploy.sh`), sertifika kancası ve ret testi |
+| `infra/fail2ban/` | Asterisk için fail2ban jail'i |
+| `infra/firewall-sync.sh` | Operatör IP aralıklarını 5060 için ufw iznine çevirir (yalnızca ekler) |
+| `control/` | Kontrol servisi (Node 22 + TypeScript): şema, şifreleme, konfigürasyon üretici, CLI, yönetim API'si |
+| `web/` | Yönetim paneli (React + TypeScript + Vite): https://panel.santralio.site |
+| `infra/caddy/` | HTTPS ters vekil (Caddy): panel ve `/api`; yalnızca Cloudflare'den gelen bağlantılar |
+| `infra/web-deploy.sh` | Paneli derler, `/opt/santralio/web` altına kurar, Caddy'yi yeniden yükler |
 
-Kurulum, çalıştırma ve yapılandırma adımları ilk yazılım modülüyle birlikte bu dosyaya eklenecek.
+## Kurulum (sunucu)
+
+Ubuntu 26.04, Asterisk 22 ve PostgreSQL 18 paketleri kurulu olmalı (`asterisk`, `asterisk-modules`, `asterisk-core-sounds-en-wav`, `asterisk-moh-opsound-wav`, `postgresql`, `certbot`; menü anonsları için `sox` ve yedek ses olarak `espeak-ng`, `mbrola-tr2`).
+
+Anonslar varsayılan olarak [Piper](https://github.com/rhasspy/piper) ile sunucuda yerel üretilir; metin dış servise gitmez:
+
+```sh
+curl -LO https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz   # sha256 fea0fd2d87c54dbc…
+sudo tar xzf piper_linux_aarch64.tar.gz -C /opt/santralio/ --no-same-owner
+B=https://huggingface.co/rhasspy/piper-voices/resolve/main/tr/tr_TR/dfki/medium
+curl -LO $B/tr_TR-dfki-medium.onnx -LO $B/tr_TR-dfki-medium.onnx.json                               # sha256 2844717f524ab965…
+sudo install -D -m 0644 -t /opt/santralio/voices/ tr_TR-dfki-medium.onnx tr_TR-dfki-medium.onnx.json
+```
+
+Piper ya da ses modeli yoksa espeak-ng kullanılır. Motor değişince `santralio apply` anonsları yeniden üretir.. `sip.santralio.site` Cloudflare'de proxy'siz olmalı.
+
+```sh
+sudo certbot certonly --standalone -d sip.santralio.site --key-type ecdsa
+sudo install -m 0755 infra/asterisk/cert-hook.sh /etc/letsencrypt/renewal-hooks/deploy/santralio-asterisk.sh
+sudo install -m 0644 infra/fail2ban/santralio-asterisk.conf /etc/fail2ban/jail.d/
+sudo ufw allow 5061/tcp && sudo ufw allow 10000:19999/udp
+sudo infra/asterisk/deploy.sh --restart
+sudo control/install.sh
+```
+
+Kiracı açmak (örnek):
+
+```sh
+santralio tenant create "Örnek Otel"                 # -> t2
+santralio license set-manual t2 --max-ext 5 --max-channels 4 --until 2027-01-31
+santralio queue add t2 destek --number 8001
+santralio ext add t2 1001 --name "Resepsiyon"        # SIP şifresini bir kez gösterir
+santralio queue member add t2 destek 1001
+santralio trunk set t2 --operator netgsm --server <sunucu> --username <kullanıcı>   # şifre gizli sorulur
+santralio entry add t2 voice 908501234567 --flow queue:destek
+santralio menu add t2 ana --text "Örnek Otel'e hoş geldiniz. Rezervasyon için 1'e basınız." --default queue:destek
+santralio menu option t2 ana 1 queue:destek
+santralio entry flow t2 908501234567 menu:ana        # aramayı menüye bağlar
+santralio schedule add t2 mesai --open menu:ana --closed-text "Mesai saatlerimiz dışındasınız."
+santralio schedule hours t2 mesai mon-fri 09:00-18:00
+santralio schedule holiday t2 mesai 2027-01-01 --note Yılbaşı
+santralio entry flow t2 908501234567 schedule:mesai  # önce çalışma saatine bakar
+santralio apply
+```
+
+Panel/API kullanıcısı açmak (şifre gizli girişle sorulur):
+
+```sh
+santralio user add info@ornek.com --role platform_admin --name "Ad Soyad"
+santralio reseller add "Bayi A" && santralio user add bayi@ornek.com --role reseller_admin --reseller "Bayi A"
+santralio user add yonetici@otel.com --role tenant_admin --tenant t2
+```
+
+Yönetim API'si `santralio-api` servisi olarak `127.0.0.1:8090`'da çalışır (bkz. `docs/architecture.md`, "Yönetim API'si ve roller").
+
+Web paneli (`panel.santralio.site` Cloudflare'de proxy'li, SSL/TLS modu Full (strict)):
+
+```sh
+sudo apt install caddy
+sudo infra/web-deploy.sh        # paneli derler ve kurar; Caddy sertifikayı kendisi alır
+# sip.santralio.site sertifikası certbot ile webroot üzerinden yenilenir (80 portu Caddy'de):
+sudo certbot reconfigure --cert-name sip.santralio.site --webroot --webroot-path /var/lib/santralio-acme
+```
+
+Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu, kullanım dosyanın başında).
 
 ## Lisanslama ve satış
 

@@ -1,0 +1,58 @@
+# Santralio: HTTPS ters vekil. infra/web-deploy.sh kurar (/etc/caddy/Caddyfile).
+#
+# panel.santralio.site Cloudflare proxy'si (turuncu bulut) arkasındadır:
+# - Yalnızca Cloudflare'den gelen bağlantılar kabul edilir; böylece CF-Connecting-IP başlığına güvenilir
+#   ve API'nin giriş sınırı gerçek istemci IP'siyle çalışır.
+# - Cloudflare IP listesi: https://www.cloudflare.com/ips (değişirse burası güncellenir).
+#
+# sip.santralio.site proxy'sizdir; Caddy yalnızca certbot'un webroot doğrulama dosyalarını sunar.
+# Asterisk'in TLS sertifikası certbot ile alınır ve yenilenir (infra/asterisk/cert-hook.sh).
+
+(cloudflare) {
+	@not_cloudflare not remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+}
+
+panel.santralio.site {
+	import cloudflare
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		-Server
+	}
+
+	# route içindekiler yazıldığı sırayla çalışır: önce Cloudflare dışı bağlantı reddedilir.
+	route {
+		respond @not_cloudflare "Yalnızca panel.santralio.site üzerinden erişilebilir." 403
+
+		handle /api/* {
+			reverse_proxy 127.0.0.1:8090 {
+				header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			}
+		}
+
+		handle {
+			root * /opt/santralio/web
+			try_files {path} /index.html
+			file_server
+			@assets path /assets/*
+			header @assets Cache-Control "public, max-age=31536000, immutable"
+		}
+	}
+}
+
+http://sip.santralio.site {
+	handle /.well-known/acme-challenge/* {
+		root * /var/lib/santralio-acme
+		file_server
+	}
+	handle {
+		respond 404
+	}
+}

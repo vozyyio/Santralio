@@ -1,0 +1,15 @@
+#!/bin/sh
+# Santralio CLI. Kontrol servisini santralio-ctl kullanıcısıyla ve şifreli
+# systemd credential'larıyla çalıştırır. Gizli bilgiler diske düz yazılmaz.
+set -e
+[ "$(id -u)" -eq 0 ] || exec sudo "$0" "$@"
+if [ -t 0 ] && [ -t 1 ]; then MODE=--pty; else MODE=--pipe; fi
+exec systemd-run --quiet --wait --collect $MODE \
+  --uid=santralio-ctl --gid=santralio-ctl \
+  -p SupplementaryGroups=asterisk \
+  -p UMask=0027 \
+  -p LoadCredentialEncrypted=santralio-master-key-k1 \
+  -p LoadCredentialEncrypted=santralio-ami-secret \
+  -p WorkingDirectory=/opt/santralio/control \
+  -E SUDO_USER="${SUDO_USER:-root}" \
+  /usr/bin/node /opt/santralio/control/src/cli.ts "$@"

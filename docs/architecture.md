@@ -49,6 +49,8 @@ Asterisk'in veritabanından doğrudan okuma modu (realtime, `res_config_pgsql`) 
 
 - Trunk şifreleri veritabanında AES-256-GCM ile şifreli durur (`secret_enc`). Her kayıtta bir `key_id` tutulur, böylece anahtar yenilenebilir.
 - Ana anahtar veritabanında da depoda da durmaz. `systemd-creds` ile şifrelenmiş bir credential olarak yalnızca kontrol servisine verilir.
+- İlk sunucuda TPM yok. `systemd-creds` credential'ları sunucunun kendi sır dosyasıyla (`/var/lib/systemd/credential.secret`) şifreler. Bu yöntem veritabanı dökümü ya da yedek sızarsa şifreleri korur, ama sunucuda root yetkisi ele geçirilirse korumaz.
+- Sunucu kaybedilirse ana anahtar da kaybolur ve şifreli alanlar açılamaz. Ana anahtarın bir kopyası sunucu dışında, kasada saklanmalıdır.
 - Şifre düz metin olarak yalnızca `/etc/asterisk/tenants/<kiracı>/` dosyalarında bulunur. Bu dosyalar `0640 root:asterisk` izinleriyle yazılır.
 - Trunk şifresi sohbete, bilet sistemine ya da depoya yazılmaz. Sunucuda CLI'nin sorduğu gizli girişe yazılır ve doğrudan şifrelenip veritabanına kaydedilir.
 - Temsilci SIP şifreleri rastgele üretilir ve aynı yöntemle saklanır.
@@ -107,7 +109,8 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | 10000–19999/udp | Herkes | RTP. Operatörlerin ses sunucuları sinyal sunucularından farklı IP'lerden gelebilir |
 | 80/443 | Herkes | Sertifika ve 3. adımdan itibaren temsilci masası ve WebRTC (WSS) |
 
-- Operatör IP listesi veritabanında (`operator_ip_ranges`) tutulur. Kontrol servisi bu listeyi nftables'ta bir küme olarak günceller.
+- Operatör IP listesi veritabanında (`operator_ip_ranges`) tutulur. Kontrol servisi bu listeyi `Santralio operatör: <ad>` açıklamalı ufw kuralları olarak günceller. Ayrı bir nftables kümesi kullanılmaz: ufw'nin engelleme kuralı, başka bir tablodaki izni geçersiz kılar.
+- 5060 portu, ilk operatör tanımlanana kadar hiçbir adrese açılmaz.
 - fail2ban'e bir Asterisk jail'i eklenir.
 - `sip.santralio.site` Cloudflare'de **DNS only (gri bulut)** olmalı ve `116.203.184.30` adresini göstermeli. SIP ve RTP Cloudflare proxy'sinden geçemez.
 
@@ -122,10 +125,45 @@ AMI ve ARI yalnızca localhost'tan erişilebilir ve onlara yalnızca kontrol ser
 | `extensions` | Dahili numarası, şifreli SIP şifresi, durum |
 | `queues` | Kuyruk adı, strateji, zaman aşımı, anonslar |
 | `queue_members` | Kuyruk ve dahili eşleşmesi |
+| `menus` | Tuşlamalı menü: anons metni, zaman aşımı, deneme sayısı, varsayılan hedef. Ses dosyası `apply` sırasında metinden üretilir |
+| `menu_options` | Menüde tuş → hedef (`queue:<ad>`, `menu:<ad>` ya da `schedule:<ad>`) |
+| `schedules` | Çalışma saatleri: saat dilimi, açıkken gidilecek hedef, kapalı anonsu ve isteğe bağlı kapalı hedefi |
+| `schedule_hours` | Açık aralıklar (gün ya da gün aralığı + saat aralığı); bir zamanlamada birden fazla olabilir |
+| `schedule_holidays` | Tam gün kapalı tarihler; geçmiş tarihler dialplan'e yazılmaz |
 | `operator_ip_ranges` | Operatör başına izinli sinyal IP aralıkları |
 | `interactions` | Kanaldan bağımsız konuşma kaydı: kiracı, kanal, giriş noktası, kuyruk, temsilci, sonuç |
 | `ai_providers` | Kiracı bazında STT/TTS/LLM sağlayıcısı ve şifreli API anahtarı (5. adımda kullanılır) |
-| `audit_log` | Kim, ne zaman, neyi değiştirdi |
+| `audit_log` | Kim, ne zaman, neyi değiştirdi (CLI'de sistem kullanıcısı, API'de `api:<e-posta>`) |
+| `resellers` | Bayiler. Platform sahibi de bir bayidir (`Platform`, id 1) |
+| `users` | Panel/API kullanıcıları: rol, kapsam (bayi, kiracı, temsilcinin dahilisi), scrypt şifre özeti |
+| `sessions` | Oturumlar: belirtecin yalnızca SHA-256 özeti, bitiş süresi, iptal |
+
+## Yönetim API'si ve roller
+
+Hiyerarşi: **platform → bayi → kiracı (müşteri) → temsilci**. Web paneli ve mobil uygulama aynı API'yi kullanır.
+
+| Rol | Kapsam | Yetki |
+| --- | --- | --- |
+| `platform_admin` | Bütün kiracılar | Her şey |
+| `reseller_admin` | Kendi bayisine bağlı kiracılar | Kiracıların ayarlarını yönetir |
+| `tenant_admin` | Kendi kiracısı | Dahili, menü, anons, çalışma saatleri, giriş noktaları |
+| `agent` | Kendi dahilisi | Yönetim yetkisi yok; temsilci masası (3. adım) için |
+
+- API, `santralio-api` servisi olarak yalnızca `127.0.0.1:8090` adresini dinler. Dışarıya, panelle birlikte HTTPS ters vekil üzerinden açılır.
+- Kimlik `Authorization: Bearer <belirteç>` ile doğrulanır. Belirteç `POST /api/login` ile alınır ve 7 gün geçerlidir.
+- Kiracıya erişimin tek kapısı `canAccessTenant` fonksiyonudur. Erişilemeyen kiracı için `404` döner, böylece başka kiracıların varlığı dışarıdan anlaşılmaz.
+- Gizli alanlar (trunk ve dahili şifreleri, contact token) API yanıtlarında hiç yer almaz. Yeni dahilinin SIP şifresi yalnızca oluşturma yanıtında bir kez gösterilir.
+- Değişiklik yapan her istek tek bir veritabanı işleminde çalışır. Bir adım reddedilirse hiçbiri kalmaz. Asterisk'e uygulama, işlem tamamlandıktan sonra yapılır.
+- Giriş denemeleri IP başına 15 dakikada 10 ile sınırlıdır.
+- CLI ve API aynı işlem modülünü (`control/src/ops.ts`) kullanır. Doğrulama kuralları tek yerde yazılır.
+
+### Web paneli
+
+- `panel.santralio.site` Cloudflare proxy'si arkasındadır. Caddy yalnızca Cloudflare IP'lerinden gelen bağlantıları kabul eder; böylece `CF-Connecting-IP` başlığına güvenilir ve giriş sınırı gerçek istemci IP'siyle çalışır.
+- Panel tek sayfalık bir React uygulamasıdır. Aynı alan adındaki `/api` Caddy tarafından yönetim API'sine iletilir.
+- Oturum belirteci `HttpOnly; Secure; SameSite=Strict` çerezde durur; JavaScript belirteci görmez. Çerezle gelen değişiklik istekleri yalnızca `https://panel.santralio.site` kaynağından kabul edilir (CSRF).
+- İçerik güvenlik politikası (CSP) yalnızca aynı kaynaktan betik, stil ve ses yüklenmesine izin verir.
+- Mobil uygulama aynı API'yi `Authorization: Bearer` belirteciyle kullanır.
 
 ## Depo yapısı
 
