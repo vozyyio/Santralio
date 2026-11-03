@@ -234,6 +234,15 @@ Bilerek sonraya bırakılanlar:
 - **Sistem durumu:** Yalnızca platform yöneticisi görür. İçeriği: santralin çalışma süresi, süren arama sayısı, operatör hatlarının kaydı, disk ve son 50 santral uyarısı.
 - **Aktarma:** Temsilci görüşmeyi tarayıcıdan bir kuyruğa (`q-<kuyruk>`) ya da bir dahiliye kör aktarır (SIP REFER). Hedef, temsilcinin kendi kiracısının `tN-internal` context'inde çözülür; başka bir kiracıya ya da dış hatta aktarma yapılamaz. Aktarılan görüşme yeni kuyrukta ayrı bir satır olarak rapora girer.
 
+## Dış arama
+
+- **Politika** kiracı bazındadır (`outbound_policies`) ve **yalnızca platform yöneticisi** değiştirir. Politikada şunlar tanımlanır: hangi yurt içi numara türleri açık (mobil, sabit, 0850/444, 0800), yurt dışında hangi ülke kodları açık, eş zamanlı dış arama sınırı, günlük arama sınırı ve en uzun görüşme süresi.
+- **Sektör şablonları** (`control/src/outbound.ts`): Yalnızca gelen arama, Acente (yurt içi), Otel / turizm, Sağlık turizmi. Şablon kuralları doldurur; ayrıntılar sonra elle değiştirilebilir.
+- **Her zaman engelli:** Özel ücretli (0900, 0898 vb.) ve kısa numaralar engellidir. +90 (Türkiye) ve +1 (Kuzey Amerika numara planı; Karayipler'deki yüksek ücretli hatları da kapsar) yurt dışı listesine eklenemez. Santral yalnızca politikadaki desenlere uyan numaraları operatöre gönderir; gerisi `reject`'e düşer.
+- **Kiracının payı:** Kiracı, politikanın içinde, hangi rolün dış arama yapabileceğini `agent.outbound` yetkisiyle belirler. Bu yetkiyle açık bir hesaba bağlı dahilinin endpoint'i `tN-internal-out` context'ini kullanır; diğer dahililer yalnızca iç arama yapabilir. Rol ya da personel değişince santral hemen yeniden üretilir.
+- **Sınırlar:** Eş zamanlı sınır kanal grubuyla (`GROUP(santralio-out)`), günlük sınır AstDB sayacıyla (`santralio_out/<önek>/<gün>`), en uzun süre `Dial` seçeneğiyle (`S`) uygulanır. Kiracının genel kanal sınırı da geçerlidir. Karşı tarafa kiracının hat numarası gösterilir.
+- **Kayıt ve rapor:** Kayıt açıksa dış arama da kaydedilir ve karşı tarafa bilgilendirme anonsu çalınır. Dış aramalar görüşme listesine "Dış arama" olarak girer. Raporda gelen çağrı oranlarına karışmaz, ayrı özetlenir.
+
 ## Kurulum modları: paylaşımlı ve müşteriye özel sunucu
 
 Yazılım her iki modda da aynıdır; değişen yalnızca kaç kiracının hangi sunucuda çalıştığıdır.

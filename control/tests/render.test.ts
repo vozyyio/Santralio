@@ -281,3 +281,30 @@ test("menü tuşu doğrudan dahiliyi çaldırabilir (ext:), yalnızca kendi kira
   assert.ok(x.includes("hangup_handler_push)=santralio-lib,ext-done,1(t1_ext-1001,1001)"));
   assert.ok(x.includes("Playback(/var/lib/asterisk/sounds/santralio/t1/ext-unavailable)"));
 });
+
+test("dış arama: yalnızca yetkili dahili, yalnızca politikadaki desenler, sınırlar ve hat numarası", () => {
+  const pol = { template: "agency", enabled: true, trMobile: true, trLandline: false, trNational: false, trTollfree: false, countries: ["49"], maxConcurrent: 3, dailyLimit: 50, maxMinutes: 30 };
+  const t = tenant(1, { outbound: pol });
+  t.extensions[0].outbound = true;
+  const f = renderTenant(t);
+  assert.match(f["pjsip.conf"], /\[t1_1001\]\ntype=endpoint\ncontext=t1-internal-out\n/);
+  assert.match(f["pjsip.conf"], /\[t1_1001_web\]\ntype=endpoint\ncontext=t1-internal-out\n/);
+  assert.match(f["pjsip.conf"], /\[t1_1002\]\ntype=endpoint\ncontext=t1-internal\n/, "yetkisiz dahili dış arama yapamaz");
+  const ext = f["extensions.conf"];
+  const o = ext.slice(ext.indexOf("[t1-internal-out]"));
+  assert.ok(o.indexOf("include => t1-outbound") < o.indexOf("include => t1-internal"), "önce dış arama desenleri");
+  assert.ok(o.includes("exten => _05XXXXXXXXX,1,Set(OUTNUM=${EXTEN})"));
+  assert.ok(o.includes("exten => _0049XXXX.,1,Set(OUTNUM=${EXTEN})"));
+  assert.ok(!o.includes("_0[234]") && !o.includes("_0850"), "kapalı türler üretilmez");
+  assert.ok(o.includes("GROUP_COUNT(t1@santralio-out)} > 3]?busy"));
+  assert.ok(o.includes("GotoIf($[0${USED} >= 50]?quota)"));
+  assert.ok(o.includes("Set(CALLERID(all)=<850000001>)"));
+  assert.ok(o.includes("Dial(PJSIP/${OUTNUM}@t1_trunk,60,S(1800))"));
+});
+
+test("dış arama kapalıysa hiçbir dahili tN-internal-out kullanmaz", () => {
+  const t = tenant(1, { outbound: null });
+  t.extensions[0].outbound = true;
+  const f = renderTenant(t);
+  assert.ok(!f["pjsip.conf"].includes("internal-out") && !f["extensions.conf"].includes("outbound-dial"));
+});

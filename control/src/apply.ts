@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { aad, open } from "./crypto.ts";
 import { masterKey, PIPER_BIN, PIPER_MODEL, SOUNDS_DIR, TENANTS_DIR } from "./config.ts";
 import type { Db } from "./db.ts";
+import { getPolicy } from "./ops.ts";
 import { recordingDir, renderTenant, type RenderedFiles, type TenantModel } from "./render.ts";
 
 export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel> {
@@ -22,7 +23,16 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
     t.status === "active" && t.active === true && (t.valid_until === null || new Date(t.valid_until) > new Date());
 
   const tr = (await db.query("SELECT * FROM trunks WHERE tenant_id = $1", [tenantId])).rows[0];
-  const exts = (await db.query("SELECT * FROM extensions WHERE tenant_id = $1 ORDER BY number", [tenantId])).rows;
+  // outbound: dahiliye bağlı açık bir hesabın rolünde dış arama yetkisi var.
+  const exts = (
+    await db.query(
+      `SELECT e.*, EXISTS (SELECT 1 FROM users u JOIN roles r ON r.id = u.role_id
+                            WHERE u.extension_id = e.id AND NOT u.disabled AND 'agent.outbound' = ANY (r.permissions)) AS outbound
+         FROM extensions e WHERE e.tenant_id = $1 ORDER BY e.number`,
+      [tenantId],
+    )
+  ).rows;
+  const pol = await getPolicy(db, tenantId);
   const queues = (await db.query("SELECT * FROM queues WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows;
   const members = (
     await db.query(
@@ -86,6 +96,7 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       secret: open(e.secret_enc, aad.extension(tenantId, e.number), masterKey(e.key_id)),
       enabled: e.enabled,
       paused: e.paused,
+      outbound: e.outbound,
     })),
     queues: queues.map((q) => ({
       name: q.name,
@@ -112,6 +123,7 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
     })),
     entryPoints: entries.map((e) => ({ address: e.address, flow: e.flow, enabled: e.enabled })),
     recording: { enabled: t.recording_enabled },
+    outbound: pol,
   };
 }
 

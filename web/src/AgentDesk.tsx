@@ -3,13 +3,32 @@
 // Kuyruktan gelen arama tarayıcıda çalar; aç, sessize al, kapat. Müsait/molada durumu kuyruğa yansır.
 
 import { useEffect, useRef, useState } from "react";
-import { Invitation, Registerer, RegistererState, SessionState, UserAgent, Web, type Session } from "sip.js";
+import { Invitation, Inviter, Registerer, RegistererState, SessionState, UserAgent, Web, type Session } from "sip.js";
 import { api, type Agent } from "./api";
 
-type Phase = "idle" | "connecting" | "ready" | "ringing" | "talking" | "error";
+type Phase = "idle" | "connecting" | "ready" | "ringing" | "calling" | "talking" | "error";
 type Call = { from: string; name: string; queue: string | null; did: string | null; startedAt: number | null };
 
 const QUEUE_LABEL = (q: string | null) => (q ? q.charAt(0).toLocaleUpperCase("tr") + q.slice(1) : null);
+
+// Sunucudaki normalizeNumber ile aynı kural: "+90 532…" / "532…" -> "0532…", "+49…" -> "0049…".
+function normalizeNumber(input: string): string | null {
+  let n = input.replace(/[\s().-]/g, "");
+  if (n.startsWith("+")) n = "00" + n.slice(1);
+  if (!/^[0-9]{4,20}$/.test(n)) return null;
+  if (n.startsWith("0090")) n = "0" + n.slice(4);
+  else if (n.startsWith("90") && n.length === 12) n = "0" + n.slice(2);
+  else if (/^[2-5][0-9]{9}$/.test(n)) n = "0" + n;
+  return n;
+}
+
+// Santralin dış aramayı reddetme nedenleri (Hangup nedeni -> SIP yanıtı).
+const OUT_ERRORS: Record<number, string> = {
+  403: "Bu numara dış arama politikası dışında ya da günlük dış arama sınırı doldu.",
+  404: "Numara bulunamadı.",
+  486: "Aranan numara meşgul.",
+  503: "Eş zamanlı dış arama sınırı dolu; biraz sonra tekrar deneyin.",
+};
 
 // Gelen aramada basit bir zil sesi (Web Audio). Tarayıcılar sesi ancak kullanıcı bir düğmeye bastıktan sonra çalar;
 // "Mesaiye başla" bu izni de sağlar.
@@ -62,6 +81,7 @@ export function AgentDesk() {
   const [now, setNow] = useState(Date.now());
   const [directory, setDirectory] = useState<{ queues: { name: string; number: string | null }[]; extensions: { number: string; name: string }[] } | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [dial, setDial] = useState("");
   const ua = useRef<UserAgent | null>(null);
   const registerer = useRef<Registerer | null>(null);
   const session = useRef<Session | null>(null);
@@ -120,10 +140,15 @@ export function AgentDesk() {
     setMuted(false);
     setPhase("ringing");
     ringer.current.start();
-    inv.stateChange.addListener((state) => {
+    watch(inv);
+  };
+
+  // Gelen ve giden görüşmenin ortak durum takibi.
+  const watch = (s: Session) => {
+    s.stateChange.addListener((state) => {
       if (state === SessionState.Established) {
         ringer.current.stop();
-        attachRemoteAudio(inv);
+        attachRemoteAudio(s);
         setCall((c) => (c ? { ...c, startedAt: Date.now() } : c));
         setPhase("talking");
       }
@@ -131,9 +156,42 @@ export function AgentDesk() {
         ringer.current.stop();
         session.current = null;
         setCall(null);
+        setTransferOpen(false);
         setPhase((p) => (p === "error" ? p : "ready"));
       }
     });
+  };
+
+  // Dış arama. Numara santralde dış arama politikasına göre denetlenir; tarayıcıdaki kontrol yalnızca biçim içindir.
+  const placeCall = () => {
+    const n = normalizeNumber(dial);
+    const uri = n ? UserAgent.makeURI(`sip:${n}@sip.santralio.site`) : undefined;
+    if (!ua.current || !uri || session.current) {
+      if (!n) setError("Numara geçersiz.");
+      return;
+    }
+    setError("");
+    const inv = new Inviter(ua.current, uri, {
+      earlyMedia: true,
+      sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
+    });
+    session.current = inv;
+    setCall({ from: n!, name: "", queue: "out", did: null, startedAt: null });
+    setMuted(false);
+    setPhase("calling");
+    watch(inv);
+    void inv
+      .invite({
+        requestDelegate: {
+          // Karşı tarafın çalma sesi (erken medya) duyulsun.
+          onProgress: () => attachRemoteAudio(inv),
+          onReject: (r) => {
+            const code = r.message.statusCode ?? 0;
+            setError(OUT_ERRORS[code] ?? `Arama kurulamadı (${code} ${r.message.reasonPhrase ?? ""}).`);
+          },
+        },
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   };
 
   const start = async () => {
@@ -207,7 +265,8 @@ export function AgentDesk() {
   const hangup = () => {
     const s = session.current;
     if (!s) return;
-    if (s instanceof Invitation && s.state === SessionState.Initial) void s.reject();
+    if (s instanceof Inviter && s.state !== SessionState.Established) void s.cancel();
+    else if (s instanceof Invitation && s.state === SessionState.Initial) void s.reject();
     else if (s.state === SessionState.Established) void s.bye();
     else void s.dispose();
   };
@@ -237,7 +296,7 @@ export function AgentDesk() {
     }
   };
 
-  const online = phase === "ready" || phase === "ringing" || phase === "talking";
+  const online = phase === "ready" || phase === "ringing" || phase === "calling" || phase === "talking";
   return (
     <div className="desk">
       <div className="card">
@@ -270,15 +329,40 @@ export function AgentDesk() {
           )}
         </div>
         {online && paused && <p className="muted small">Moladayken kuyruktan arama gelmez.</p>}
+        {online && agent?.outbound && (
+          <>
+            <form
+              className="dialer"
+              onSubmit={(e) => {
+                e.preventDefault();
+                placeCall();
+              }}
+            >
+              <input
+                type="tel"
+                inputMode="tel"
+                placeholder="Numara (ör. 0532 123 45 67 ya da +49 …)"
+                value={dial}
+                onChange={(e) => setDial(e.target.value)}
+                disabled={phase !== "ready"}
+                aria-label="Aranacak numara"
+              />
+              <button disabled={phase !== "ready" || !dial.trim()}>Ara</button>
+            </form>
+            <p className="muted small">Aranabilen: {agent.outbound.join(", ")}. Karşı tarafa şirketin numarası görünür.</p>
+          </>
+        )}
       </div>
 
       {call && (
         <div className={`card call ${phase}`}>
-          <p className="muted small">{phase === "ringing" ? "Gelen arama" : `Görüşmede · ${duration(call.startedAt, now)}`}</p>
+          <p className="muted small">
+            {phase === "ringing" ? "Gelen arama" : phase === "calling" ? "Aranıyor…" : `Görüşmede · ${duration(call.startedAt, now)}`}
+          </p>
           <p className="caller mono">{call.from || "Gizli numara"}</p>
           {call.name && call.name !== call.from && <p>{call.name}</p>}
           <p className="small">
-            {call.queue && <>Kuyruk: {QUEUE_LABEL(call.queue)}</>}
+            {call.queue === "out" ? <>Dış arama</> : call.queue && <>Kuyruk: {QUEUE_LABEL(call.queue)}</>}
             {call.queue && call.did && " · "}
             {call.did && <>Aranan: {call.did}</>}
           </p>
@@ -295,7 +379,7 @@ export function AgentDesk() {
               </button>
             )}
             <button className="danger" onClick={hangup}>
-              {phase === "ringing" ? "Reddet" : "Kapat"}
+              {phase === "ringing" ? "Reddet" : phase === "calling" ? "Vazgeç" : "Kapat"}
             </button>
           </div>
           {transferOpen && directory && (

@@ -3,6 +3,7 @@
 // Doğrulama hataları UserError olarak fırlatılır: CLI "hata:" diye yazar, API 400/404 döner.
 
 import { hashPassword } from "./auth.ts";
+import { TEMPLATES, validatePolicy, type Policy } from "./outbound.ts";
 import { DEFAULT_ROLES } from "./permissions.ts";
 import { CURRENT_KEY_ID, masterKey } from "./config.ts";
 import { aad, randomToken, seal } from "./crypto.ts";
@@ -399,4 +400,41 @@ export async function setQueueNumber(db: Db, t: Tenant, queue: string, number: s
     });
   if (!r.rowCount) throw new UserError(`${t.prefix}: kuyruk yok: ${queue}`, 404);
   await audit(db, "queue.number", t.id, { queue, number }, actor);
+}
+
+// --- Dış arama politikası (yalnızca platform yöneticisi değiştirir) ---
+
+export async function getPolicy(db: Db, tenantId: number): Promise<Policy> {
+  const r = (await db.query("SELECT * FROM outbound_policies WHERE tenant_id = $1", [tenantId])).rows[0];
+  if (!r) return { template: "inbound_only", ...TEMPLATES.inbound_only.policy };
+  return {
+    template: r.template,
+    enabled: r.enabled,
+    trMobile: r.tr_mobile,
+    trLandline: r.tr_landline,
+    trNational: r.tr_national,
+    trTollfree: r.tr_tollfree,
+    countries: r.countries,
+    maxConcurrent: r.max_concurrent,
+    dailyLimit: r.daily_limit,
+    maxMinutes: r.max_minutes,
+  };
+}
+
+export async function setPolicy(db: Db, t: Tenant, input: Policy, actor?: string) {
+  let p: Policy;
+  try {
+    p = validatePolicy(input);
+  } catch (e) {
+    throw new UserError((e as Error).message);
+  }
+  await db.query(
+    `INSERT INTO outbound_policies (tenant_id, template, enabled, tr_mobile, tr_landline, tr_national, tr_tollfree, countries,
+                                    max_concurrent, daily_limit, max_minutes, updated_at, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), $12)
+     ON CONFLICT (tenant_id) DO UPDATE SET template = $2, enabled = $3, tr_mobile = $4, tr_landline = $5, tr_national = $6,
+       tr_tollfree = $7, countries = $8, max_concurrent = $9, daily_limit = $10, max_minutes = $11, updated_at = now(), updated_by = $12`,
+    [t.id, p.template, p.enabled, p.trMobile, p.trLandline, p.trNational, p.trTollfree, p.countries, p.maxConcurrent, p.dailyLimit, p.maxMinutes, actor ?? null],
+  );
+  await audit(db, "outbound.policy", t.id, p, actor);
 }

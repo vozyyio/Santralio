@@ -7,6 +7,13 @@ const TZ = "Europe/Istanbul";
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
 const shift = (d: string, days: number) => new Date(Date.parse(d) + days * 86_400_000).toISOString().slice(0, 10);
 
+// Kuyruk adı; doğrudan dahili aramaları "ext-<numara>", dış aramalar "out" olarak gelir.
+export function queueLabel(q: string) {
+  if (q === "out") return "Dış arama";
+  if (q.startsWith("ext-")) return `Dahili ${q.slice(4)}`;
+  return q;
+}
+
 export function mmss(s: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
@@ -74,7 +81,7 @@ export function Calls({ prefix, own = false }: { prefix: string; own?: boolean }
             <thead>
               <tr>
                 <th>Zaman</th>
-                <th>Arayan</th>
+                <th>Numara</th>
                 <th>Kuyruk</th>
                 <th>Temsilci</th>
                 <th className="r">Bekleme</th>
@@ -87,8 +94,11 @@ export function Calls({ prefix, own = false }: { prefix: string; own?: boolean }
               {rows.map((c) => (
                 <tr key={`${c.callid}-${c.queue}`}>
                   <td className="mono small">{c.started.slice(5, 16).replace("-", ".").replace(" ", " · ")}</td>
-                  <td className="mono">{c.caller || <span className="muted">gizli</span>}</td>
-                  <td>{c.queue.startsWith("ext-") ? `Dahili ${c.queue.slice(4)}` : c.queue}</td>
+                  <td className="mono">
+                    {c.queue === "out" ? "→ " : ""}
+                    {c.caller || <span className="muted">gizli</span>}
+                  </td>
+                  <td>{queueLabel(c.queue)}</td>
                   <td>{c.agent ?? <span className="muted">–</span>}</td>
                   <td className="r">{mmss(c.wait_s)}</td>
                   <td className="r">{c.outcome === "answered" ? mmss(c.talk_s) : "–"}</td>
@@ -160,10 +170,15 @@ export function Reports({ prefix }: { prefix: string }) {
             <Tile label="Ortalama bekleme" value={mmss(s.totals.avgWaitS)} note={`en uzun ${mmss(s.totals.maxWaitS)}`} />
             <Tile label="Ortalama konuşma" value={mmss(s.totals.avgTalkS)} note={`toplam ${mmss(s.totals.totalTalkS)}`} />
             <Tile label="Mesai dışı arama" value={num(s.totals.closedHours)} note="kapalı anonsu çalınan" />
+            <Tile
+              label="Dış arama"
+              value={num(s.outbound.calls)}
+              note={`${s.outbound.answered} cevaplandı · toplam ${mmss(s.outbound.totalTalkS)}`}
+            />
           </div>
         )}
       </div>
-      {s && s.totals.offered > 0 && (
+      {s && (s.totals.offered > 0 || s.outbound.calls > 0) && (
         <>
           <div className="card">
             <h3>Kuyruklara göre</h3>
@@ -183,7 +198,7 @@ export function Reports({ prefix }: { prefix: string }) {
                 <tbody>
                   {s.byQueue.map((q) => (
                     <tr key={q.queue}>
-                      <td>{q.queue.startsWith("ext-") ? `Dahili ${q.queue.slice(4)}` : q.queue}</td>
+                      <td>{queueLabel(q.queue)}</td>
                       <td className="r">{num(q.offered)}</td>
                       <td className="r">{num(q.answered)}</td>
                       <td className="r">{num(q.abandoned + q.timeout + q.noAgent)}</td>
@@ -223,6 +238,33 @@ export function Reports({ prefix }: { prefix: string }) {
               </table>
             </div>
           </div>
+          {s.outbound.calls > 0 && (
+            <div className="card">
+              <h3>Dış aramalar</h3>
+              <div className="scroll">
+                <table className="numeric">
+                  <thead>
+                    <tr>
+                      <th>Personel</th>
+                      <th className="r">Arama</th>
+                      <th className="r">Cevaplanan</th>
+                      <th className="r">Toplam konuşma</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.outbound.byAgent.map((a) => (
+                      <tr key={a.agent}>
+                        <td>{a.agent}</td>
+                        <td className="r">{num(a.calls)}</td>
+                        <td className="r">{num(a.answered)}</td>
+                        <td className="r">{mmss(a.totalTalkS)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           {s.byDay.length > 1 && (
             <div className="card">
               <h3>Günlere göre</h3>

@@ -123,6 +123,7 @@ export type Summary = {
   byQueue: (Totals & { queue: string })[];
   byAgent: { agent: string; answered: number; totalTalkS: number; avgTalkS: number; missedRings: number }[];
   byDay: (Totals & { day: string })[];
+  outbound: { calls: number; answered: number; totalTalkS: number; avgTalkS: number; byAgent: { agent: string; calls: number; answered: number; totalTalkS: number }[] };
 };
 export type Sip = { server: string; port: number; transport: string; username: string; password: string };
 export type Agent = {
@@ -132,8 +133,22 @@ export type Agent = {
   paused: boolean;
   pausedReason: string | null;
   queues: string[];
+  outbound: string[] | null;
   sip: { wsServer: string; uri: string; username: string; password: string };
 };
+export type Policy = {
+  template: string;
+  enabled: boolean;
+  trMobile: boolean;
+  trLandline: boolean;
+  trNational: boolean;
+  trTollfree: boolean;
+  countries: string[];
+  maxConcurrent: number;
+  dailyLimit: number;
+  maxMinutes: number;
+};
+export type PolicyView = { policy: Policy; patterns: string[]; editable: boolean; templates: { id: string; label: string; policy: Policy }[] };
 
 const t = (prefix: string) => `/api/tenants/${encodeURIComponent(prefix)}`;
 const seg = encodeURIComponent;
@@ -168,6 +183,8 @@ export const api = {
   saveRole: (p: string, id: number, name: string, permissions: string[]) => call("PUT", `${t(p)}/roles/${id}`, { name, permissions }),
   deleteRole: (p: string, id: number) => call("DELETE", `${t(p)}/roles/${id}`),
   permissions: () => call<{ id: string; label: string }[]>("GET", "/api/permissions"),
+  outboundPolicy: (p: string) => call<PolicyView>("GET", `${t(p)}/outbound-policy`),
+  saveOutboundPolicy: (p: string, policy: Policy) => call<{ policy: Policy; patterns: string[] }>("PUT", `${t(p)}/outbound-policy`, policy),
   resetPassword: (p: string, email: string) => call<{ temporaryPassword: string }>("POST", `${t(p)}/users/${seg(email)}/reset-password`),
   setQueueMembers: (p: string, q: string, members: string[]) => call("PUT", `${t(p)}/queues/${seg(q)}/members`, { members }),
   setQueueNumber: (p: string, q: string, number: string | null) => call("PUT", `${t(p)}/queues/${seg(q)}/number`, { number }),

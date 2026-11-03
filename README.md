@@ -188,6 +188,13 @@ santralio recording set t2 --enabled yes --retention 90
 santralio apply
 ```
 
+Dış arama (yalnızca platform yöneticisi; ayrıntı panelde Genel → Dış arama):
+
+```sh
+santralio outbound set t2 --template agency        # inbound_only | agency | hotel | health_tourism
+santralio outbound show t2
+```
+
 Üç adres: `panel.santralio.site` (ayarlar), `crm.santralio.site` (görüşmeler, raporlar), `agent.santralio.site` (temsilci masası). Üçü de Cloudflare'de proxy'li olmalı; Caddy sertifikaları kendisi alır.
 
 ## Lisanslama ve satış
