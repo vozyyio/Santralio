@@ -238,6 +238,19 @@ Bilerek sonraya bırakılanlar:
 - **Beklet:** Görüşme içi yeniden davetle (re-INVITE, `sendonly`) yapılır. Beklemedeki tarafa kiracının bekleme müziği çalar (endpoint'te `moh_suggest`).
 - **Danışmalı aktarma:** Arayan beklemeye alınır, temsilci ikinci bir görüşme açar: bir dahili ya da, dış arama yetkisi varsa, politika içindeki bir numara. Temsilci iki görüşme arasında geçebilir. "Aktarımı tamamla" danışma görüşmesini arayanla değiştirir (REFER + Replaces); santral arayanı doğrudan danışılan kişiye bağlar, temsilcinin iki bağlantısı da kapanır. "Vazgeç" danışmayı kapatıp arayana döner. Danışma sırasında arayan kapatırsa danışma görüşmesi normal görüşme olarak sürer.
 
+## Yapay zekâ karşılaması
+
+- **Akış:** Numara, menü tuşu ya da çalışma saati bir yapay zekâ akışına (`ai:<akış>`) yönlenir. Dialplan (`tN-ai-<akış>`) çağrıyı açar, çağrı bilgisini AstDB'ye yazar (`santralio_ai/<uuid>`: kiracı, akış, callid, aranan numara, arayan) ve sesi AudioSocket ile `santralio-ai` servisine akıtır. Servis yalnızca `127.0.0.1:9092`'yi dinler. Servis kararını `santralio_ai/<uuid>/route`'a yazıp bağlantıyı kapatır; dialplan oradan ilgili kuyruğa, dahiliye ya da menüye gider. AstDB kayıtları çağrı kapanınca silinir.
+- **Görüşme** (`control/src/ai/session.ts`): Karşılama okunur. Ardından en fazla `max_turns` tur boyunca arayan dinlenir, karar verilir, karar söylenir. Arayan asistan konuşurken söze girerse asistan susar. Sessizlik (iki kez), tur sınırı, 3 dakikalık süre ya da herhangi bir hata durumunda arama **varsayılan hedefe** aktarılır; düşmez.
+- **Sağlayıcılar** (`control/src/ai/providers.ts`; değiştirilebilir):
+  - **Azure Speech:** Konuşma canlı tanınır (SDK, tr-TR, sessizlik eşiği 700 ms) ve seslendirilir (REST, 8 kHz PCM, Emel ya da Ahmet). Aynı metin için üretilen ses önbellektedir.
+  - **Claude** (varsayılan Claude Haiku 5.5, effort `low`): Her cümleden sonra şemayla doğrulanmış tek bir karar döner: `say`, `transfer` ya da `end`. Aktarmada temsilciye kısa bir özet bırakır.
+- **Güvenlik:** Arayanın sözleri talimat sayılmaz. Hedef yalnızca akıştaki yönlendirmelerden biri olabilir; servis bunu ayrıca denetler, listede olmayan hedef varsayılana döner. Model yanıt vermezse (refusal) arama varsayılana aktarılır.
+- **Anahtarlar:** Azure Speech ve Anthropic anahtarları `sudo infra/set-secret.sh azure-speech | anthropic` ile sunucuda gizli girişle alınır ve `systemd-creds` ile şifrelenir. Servis bunları `ImportCredential` ile okur. Anahtar yoksa servis açılır, ama gelen aramaları doğrudan varsayılan hedefe aktarır. Bölge `SANTRALIO_AZURE_SPEECH_REGION` (varsayılan `westeurope`).
+- **Yetki ve KVKK:** Kiracıda açmak yalnızca platform yöneticisinin yetkisindedir (`tenants.ai_enabled`). Arayanın sesi Azure'a (AB bölgesi), konuşma metni Anthropic'e gider; bu, aydınlatma metninde belirtilmelidir. Varsayılan karşılama cümlesi aramanın yapay zekâ ile karşılandığını söyler.
+- **Kayıt:** `ai_sessions` her görüşmenin dökümünü, özetini, sonucunu ve kullanımını (ses saniyesi, karakter, token) tutar. Temsilci, aktarılan aramada özeti görür; CRM'de dökümler "bütün görüşmeler" yetkisiyle görünür.
+- **Test modu:** `SANTRALIO_AI_FAKE=1` sahte STT ve dil modeliyle, seslendirmeyi Piper'la yapar. Anahtarsız uçtan uca test içindir.
+
 ## Anons sesleri ve santrali açıp kapatma
 
 - **Ses kataloğu** (`control/src/voices.ts`): Piper modelleri `/opt/santralio/voices` altından kendiliğinden bulunur (`<model>.onnx`, `<model>.onnx.json`, isteğe bağlı `<model>.label`). espeak-ng sesleri (sentetik kadın ve erkek) yedek olarak her zaman listededir. Yeni bir ses eklemek için dosyaları bu dizine koymak yeter.

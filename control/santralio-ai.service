@@ -1,0 +1,42 @@
+# Santralio yapay zekâ karşılama servisi. control/install.sh kurar.
+# Yalnızca 127.0.0.1:9092'yi dinler; Asterisk AudioSocket ile bağlanır.
+# Anahtarlar (Azure Speech, Anthropic) şifreli systemd credential'dır: sudo infra/set-secret.sh <ad>
+# Anahtar yoksa servis açılır ama gelen çağrıları doğrudan varsayılan hedefe aktarır.
+[Unit]
+Description=Santralio yapay zekâ karşılaması
+After=network.target postgresql.service asterisk.service
+Wants=postgresql.service
+
+[Service]
+User=santralio-ctl
+Group=santralio-ctl
+UMask=0027
+LoadCredentialEncrypted=santralio-ami-secret
+ImportCredential=santralio-azure-speech-key
+ImportCredential=santralio-anthropic-api-key
+WorkingDirectory=/opt/santralio/control
+EnvironmentFile=/etc/santralio/site.env
+ExecStart=/usr/bin/node /opt/santralio/control/src/ai/server.ts
+Restart=on-failure
+RestartSec=2
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/santralio/ai
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

@@ -85,6 +85,7 @@ SANTRALIO_SIP_HOST=${SIP_HOST:-${SANTRALIO_SIP_HOST:-sip.$DOMAIN}}
 SANTRALIO_PUBLIC_IP=$IP
 SANTRALIO_CLOUDFLARE=${CLOUDFLARE:-${SANTRALIO_CLOUDFLARE:-yes}}
 SANTRALIO_ACME_EMAIL=${EMAIL:-${SANTRALIO_ACME_EMAIL:-}}
+SANTRALIO_AZURE_SPEECH_REGION=${SANTRALIO_AZURE_SPEECH_REGION:-westeurope}
 CONF
   chmod 0644 "$SITE_ENV"
 fi
@@ -204,7 +205,7 @@ git -C "$REPO" rev-parse --short HEAD 2>/dev/null >/etc/santralio/version || ech
 # --- 11. Sağlık kontrolü ---
 step "Sağlık kontrolü"
 fail=0
-for s in asterisk postgresql caddy santralio-api fail2ban; do
+for s in asterisk postgresql caddy santralio-api santralio-ai fail2ban; do
   if systemctl is-active --quiet "$s"; then echo "  çalışıyor : $s"; else echo "  DURDU     : $s"; fail=1; fi
 done
 tls=$(asterisk -rx 'pjsip show transports' | grep -c 'transport-tls' || true)

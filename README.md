@@ -191,6 +191,13 @@ santralio recording set t2 --enabled yes --retention 90
 santralio apply
 ```
 
+Yapay zekâ karşılaması (anahtarlar sunucuda gizli girişle; kiracıda açmak panelde Yapay zekâ sekmesinde, platform yöneticisi):
+
+```sh
+sudo infra/set-secret.sh azure-speech    # bölge: /etc/santralio/site.env SANTRALIO_AZURE_SPEECH_REGION (varsayılan westeurope)
+sudo infra/set-secret.sh anthropic
+```
+
 Dış arama (yalnızca platform yöneticisi; ayrıntı panelde Genel → Dış arama):
 
 ```sh

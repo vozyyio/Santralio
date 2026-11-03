@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Invitation, Inviter, Registerer, RegistererState, SessionState, UserAgent, Web, type Session } from "sip.js";
 import { api, type Agent } from "./api";
+import { AiSummary } from "./Ai";
 import { CallerPanel } from "./Crm";
 
 type Phase = "idle" | "connecting" | "ready" | "ringing" | "calling" | "talking" | "error";
@@ -610,6 +611,7 @@ export function AgentDesk() {
               </button>
             )}
           </div>
+          {(call ?? lastCall)!.callid && <AiSummary prefix={agent.tenant} callid={(call ?? lastCall)!.callid!} />}
           <CallerPanel
             prefix={agent.tenant}
             phone={(call ?? lastCall)!.from}

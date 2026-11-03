@@ -44,6 +44,26 @@ export type TenantRow = {
   max_channels: number | null;
 };
 export type Hours = { weekdays: string; opens: string; closes: string };
+export type AiFlow = {
+  name: string;
+  enabled: boolean;
+  greetingText: string;
+  instructions: string;
+  routes: { target: string; description: string }[];
+  defaultTarget: string | null;
+  maxTurns: number;
+  voice: string;
+  model: string;
+};
+export type AiInfo = {
+  enabled: boolean;
+  editable: boolean;
+  flows: AiFlow[];
+  usage: { sessions: number; sttSeconds: number; ttsChars: number; inputTokens: number; outputTokens: number; transferred: number; errors: number };
+  service: { fake: boolean; azure: boolean; anthropic: boolean; region: string } | null;
+  voices: { id: string; label: string }[];
+  models: { id: string; label: string }[];
+};
 export type PromptRow = {
   name: string;
   label: string;
@@ -57,6 +77,7 @@ export type Tenant = {
   voice: string;
   pbxOpen: boolean;
   pbxClosedText: string;
+  aiFlows: string[];
   recording: { enabled: boolean; retentionDays: number; noticeText: string };
   license: { source: string; active: boolean; valid_until: string | null; max_extensions: number; max_channels: number } | null;
   trunk: { operator: string; server: string; port: number; transport: string; username: string; enabled: boolean } | null;
@@ -199,6 +220,12 @@ export const api = {
   saveRole: (p: string, id: number, name: string, permissions: string[]) => call("PUT", `${t(p)}/roles/${id}`, { name, permissions }),
   deleteRole: (p: string, id: number) => call("DELETE", `${t(p)}/roles/${id}`),
   permissions: () => call<{ id: string; label: string }[]>("GET", "/api/permissions"),
+  ai: (p: string) => call<AiInfo>("GET", `${t(p)}/ai`),
+  setAiEnabled: (p: string, enabled: boolean) => call("PUT", `${t(p)}/ai/enabled`, { enabled }),
+  saveAiFlow: (p: string, name: string, flow: AiFlow) => call("PUT", `${t(p)}/ai/flows/${seg(name)}`, flow),
+  aiSessions: (p: string, from: string, to: string) => call<any[]>("GET", `${t(p)}/ai/sessions?from=${from}&to=${to}`),
+  aiSummary: (p: string, callid: string) =>
+    call<{ summary: string | null; transcript: { role: string; text: string }[] } | null>("GET", `${t(p)}/ai/summary?callid=${encodeURIComponent(callid)}`),
   voices: () => call<{ id: string; label: string }[]>("GET", "/api/voices"),
   voiceSampleUrl: (id: string) => `/api/voices/${encodeURIComponent(id)}/sample`,
   setVoice: (p: string, voice: string) => call("PUT", `${t(p)}/voice`, { voice }),
