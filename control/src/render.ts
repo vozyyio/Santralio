@@ -18,7 +18,7 @@ export type TenantModel = {
     contactToken: string;
     enabled: boolean;
   };
-  extensions: { number: string; displayName: string; secret: string; enabled: boolean }[];
+  extensions: { number: string; displayName: string; secret: string; enabled: boolean; paused: boolean }[];
   queues: {
     name: string;
     number: string | null;
@@ -199,10 +199,39 @@ type=auth
 auth_type=userpass
 username=${name}
 password=${e.secret}
+
+; Tarayıcıdaki temsilci masası (WebRTC: DTLS-SRTP, ICE). Aynı şifre, ayrı kullanıcı adı.
+; Ses G.711 kalır: operatör hattıyla arasında dönüştürme yapılmaz.
+[${name}_web]
+type=endpoint
+context=${p}-internal
+disallow=all
+allow=alaw,ulaw
+webrtc=yes
+aors=${name}_web
+auth=${name}_web
+callerid=${cid}
+device_state_busy_at=1
+set_var=TENANT=${p}
+
+[${name}_web]
+type=aor
+max_contacts=1
+remove_existing=yes
+qualify_frequency=30
+
+[${name}_web]
+type=auth
+auth_type=userpass
+username=${name}_web
+password=${e.secret}
 `);
   }
   return out.join("");
 }
+
+// Bir dahilinin iki cihazı: masaüstü/mobil softphone ve tarayıcı. Arama ikisinde birden çalar.
+const devices = (p: string, number: string) => `PJSIP/${p}_${number}&PJSIP/${p}_${number}_web`;
 
 // Arayanın temsilciye bağlanamadığı Queue() sonuçları: müsait temsilci yok, kuyruk dolu ya da süre doldu.
 const QUEUE_FAILED = "^(TIMEOUT|FULL|JOINEMPTY|LEAVEEMPTY|JOINUNAVAIL|LEAVEUNAVAIL)$";
@@ -244,8 +273,10 @@ exten => _[+0-9a-zA-Z].,1,NoOp(Santralio ${p} gelen: ${v("CALLERID(num)")} -> ${
  same => n,Set(TO=${v("CUT(TO,@,1)")})
  same => n,Set(TO=${v("CUT(TO,:,2)")})
  same => n,Set(DID=${v(`FILTER(0-9,${v("TO")})`)})
+ same => n,Set(__SANTRALIO_DID=${v("DID")})
  same => n,${toDid(`${p}-did`)}
  same => n,Set(DID=${v(`FILTER(0-9,${v("EXTEN")})`)})
+ same => n,Set(__SANTRALIO_DID=${v("DID")})
  same => n,${toDid(`${p}-did`)}
  same => n,NoOp(Santralio ${p}: DID kiracıya ait değil: ${v("DID")})
  same => n,Goto(reject,s,1)
@@ -340,6 +371,7 @@ exten => s,1,Answer()
  same => n,Wait(0.5)
  same => n,Set(CHANNEL(musicclass)=${p})
  same => n,ExecIf($[${v(`STAT(e,${welcome}.wav)`)}]?Playback(${welcome}))
+ same => n,Set(__SANTRALIO_QUEUE=${q.name})
  same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS})
  same => n,NoOp(Santralio ${p}_${q.name}: ${v("QUEUESTATUS")})
  same => n,ExecIf($[${v(`REGEX("${QUEUE_FAILED}" ${v("QUEUESTATUS")})`)}]?Playback(${promptPath(p, `queue-${q.name}-unavailable`)}))
@@ -351,19 +383,33 @@ exten => s,1,Answer()
   // Dış arama yok (2. adımın kapsamı dışında).
   out.push(`\n[${p}-internal]\n`);
   for (const e of t.extensions.filter((e) => e.enabled)) {
-    out.push(`exten => ${e.number},1,${limit}\n same => n,Dial(PJSIP/${p}_${e.number},30)\n same => n,Hangup()\n`);
+    out.push(`exten => ${e.number},1,${limit}\n same => n,Dial(${devices(p, e.number)},30)\n same => n,Hangup()\n`);
   }
   for (const q of t.queues.filter((q) => q.number)) {
     assertId(q.number!, "kuyruk numarası");
     out.push(`exten => ${q.number},1,${limit}\n same => n,Goto(${p}-queue-${q.name},s,1)\n`);
   }
   out.push(`exten => _[+*#0-9a-zA-Z].,1,Goto(reject,s,1)\nexten => i,1,Goto(reject,s,1)\n`);
+
+  // Kuyruğun temsilciyi çaldırdığı yer. Yalnızca queues.conf'taki Local üyeleri buraya girer.
+  // Ön arama işleyicisi (b) temsilcinin ekranı için kuyruk adını ve aranan numarayı SIP başlığına ekler.
+  out.push(`\n[${p}-agent]\n`);
+  for (const e of t.extensions.filter((e) => e.enabled)) {
+    out.push(`exten => ${e.number},1,Dial(${devices(p, e.number)},,b(santralio-lib^agent-headers^1))\n same => n,Hangup()\n`);
+  }
+  out.push(`exten => _[+*#0-9a-zA-Z].,1,Hangup(21)\n`);
+
+  out.push(`\n[${p}-hints]\n`);
+  for (const e of t.extensions.filter((e) => e.enabled)) {
+    out.push(`exten => ${e.number},hint,${devices(p, e.number)}\n`);
+  }
   return out.join("");
 }
 
 function renderQueues(t: TenantModel, p: string): string {
   const out = [header(t, "kuyruklar")];
   const enabled = new Set(t.extensions.filter((e) => e.enabled).map((e) => e.number));
+  const pausedSet = new Set(t.extensions.filter((e) => e.paused).map((e) => e.number));
   for (const q of t.queues) {
     out.push(`
 [${p}_${q.name}]
@@ -378,8 +424,12 @@ leavewhenempty=unavailable,invalid
 announce-frequency=0
 periodic-announce-frequency=0
 `);
+    // Üye bir Local kanalıdır: dahilinin iki cihazını birlikte çaldırır ({p}-agent).
+    // Meşgul/müsait durumu iki cihazı birlikte izleyen hint'ten okunur ({p}-hints).
+    // Son alan mola durumudur: kuyruk yeniden yüklense de veritabanındaki durum korunur.
     for (const m of q.members.filter((m) => enabled.has(m.number))) {
-      out.push(`member => PJSIP/${p}_${m.number},${m.penalty},${m.number}\n`);
+      const paused = pausedSet.has(m.number) ? 1 : 0;
+      out.push(`member => Local/${m.number}@${p}-agent/n,${m.penalty},${m.number},hint:${m.number}@${p}-hints,no,,${paused}\n`);
     }
   }
   return out.join("");

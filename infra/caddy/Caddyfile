@@ -23,13 +23,22 @@ panel.santralio.site {
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
 		Permissions-Policy "camera=(), geolocation=()"
-		Content-Security-Policy "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self' wss://panel.santralio.site; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 		-Server
 	}
 
 	# route içindekiler yazıldığı sırayla çalışır: önce Cloudflare dışı bağlantı reddedilir.
 	route {
 		respond @not_cloudflare "Yalnızca panel.santralio.site üzerinden erişilebilir." 403
+
+		# Temsilci masası: SIP-over-WebSocket. Önce oturum (çerez) API'de doğrulanır,
+		# yalnızca dahilisi olan kullanıcı Asterisk'e (yalnızca localhost'u dinler) bağlanabilir.
+		handle /ws {
+			forward_auth 127.0.0.1:8090 {
+				uri /api/auth/ws
+			}
+			reverse_proxy 127.0.0.1:8088
+		}
 
 		handle /api/* {
 			reverse_proxy 127.0.0.1:8090 {

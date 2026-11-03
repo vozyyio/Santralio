@@ -62,6 +62,15 @@ export type Tenant = {
 };
 export type Status = { registration: string; onlineExtensions: string[] };
 export type Sip = { server: string; port: number; transport: string; username: string; password: string };
+export type Agent = {
+  tenant: string;
+  extension: string;
+  displayName: string;
+  paused: boolean;
+  pausedReason: string | null;
+  queues: string[];
+  sip: { wsServer: string; uri: string; username: string; password: string };
+};
 
 const t = (prefix: string) => `/api/tenants/${encodeURIComponent(prefix)}`;
 const seg = encodeURIComponent;
@@ -81,4 +90,6 @@ export const api = {
   saveUnavailable: (p: string, queue: string, text: string) => call("PUT", `${t(p)}/queues/${seg(queue)}/unavailable-text`, { text }),
   setFlow: (p: string, address: string, flow: string) => call("PUT", `${t(p)}/entry-points/${seg(address)}`, { flow }),
   addExtension: (p: string, number: string, name: string) => call<{ number: string; sip: Sip }>("POST", `${t(p)}/extensions`, { number, name }),
+  agent: () => call<Agent>("GET", "/api/agent"),
+  setPause: (paused: boolean, reason?: string) => call<{ paused: boolean }>("PUT", "/api/agent/pause", { paused, reason: reason ?? null }),
 };

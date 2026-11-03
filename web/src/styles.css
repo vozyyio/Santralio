@@ -91,3 +91,13 @@ audio { width: 100%; max-width: 420px; height: 36px; margin: 4px 0 6px; }
   .top { padding: 10px 16px; }
   th:nth-child(5), td:nth-child(5) { display: none; }
 }
+
+.spread { justify-content: space-between; align-items: flex-start; }
+.desk { max-width: 560px; margin: 0 auto; }
+.call { border-width: 2px; }
+.call.ringing { border-color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.call.talking { border-color: var(--ok); }
+.caller { font-size: 1.8rem; font-weight: 700; margin: 4px 0; }
+button.danger { background: var(--error); border-color: var(--error); color: #fff; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .call.ringing { animation: none; } }

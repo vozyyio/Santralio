@@ -22,7 +22,8 @@ import {
   verifyPassword,
   type User,
 } from "./auth.ts";
-import { PG_DATABASE, PG_HOST, SOUNDS_DIR } from "./config.ts";
+import { masterKey, PG_DATABASE, PG_HOST, SOUNDS_DIR } from "./config.ts";
+import { aad, open } from "./crypto.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
 import { UserError, type Tenant } from "./ops.ts";
@@ -154,7 +155,8 @@ route(
     ]);
     const user = { email: u.email, name: u.name, role: u.role };
     if (web) {
-      ctx.res.setHeader("set-cookie", `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=${SESSION_DAYS * 86400}`);
+      // Yol "/" : çerez /api'nin yanında temsilci masasının WebSocket bağlantısında (/ws) da gerekir.
+      ctx.res.setHeader("set-cookie", `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_DAYS * 86400}`);
       return { user };
     }
     return { token, user };
@@ -164,7 +166,10 @@ route(
 
 route("POST", "/api/logout", async (ctx) => {
   await revokeSession(ctx.db, ctx.token!);
-  ctx.res.setHeader("set-cookie", `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=0`);
+  ctx.res.setHeader("set-cookie", [
+    `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`,
+    `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=0`,
+  ]);
   return { ok: true };
 });
 
@@ -222,6 +227,89 @@ route("GET", "/api/tenants/:prefix", async (ctx) => {
          FROM schedules s WHERE s.tenant_id = $1 ORDER BY s.name`,
     ),
   };
+});
+
+// --- Temsilci masası ---
+
+// Caddy, /ws (SIP-over-WebSocket) bağlantısını açmadan önce buraya sorar: yalnızca dahilisi olan
+// oturumlu kullanıcı geçer. SIP kimlik doğrulaması ayrıca Asterisk'te yapılır.
+route("GET", "/api/auth/ws", async (ctx) => {
+  if (!need(ctx.user).extension_id) throw new UserError("temsilci değil", 403);
+  return { ok: true };
+});
+
+async function agentExtension(ctx: Ctx) {
+  const u = need(ctx.user);
+  if (!u.extension_id) throw new UserError("bu hesaba bağlı dahili yok", 404);
+  const e = (
+    await ctx.db.query(
+      `SELECT e.*, t.prefix FROM extensions e JOIN tenants t ON t.id = e.tenant_id WHERE e.id = $1 AND e.tenant_id = $2`,
+      [u.extension_id, u.tenant_id],
+    )
+  ).rows[0];
+  if (!e) throw new UserError("bu hesaba bağlı dahili yok", 404);
+  return e as { id: number; tenant_id: number; prefix: string; number: string; display_name: string; secret_enc: Buffer; key_id: string; paused: boolean; paused_reason: string | null };
+}
+
+// Temsilcinin kendi tarayıcı uç noktasının SIP bilgileri. Yalnızca kendi dahilisi için, HTTPS üzerinden.
+route("GET", "/api/agent", async (ctx) => {
+  const e = await agentExtension(ctx);
+  const queues = (
+    await ctx.db.query(
+      "SELECT q.name FROM queue_members m JOIN queues q ON q.id = m.queue_id WHERE m.extension_id = $1 ORDER BY q.name",
+      [e.id],
+    )
+  ).rows.map((r) => r.name);
+  await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, 'agent.sip_credentials', $3)", [
+    actor(ctx),
+    e.tenant_id,
+    JSON.stringify({ number: e.number, ip: ctx.ip }),
+  ]);
+  return {
+    tenant: e.prefix,
+    extension: e.number,
+    displayName: e.display_name,
+    paused: e.paused,
+    pausedReason: e.paused_reason,
+    queues,
+    sip: {
+      wsServer: PANEL_ORIGIN.replace(/^http/, "ws") + "/ws",
+      uri: `sip:${e.prefix}_${e.number}_web@sip.santralio.site`,
+      username: `${e.prefix}_${e.number}_web`,
+      password: open(e.secret_enc, aad.extension(e.tenant_id, e.number), masterKey(e.key_id)),
+    },
+  };
+});
+
+// Müsait / molada. Durum veritabanına yazılır (yeniden yüklemede korunur) ve hemen Asterisk'e iletilir.
+route("PUT", "/api/agent/pause", async (ctx) => {
+  const e = await agentExtension(ctx);
+  const paused = ctx.body?.paused;
+  if (typeof paused !== "boolean") throw new UserError("paused true/false olmalı");
+  const reason = optStr(ctx.body?.reason, "reason");
+  if (reason && reason.length > 100) throw new UserError("açıklama en fazla 100 karakter");
+  await ctx.db.query("UPDATE extensions SET paused = $1, paused_reason = $2 WHERE id = $3", [paused, paused ? reason : null, e.id]);
+  await ctx.db.query("INSERT INTO audit_log (actor, tenant_id, action, details) VALUES ($1, $2, $3, $4)", [
+    actor(ctx),
+    e.tenant_id,
+    paused ? "agent.pause" : "agent.unpause",
+    JSON.stringify({ number: e.number, reason }),
+  ]);
+  const ami = await Ami.open();
+  try {
+    // Kuyruk adı verilmezse üyesi olduğu bütün kuyruklarda uygulanır.
+    const r = await ami.action({
+      Action: "QueuePause",
+      Interface: `Local/${e.number}@${e.prefix}-agent/n`,
+      Paused: paused ? "true" : "false",
+      Reason: reason ?? "",
+    });
+    // Hiçbir kuyruğun üyesi değilse Asterisk hata döner; durum yine de kaydedilmiştir.
+    if (r.Response !== "Success" && !/not found/i.test(r.Message ?? "")) throw new Error(`QueuePause: ${r.Message ?? ""}`);
+  } finally {
+    await ami.close();
+  }
+  return { paused };
 });
 
 // Anonsun üretilmiş sesi (8 kHz WAV), panelde dinlemek için.
