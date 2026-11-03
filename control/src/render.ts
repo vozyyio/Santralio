@@ -198,6 +198,8 @@ rewrite_contact=yes
 media_encryption=sdes
 media_encryption_optimistic=yes
 device_state_busy_at=1
+; Temsilci beklemeye alınca karşı tarafa kiracının bekleme müziği çalar.
+moh_suggest=${p}
 set_var=TENANT=${p}
 
 [${name}]
@@ -224,6 +226,7 @@ aors=${name}_web
 auth=${name}_web
 callerid=${cid}
 device_state_busy_at=1
+moh_suggest=${p}
 set_var=TENANT=${p}
 
 [${name}_web]

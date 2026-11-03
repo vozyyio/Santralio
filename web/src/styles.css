@@ -140,3 +140,5 @@ button.x { padding: 0 6px; border: none; font-size: 1rem; line-height: 1; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 14px; margin-bottom: 8px; }
 .form-grid .actions, .form-grid .error { grid-column: 1 / -1; }
 .caller-panel h4 { margin-top: 12px; }
+
+.transfer.consult { border-top: 2px solid var(--accent); }

@@ -308,3 +308,10 @@ test("dış arama kapalıysa hiçbir dahili tN-internal-out kullanmaz", () => {
   const f = renderTenant(t);
   assert.ok(!f["pjsip.conf"].includes("internal-out") && !f["extensions.conf"].includes("outbound-dial"));
 });
+
+test("beklemeye alınınca kiracının bekleme müziği (moh_suggest) iki uç noktada da", () => {
+  const pj = renderTenant(tenant(1))["pjsip.conf"];
+  const web = pj.slice(pj.indexOf("[t1_1001_web]\ntype=endpoint"), pj.indexOf("[t1_1001_web]\ntype=aor"));
+  const soft = pj.slice(pj.indexOf("[t1_1001]\ntype=endpoint"), pj.indexOf("[t1_1001]\ntype=aor"));
+  assert.ok(web.includes("moh_suggest=t1") && soft.includes("moh_suggest=t1"));
+});
