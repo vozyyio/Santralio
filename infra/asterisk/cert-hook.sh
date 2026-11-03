@@ -5,7 +5,10 @@
 # süren çağrılar bitince yeniden başlatılır ("core restart when convenient").
 set -euo pipefail
 
-DOMAIN=sip.santralio.site
+# SIP adresi sunucu ayarlarından okunur (hook /etc/letsencrypt/renewal-hooks/deploy/ altından da çalışır).
+# shellcheck disable=SC1091
+. /etc/santralio/site.env
+DOMAIN=${SANTRALIO_SIP_HOST:?SANTRALIO_SIP_HOST tanımlı değil}
 LIVE=/etc/letsencrypt/live/$DOMAIN
 KEYS=/etc/asterisk/keys
 

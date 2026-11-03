@@ -150,7 +150,7 @@ export type Agent = {
   queues: string[];
   outbound: string[] | null;
   crm: boolean;
-  sip: { wsServer: string; uri: string; username: string; password: string };
+  sip: { wsServer: string; uri: string; domain: string; username: string; password: string };
 };
 export type Policy = {
   template: string;

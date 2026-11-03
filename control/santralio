@@ -11,5 +11,6 @@ exec systemd-run --quiet --wait --collect $MODE \
   -p LoadCredentialEncrypted=santralio-master-key-k1 \
   -p LoadCredentialEncrypted=santralio-ami-secret \
   -p WorkingDirectory=/opt/santralio/control \
+  -p EnvironmentFile=/etc/santralio/site.env \
   -E SUDO_USER="${SUDO_USER:-root}" \
   /usr/bin/node /opt/santralio/control/src/cli.ts "$@"

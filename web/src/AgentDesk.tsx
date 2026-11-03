@@ -211,7 +211,7 @@ export function AgentDesk() {
   // Danış: arayan beklemeye alınır, hedef aranır.
   const startConsult = async (target: string, label: string) => {
     const main = session.current;
-    const uri = UserAgent.makeURI(`sip:${target}@sip.santralio.site`);
+    const uri = UserAgent.makeURI(`sip:${target}@${agent!.sip.domain}`);
     if (!ua.current || !main || main.state !== SessionState.Established || consult.current || !uri) return;
     setTransferOpen(null);
     setError("");
@@ -293,7 +293,7 @@ export function AgentDesk() {
   // Dış arama. Numara santralde dış arama politikasına göre denetlenir; tarayıcıdaki kontrol yalnızca biçim içindir.
   const placeCall = () => {
     const n = normalizeNumber(dial);
-    const uri = n ? UserAgent.makeURI(`sip:${n}@sip.santralio.site`) : undefined;
+    const uri = n ? UserAgent.makeURI(`sip:${n}@${agent!.sip.domain}`) : undefined;
     if (!ua.current || !uri || session.current) {
       if (!n) setError("Numara geçersiz.");
       return;
@@ -404,7 +404,7 @@ export function AgentDesk() {
   // Hedefler kiracının kendi iç numaralarıdır; santral bunları yalnızca kendi kiracısında çözer.
   const transfer = (target: string) => {
     const s = session.current;
-    const uri = UserAgent.makeURI(`sip:${target}@sip.santralio.site`);
+    const uri = UserAgent.makeURI(`sip:${target}@${agent!.sip.domain}`);
     if (!s || !uri || s.state !== SessionState.Established) return;
     setTransferOpen(null);
     void s.refer(uri).catch((e) => setError(`Aktarma başarısız: ${e instanceof Error ? e.message : String(e)}`));

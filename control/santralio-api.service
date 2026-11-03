@@ -13,6 +13,7 @@ UMask=0027
 LoadCredentialEncrypted=santralio-master-key-k1
 LoadCredentialEncrypted=santralio-ami-secret
 WorkingDirectory=/opt/santralio/control
+EnvironmentFile=/etc/santralio/site.env
 ExecStart=/usr/bin/node /opt/santralio/control/src/api.ts
 Restart=on-failure
 RestartSec=2

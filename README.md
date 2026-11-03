@@ -116,30 +116,40 @@ Yazılım aşağıdaki sırayla ele alınacak. Bir adım çalışır hale gelmed
 
 ## Kurulum (sunucu)
 
-Ubuntu 26.04, Asterisk 22 ve PostgreSQL 18 paketleri kurulu olmalı (`asterisk`, `asterisk-modules`, `asterisk-core-sounds-en-wav`, `asterisk-moh-opsound-wav`, `postgresql`, `certbot`; menü anonsları için `sox` ve yedek ses olarak `espeak-ng`, `mbrola-tr2`).
-
-Anonslar varsayılan olarak [Piper](https://github.com/rhasspy/piper) ile sunucuda yerel üretilir; metin dış servise gitmez:
+Boş bir **Ubuntu 26.04** sunucusunda tek komut (arm64 ya da x86_64; 2 vCPU / 4 GB RAM pilot için yeterli):
 
 ```sh
-curl -LO https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz   # sha256 fea0fd2d87c54dbc…
-sudo tar xzf piper_linux_aarch64.tar.gz -C /opt/santralio/ --no-same-owner
-B=https://huggingface.co/rhasspy/piper-voices/resolve/main/tr/tr_TR/dfki/medium
-curl -LO $B/tr_TR-dfki-medium.onnx -LO $B/tr_TR-dfki-medium.onnx.json                               # sha256 2844717f524ab965…
-sudo install -D -m 0644 -t /opt/santralio/voices/ tr_TR-dfki-medium.onnx tr_TR-dfki-medium.onnx.json
+# 1. DNS: sip.<alan> -> sunucunun IP'si (proxy'siz, gri bulut); panel/crm/agent.<alan> -> sunucu (Cloudflare'de proxy'li olabilir)
+# 2. Depoyu sunucuya alın (özel depo: deploy anahtarıyla klonlayın ya da kopyalayın)
+git clone git@github.com:vozyyio/Santralio.git && cd Santralio
+# 3. Kurun
+sudo infra/install-all.sh --domain ornek.com --ip 203.0.113.10 [--no-cloudflare] [--email ops@ornek.com]
 ```
 
-Piper ya da ses modeli yoksa espeak-ng kullanılır. Motor değişince `santralio apply` anonsları yeniden üretir.. `sip.santralio.site` Cloudflare'de proxy'siz olmalı.
+Betik sırayla şunları yapar:
+1. `/etc/santralio/site.env` dosyasını yazar (örnek: `infra/site.env.example`).
+2. Paketleri kurar ve DNS'i denetler.
+3. Gerekirse swap açar.
+4. Güvenlik duvarını ve fail2ban'i ayarlar. SSH izni her şeyden önce verilir.
+5. Piper'ı ve Türkçe ses modelini sabitlenmiş sürüm ve SHA-256 ile kurar.
+6. Paneli ve Caddy'yi kurar; Caddy panel/crm/agent sertifikalarını kendisi alır.
+7. SIP sertifikasını certbot ile webroot üzerinden alır.
+8. Asterisk'i, kontrol servisini ve API'yi kurar.
+9. Sağlık kontrolü yapar.
+
+Kurulu sunucuda tekrar çalıştırılabilir: eksikleri tamamlar, ayarları günceller ve paketleri yükseltmez. Asterisk ayarları ve Caddyfile şablondur (`@SANTRALIO_…@`, bkz. `infra/lib/site.sh`); `sudo infra/asterisk/deploy.sh --check` ve `sudo infra/web-deploy.sh --check`, kurulu dosyalarla farkı gösterir.
+
+Kurulumdan sonra platform yöneticisi ve ilk müşteri:
 
 ```sh
-sudo certbot certonly --standalone -d sip.santralio.site --key-type ecdsa
-sudo install -m 0755 infra/asterisk/cert-hook.sh /etc/letsencrypt/renewal-hooks/deploy/santralio-asterisk.sh
-sudo install -m 0644 infra/fail2ban/santralio-asterisk.conf /etc/fail2ban/jail.d/
-sudo ufw allow 5061/tcp && sudo ufw allow 10000:19999/udp
-sudo infra/asterisk/deploy.sh --restart
-sudo control/install.sh
+santralio user add info@ornek.com --role platform_admin --name "Ad Soyad"
+santralio tenant create "Örnek Otel"                 # -> t2
+santralio license set-manual t2 --max-ext 5 --max-channels 4 --until 2027-01-31
 ```
 
-Kiracı açmak (örnek):
+Müşterinin geri kalan ayarları (numara, menü, anons, çalışma saati, kuyruk, personel) panelden ya da CLI'den yapılır:
+
+
 
 ```sh
 santralio tenant create "Örnek Otel"                 # -> t2
@@ -170,14 +180,7 @@ santralio user add patron@otel.com --role tenant_user --tenant t2 --role-name Pa
 
 Yönetim API'si `santralio-api` servisi olarak `127.0.0.1:8090`'da çalışır (bkz. `docs/architecture.md`, "Yönetim API'si ve roller").
 
-Web paneli (`panel.santralio.site` Cloudflare'de proxy'li, SSL/TLS modu Full (strict)):
-
-```sh
-sudo apt install caddy
-sudo infra/web-deploy.sh        # paneli derler ve kurar; Caddy sertifikayı kendisi alır
-# sip.santralio.site sertifikası certbot ile webroot üzerinden yenilenir (80 portu Caddy'de):
-sudo certbot reconfigure --cert-name sip.santralio.site --webroot --webroot-path /var/lib/santralio-acme
-```
+Web paneli ve sertifikalar `install-all.sh` ile kurulur. Panel adresleri Cloudflare'de proxy'liyse SSL/TLS modu **Full (strict)** olmalıdır. Yalnızca paneli yeniden derleyip kurmak için `sudo infra/web-deploy.sh` yeterlidir.
 
 Testler: `cd control && npm test`, `python3 -I infra/asterisk/tests/check_reject.py`, `infra/asterisk/tests/check_register.py`, `check_inbound.py` (kullanım dosyaların başında), `sudo infra/asterisk/tests/check_isolation.sh t1 t2`, `control/tests/api_isolation.py` (API izolasyonu), `control/tests/roles_sso.py` (roller ve tek giriş), `control/tests/crm_e2e.py` (CRM), `infra/asterisk/tests/check_ws.mjs` (temsilci masasının WSS yolu); kullanımlar dosyaların başında.
 
@@ -195,7 +198,7 @@ santralio outbound set t2 --template agency        # inbound_only | agency | hot
 santralio outbound show t2
 ```
 
-Üç adres: `panel.santralio.site` (ayarlar), `crm.santralio.site` (görüşmeler, raporlar), `agent.santralio.site` (temsilci masası). Üçü de Cloudflare'de proxy'li olmalı; Caddy sertifikaları kendisi alır.
+Üç adres: `panel.<alan>` (ayarlar), `crm.<alan>` (görüşmeler, raporlar, müşteriler), `agent.<alan>` (temsilci masası). Caddy sertifikaları kendisi alır.
 
 ## Lisanslama ve satış
 

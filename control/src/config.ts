@@ -5,7 +5,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const PUBLIC_IP = process.env.SANTRALIO_PUBLIC_IP ?? "116.203.184.30";
+// Sunucu ayarları /etc/santralio/site.env'den ortam değişkeni olarak gelir (systemd EnvironmentFile).
+export const BASE_DOMAIN = process.env.SANTRALIO_BASE_DOMAIN ?? "santralio.site";
+export const SIP_HOST = process.env.SANTRALIO_SIP_HOST ?? `sip.${BASE_DOMAIN}`;
 export const TENANTS_DIR = process.env.SANTRALIO_TENANTS_DIR ?? "/etc/asterisk/tenants";
 export const SOUNDS_DIR = process.env.SANTRALIO_SOUNDS_DIR ?? "/var/lib/asterisk/sounds/santralio";
 // Anons sesi: Piper (yerel, sinir ağı tabanlı) varsa o, yoksa espeak-ng kullanılır.
