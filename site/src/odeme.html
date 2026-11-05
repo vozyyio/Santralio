@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Ödeme bağlantısındaki token başka sitelere gitmesin (sunucu da Referrer-Policy: no-referrer gönderir). -->
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>Santralio — Ödeme</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/site.css?v=@SITE_CSS_HASH@">
+</head>
+<body class="bg-[#070B14] text-slate-100 antialiased min-h-screen">
+  <header class="glass-card border-b border-slate-800/80">
+    <div class="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+      <a href="/" class="flex items-center" aria-label="Santralio">
+        <span class="text-xl font-extrabold text-white">Santral</span><span class="text-xl font-extrabold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">io</span>
+      </a>
+      <span class="inline-flex items-center gap-1.5 text-sm text-slate-400"><i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>Güvenli ödeme · Vozyy</span>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-12">
+    <h1 class="text-3xl font-extrabold text-white tracking-tight mb-2">Ödeme</h1>
+    <p class="text-slate-300 mb-1">Başvurunuz onaylandı. Ödemeyi tamamladığınızda paneliniz hazırlanır.</p>
+    <p class="text-sm text-slate-400 mb-8">Your application has been approved. Your panel is prepared once the payment is complete.</p>
+
+    <div class="glass-card rounded-3xl p-6 sm:p-8">
+      <!-- Kart formu Vozyy'nin widget'ıdır; kart bilgileri Santralio'ya gelmez. Tutar yalnızca Vozyy'den gelir.
+           Ödemenin sonucu sayfadaki bir olaydan değil, Vozyy'nin durum sorgusundan (checkout/{token}/status) okunur. -->
+      <div id="santralio-pay" class="min-h-[8rem] text-slate-200" role="status" aria-live="polite"></div>
+      <script src="https://vozyy.com/js/santralio-checkout.js"
+        data-api="@VOZYY_SANTRALIO_API@"
+        data-plan="santral_ai"
+        data-mount="#santralio-pay"
+        data-turnstile-token=""></script>
+    </div>
+
+    <div class="mt-8 text-sm text-slate-400 space-y-2">
+      <p>Bağlantının süresi dolduysa ya da “bağlantı geçersiz” uyarısı alıyorsanız yeni onay isteyin: <a href="mailto:info@santralio.site" class="text-cyan-300 underline">info@santralio.site</a></p>
+      <p>If the link has expired or is invalid, please request a new approval: <a href="mailto:info@santralio.site" class="text-cyan-300 underline">info@santralio.site</a></p>
+    </div>
+  </main>
+</body>
+</html>

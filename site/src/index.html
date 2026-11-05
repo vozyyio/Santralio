@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="tr" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Santralio — Firmalar için yapay zekâ destekli santral ve çağrı merkezi</title>
+  <meta name="description" content="Santralio; telefon santralini, temsilci ekranını ve yapay zekâyı tek üründe toplayan, Türkçe öncelikli çağrı merkezi yazılımıdır.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Derlenmiş Tailwind (site/build.mjs); ikonlar satır içi SVG. -->
+  <link rel="stylesheet" href="/assets/site.css?v=@SITE_CSS_HASH@">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</head>
+<body class="bg-[#070B14] text-slate-100 antialiased selection:bg-cyan-500 selection:text-black min-h-screen overflow-x-hidden">
+
+  <!-- Duyuru: mobil uygulama -->
+  <div class="bg-gradient-to-r from-blue-900/60 via-cyan-900/40 to-blue-900/60 border-b border-cyan-500/20 text-sm py-2.5 px-4 text-center text-cyan-100">
+    <span class="inline-flex flex-wrap items-center justify-center gap-2">
+      <i data-lucide="smartphone" class="w-4 h-4 text-cyan-300"></i>
+      <strong data-i18n="ann_title">Yeni sistem: Santralio mobil uygulaması yakında.</strong>
+      <span data-i18n="ann_text">Çağrılarınızı ve ekibinizi telefonunuzdan yönetin.</span>
+      <a href="#mobil" class="underline font-semibold hover:text-white" data-i18n="ann_link">Detaylar</a>
+    </span>
+  </div>
+
+  <!-- Header -->
+  <header class="sticky top-0 z-50 glass-card border-b border-slate-800/80">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
+      <a href="#" class="flex items-center gap-3" aria-label="Santralio">
+        <div class="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 p-[1.5px] shadow-lg shadow-cyan-500/20">
+          <div class="w-full h-full bg-[#090D18] rounded-[15px] flex items-center justify-center">
+            <div class="flex items-center gap-1 h-6">
+              <div class="w-1 bg-cyan-400 rounded-full h-3"></div>
+              <div class="w-1.5 bg-blue-500 rounded-full h-6"></div>
+              <div class="w-1 bg-cyan-300 rounded-full h-4"></div>
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center">
+          <span class="text-2xl font-extrabold tracking-tight text-white">Santral</span><span class="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">io</span>
+        </div>
+      </a>
+
+      <nav id="mainNav" aria-label="Ana menü" class="hidden lg:flex items-center gap-7 text-sm font-medium text-slate-300">
+        <a href="#nasil-calisir" class="hover:text-cyan-400" data-i18n="nav_how">Nasıl çalışır?</a>
+        <a href="#sektorler" class="hover:text-cyan-400" data-i18n="nav_sectors">Sektörler</a>
+        <a href="#ozellikler" class="hover:text-cyan-400" data-i18n="nav_features">Özellikler</a>
+        <a href="#demo" class="hover:text-cyan-400" data-i18n="nav_demo">Simülasyon</a>
+        <a href="#paketler" class="hover:text-cyan-400" data-i18n="nav_plans">Paketler</a>
+        <a href="#sss" class="hover:text-cyan-400" data-i18n="nav_faq">SSS</a>
+      </nav>
+
+      <div class="flex items-center gap-2 sm:gap-3">
+        <div class="flex rounded-xl border border-slate-700 overflow-hidden text-xs font-bold" role="group" aria-label="Dil / Language">
+          <button type="button" class="lang-btn px-3 py-2 text-slate-300" data-lang="tr" aria-pressed="true">TR</button>
+          <button type="button" class="lang-btn px-3 py-2 text-slate-300" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+        <a href="https://panel.santralio.site" class="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-200 bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60">
+          <i data-lucide="log-in" class="w-4 h-4 text-cyan-400"></i><span data-i18n="login">Giriş yap</span>
+        </a>
+        <a href="#kayit" class="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 shadow-lg shadow-blue-500/20">
+          <i data-lucide="user-plus" class="w-4 h-4"></i><span data-i18n="register">Kayıt ol</span>
+        </a>
+        <button id="menuBtn" type="button" class="lg:hidden p-2.5 rounded-xl border border-slate-700 text-slate-200" aria-expanded="false" aria-controls="mobileMenu" aria-label="Menü">
+          <i data-lucide="menu" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+    <div id="mobileMenu" class="hidden lg:hidden border-t border-slate-800 px-4 pb-5 pt-3">
+      <nav aria-label="Mobil menü" class="flex flex-col gap-1 text-base font-medium text-slate-200">
+        <a href="#nasil-calisir" class="py-2.5" data-i18n="nav_how">Nasıl çalışır?</a>
+        <a href="#sektorler" class="py-2.5" data-i18n="nav_sectors">Sektörler</a>
+        <a href="#ozellikler" class="py-2.5" data-i18n="nav_features">Özellikler</a>
+        <a href="#demo" class="py-2.5" data-i18n="nav_demo">Simülasyon</a>
+        <a href="#paketler" class="py-2.5" data-i18n="nav_plans">Paketler</a>
+        <a href="#sss" class="py-2.5" data-i18n="nav_faq">SSS</a>
+      </nav>
+      <div class="grid grid-cols-2 gap-3 mt-4">
+        <a href="https://panel.santralio.site" class="text-center py-3 rounded-xl font-semibold bg-slate-800 border border-slate-700" data-i18n="login">Giriş yap</a>
+        <a href="#kayit" class="text-center py-3 rounded-xl font-bold bg-gradient-to-r from-blue-600 to-cyan-500" data-i18n="register">Kayıt ol</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- HERO -->
+    <section class="relative pt-16 pb-20 md:pt-24 md:pb-28 overflow-hidden">
+      <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[350px] bg-gradient-to-tr from-blue-600/20 to-cyan-500/20 blur-[130px] rounded-full pointer-events-none"></div>
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+        <div class="text-center max-w-3xl mx-auto mb-14">
+          <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-700/80 text-sm font-medium text-slate-300 mb-6">
+            <span class="flex h-2 w-2 rounded-full bg-emerald-400"></span>
+            <span data-i18n="hero_badge">Firmalar için Türkçe öncelikli yapay zekâlı çağrı merkezi</span>
+          </div>
+          <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-[1.12] mb-6">
+            <span data-i18n="hero_h1a">Telefonu yapay zekâ açsın,</span><br>
+            <span class="bg-gradient-to-r from-blue-400 via-cyan-300 to-teal-300 bg-clip-text text-transparent" data-i18n="hero_h1b">işi ekibiniz bitirsin.</span>
+          </h1>
+          <p class="text-lg text-slate-300 leading-relaxed max-w-2xl mx-auto mb-9" data-i18n="hero_sub">Santralio firmanıza gelen aramaları karşılar, ne istendiğini anlar, sık sorulanları kendisi yanıtlar ve gerisini doğru kişiye konuşmanın özetiyle aktarır.</p>
+          <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a href="#kayit" class="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-7 py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold shadow-xl shadow-blue-500/25">
+              <i data-lucide="building-2" class="w-5 h-5 text-cyan-100"></i><span data-i18n="hero_cta1">Firma hesabı oluştur</span>
+            </a>
+            <a href="#demo" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-100 font-semibold border border-slate-700">
+              <i data-lucide="play-circle" class="w-5 h-5 text-cyan-400"></i><span data-i18n="hero_cta2">Simülasyonu dene</span>
+            </a>
+          </div>
+          <div class="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-slate-300">
+            <span class="flex items-center gap-1.5"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i><span data-i18n="hero_c1">Türkçe öncelikli</span></span>
+            <span class="flex items-center gap-1.5"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i><span data-i18n="hero_c2">Her an temsilciye aktarma</span></span>
+            <span class="flex items-center gap-1.5"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i><span data-i18n="hero_c3">Numaranız sizde kalır</span></span>
+          </div>
+        </div>
+
+        <!-- Canlı çağrı vitrini -->
+        <div class="max-w-4xl mx-auto glass-card rounded-3xl p-4 sm:p-7 glow-cyan">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4 mb-6">
+            <div class="flex items-center gap-3">
+              <span class="flex h-3 w-3 relative">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <div>
+                <p class="text-sm font-bold text-white" data-i18n="live_title">Canlı çağrı akışı</p>
+                <p class="text-xs text-slate-400" data-i18n="live_sub">Örnek: Deniz Otel · rezervasyon hattı</p>
+              </div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-slate-800/80">
+              <p class="flex items-center gap-1.5 text-sm font-semibold text-blue-300 mb-3"><i data-lucide="phone-incoming" class="w-4 h-4"></i><span data-i18n="live_s1">Arayan misafir</span></p>
+              <div class="p-3 bg-[#070B14] rounded-xl border border-slate-800 space-y-2">
+                <p class="text-sm text-slate-300 italic" data-i18n="live_q">“Yarınki rezervasyonumun iptal koşullarını öğrenmek istiyorum.”</p>
+                <div class="flex items-center justify-center gap-1 h-7 pt-1" aria-hidden="true">
+                  <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gradient-to-b from-slate-900/90 to-blue-950/40 rounded-2xl p-4 border border-cyan-500/30">
+              <p class="flex items-center gap-1.5 text-sm font-semibold text-cyan-300 mb-3"><i data-lucide="sparkles" class="w-4 h-4"></i><span data-i18n="live_s2">Yapay zekâ karşıladı</span></p>
+              <div class="space-y-2">
+                <div class="bg-[#070B14]/80 p-3 rounded-xl border border-slate-800">
+                  <p class="text-xs text-slate-400" data-i18n="live_intent_l">Arayanın isteği</p>
+                  <p class="font-bold text-white text-sm" data-i18n="live_intent">Rezervasyon iptal koşulları</p>
+                </div>
+                <p class="p-2.5 text-sm bg-cyan-950/40 text-cyan-100 rounded-lg border border-cyan-800/40 flex gap-1.5"><i data-lucide="corner-down-right" class="w-4 h-4 shrink-0"></i><span data-i18n="live_route">Rezervasyon ekibine aktarılıyor.</span></p>
+              </div>
+            </div>
+            <div class="bg-slate-900/90 rounded-2xl p-4 border border-slate-800/80">
+              <p class="flex items-center gap-1.5 text-sm font-semibold text-emerald-300 mb-3"><i data-lucide="headset" class="w-4 h-4"></i><span data-i18n="live_s3">Temsilci ekranı</span></p>
+              <div class="p-3 bg-[#070B14] rounded-xl border border-slate-800 mb-3">
+                <p class="text-xs text-slate-400 mb-1" data-i18n="live_sum_l">Çağrı açılırken hazır olan özet</p>
+                <p class="text-sm text-slate-200" data-i18n="live_sum">Misafir yarınki rezervasyonu için iptal koşullarını soruyor.</p>
+              </div>
+              <p class="w-full py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold flex items-center justify-center gap-1.5"><i data-lucide="phone-call" class="w-4 h-4"></i><span data-i18n="live_taken">Ayşe Hanım çağrıyı devraldı</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Kanallar -->
+    <section class="border-y border-slate-800/80 bg-slate-950/40">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex flex-col lg:flex-row lg:items-center gap-6 lg:gap-12">
+        <p class="font-bold text-white max-w-xs" data-i18n="ch_title">Müşteriniz nereden ararsa arasın, tek ekranda:</p>
+        <div class="flex flex-wrap gap-3">
+          <span class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm font-semibold"><i data-lucide="phone" class="w-4 h-4 text-cyan-400"></i><span data-i18n="ch_1">Mevcut telefon numaranız</span></span>
+          <span class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm font-semibold"><i data-lucide="message-circle" class="w-4 h-4 text-cyan-400"></i><span data-i18n="ch_2">WhatsApp araması</span><span class="ml-1 px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 text-xs" data-i18n="soon">Yakında</span></span>
+          <span class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm font-semibold"><i data-lucide="globe" class="w-4 h-4 text-cyan-400"></i><span data-i18n="ch_3">Web sitenizdeki arama butonu</span><span class="ml-1 px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 text-xs" data-i18n="soon">Yakında</span></span>
+          <span class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm font-semibold"><i data-lucide="smartphone" class="w-4 h-4 text-cyan-400"></i><span data-i18n="ch_4">Mobil uygulama</span><span class="ml-1 px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 text-xs" data-i18n="soon">Yakında</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Nasıl çalışır: üç katman -->
+    <section id="nasil-calisir" class="py-20 md:py-28">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-2xl mb-14">
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4" data-i18n="how_h2">Üç ayrı araç yerine tek omurga.</h2>
+          <p class="text-lg text-slate-300" data-i18n="how_p">Bir çağrıda üç iş aynı anda yürür: arama bağlanır, müşteri derdini anlatır, ekibiniz çözer. Santralio bu üç işi tek üründe toplar.</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="glass-card rounded-3xl p-7">
+            <div class="w-12 h-12 rounded-2xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center mb-5"><i data-lucide="phone-forwarded" class="w-6 h-6 text-blue-300"></i></div>
+            <h3 class="text-xl font-bold text-white mb-3" data-i18n="l1_h">Santral</h3>
+            <p class="text-slate-300 mb-5" data-i18n="l1_p">Arama karşılanır, sıraya alınır, doğru kişiye çalar, gerekirse aktarılır ve kayda alınır.</p>
+            <ul class="space-y-2 text-sm text-slate-300">
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l1_1">Kuyruk, bekleme müziği ve sıra anonsu</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l1_2">Çalışma saatleri ve tatil günleri</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l1_3">Netgsm, Verimor ve diğer operatörlerle uyum</span></li>
+            </ul>
+          </div>
+          <div class="glass-card rounded-3xl p-7">
+            <div class="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mb-5"><i data-lucide="headset" class="w-6 h-6 text-emerald-300"></i></div>
+            <h3 class="text-xl font-bold text-white mb-3" data-i18n="l2_h">Temsilci ekranı</h3>
+            <p class="text-slate-300 mb-5" data-i18n="l2_p">Ekibiniz tarayıcıdan giriş yapar, çağrıyı açar, not alır ve görüşmeyi sonuçlandırır.</p>
+            <ul class="space-y-2 text-sm text-slate-300">
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l2_1">Müsait, molada, görüşmede durumları</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l2_2">Müşteri kartı ve geçmiş görüşmeler</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l2_3">Ayrı program veya masa telefonu gerekmez</span></li>
+            </ul>
+          </div>
+          <div class="glass-card rounded-3xl p-7 border-cyan-500/30">
+            <div class="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center mb-5"><i data-lucide="sparkles" class="w-6 h-6 text-cyan-300"></i></div>
+            <h3 class="text-xl font-bold text-white mb-3" data-i18n="l3_h">Yapay zekâ asistanı</h3>
+            <p class="text-slate-300 mb-5" data-i18n="l3_p">Karşılar, isteği anlar, çözebildiğini tamamlar; çözemediğini özetiyle ekibinize aktarır.</p>
+            <ul class="space-y-2 text-sm text-slate-300">
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l3_1">Doğal Türkçe sesli karşılama</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l3_2">Yabancı arayanlara kendi dilinde yanıt</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="l3_3">Görüşme sonunda kısa özet</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sektörler -->
+    <section id="sektorler" class="py-20 md:py-28 bg-slate-950/50 border-y border-slate-800/80">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-2xl mb-14">
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4" data-i18n="sec_h2">Telefonu hiç susmayan firmalar için.</h2>
+          <p class="text-lg text-slate-300" data-i18n="sec_p">Sektörünüze uygun hazır bir karşılama senaryosuyla başlarsınız, sonra kendi işinize göre değiştirirsiniz.</p>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div class="rounded-3xl p-6 bg-slate-900/80 border border-slate-800">
+            <i data-lucide="hotel" class="w-8 h-8 text-cyan-400 mb-4"></i>
+            <h3 class="text-lg font-bold text-white mb-2" data-i18n="s1_h">Oteller</h3>
+            <p class="text-slate-300 text-sm leading-relaxed" data-i18n="s1_p">Müsaitlik ve fiyat soruları, rezervasyon değişikliği, giriş-çıkış saatleri. Yabancı misafire kendi dilinde yanıt.</p>
+          </div>
+          <div class="rounded-3xl p-6 bg-slate-900/80 border border-slate-800">
+            <i data-lucide="car" class="w-8 h-8 text-cyan-400 mb-4"></i>
+            <h3 class="text-lg font-bold text-white mb-2" data-i18n="s2_h">Araç kiralama</h3>
+            <p class="text-slate-300 text-sm leading-relaxed" data-i18n="s2_p">Müsait araç, teslim ve iade yeri, ek sürücü soruları. Yoğun sezonda çağrı kaçmaz.</p>
+          </div>
+          <div class="rounded-3xl p-6 bg-slate-900/80 border border-slate-800">
+            <i data-lucide="calendar-check" class="w-8 h-8 text-cyan-400 mb-4"></i>
+            <h3 class="text-lg font-bold text-white mb-2" data-i18n="s3_h">Klinikler</h3>
+            <p class="text-slate-300 text-sm leading-relaxed" data-i18n="s3_p">Randevu alma, erteleme ve hatırlatma. Sekreter hastayla ilgilenirken telefon cevapsız kalmaz.</p>
+          </div>
+          <div class="rounded-3xl p-6 bg-slate-900/80 border border-slate-800">
+            <i data-lucide="plane" class="w-8 h-8 text-cyan-400 mb-4"></i>
+            <h3 class="text-lg font-bold text-white mb-2" data-i18n="s4_h">Seyahat acentaları</h3>
+            <p class="text-slate-300 text-sm leading-relaxed" data-i18n="s4_p">Tur bilgisi, rezervasyon durumu, transfer saati. Mesai dışında da ilk karşılama hazır.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Simülasyon -->
+    <section id="demo" class="py-20 md:py-28">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-2xl mb-12">
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4" data-i18n="demo_h2">Yapay zekânın bir çağrıyı nasıl karşıladığını görün.</h2>
+          <p class="text-lg text-slate-300" data-i18n="demo_p">Bir senaryo seçin. Santralio’nun arayana ne söylediğini ve ekibinize ne ilettiğini izleyin.</p>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div class="lg:col-span-2 flex flex-col gap-3" role="group" aria-labelledby="scenarioLabel">
+            <p id="scenarioLabel" class="text-sm font-semibold text-slate-300" data-i18n="demo_pick">Örnek çağrı seçin:</p>
+            <button type="button" class="scenario text-left p-4 rounded-2xl border bg-slate-900/80 border-slate-800 hover:border-cyan-500/50" data-scenario="clinic" aria-pressed="true">
+              <span class="flex items-center gap-2 font-bold text-white"><i data-lucide="calendar-check" class="w-5 h-5 text-cyan-400"></i><span data-i18n="sc_clinic_t">Klinik randevusu</span></span>
+              <span class="block text-sm text-slate-400 mt-1" data-i18n="sc_clinic_q">“Perşembe için diş temizliği randevusu almak istiyorum.”</span>
+            </button>
+            <button type="button" class="scenario text-left p-4 rounded-2xl border bg-slate-900/80 border-slate-800 hover:border-cyan-500/50" data-scenario="car" aria-pressed="false">
+              <span class="flex items-center gap-2 font-bold text-white"><i data-lucide="car" class="w-5 h-5 text-cyan-400"></i><span data-i18n="sc_car_t">Araç kiralama</span></span>
+              <span class="block text-sm text-slate-400 mt-1" data-i18n="sc_car_q">“Cumartesi havalimanından otomatik vites bir araç lazım.”</span>
+            </button>
+            <button type="button" class="scenario text-left p-4 rounded-2xl border bg-slate-900/80 border-slate-800 hover:border-cyan-500/50" data-scenario="hotel" aria-pressed="false">
+              <span class="flex items-center gap-2 font-bold text-white"><i data-lucide="moon" class="w-5 h-5 text-cyan-400"></i><span data-i18n="sc_hotel_t">Mesai dışı, yabancı misafir</span></span>
+              <span class="block text-sm text-slate-400 mt-1" data-i18n="sc_hotel_q">“Hello, can I check in later than midnight?”</span>
+            </button>
+          </div>
+          <div class="lg:col-span-3 glass-card rounded-3xl p-6 sm:p-8 glow-cyan" aria-live="polite">
+            <p class="text-xs font-semibold text-cyan-300 mb-2" data-i18n="demo_reply_l">Asistanın arayana yanıtı</p>
+            <p id="scReply" class="text-lg text-white leading-relaxed mb-7"></p>
+            <p class="text-xs font-semibold text-emerald-300 mb-3" data-i18n="demo_agent_l">Ekibinize iletilen bilgi</p>
+            <dl class="grid grid-cols-1 sm:grid-cols-[max-content_1fr] gap-x-6 gap-y-3 text-sm p-4 rounded-2xl bg-[#070B14] border border-slate-800">
+              <dt class="text-slate-400" data-i18n="demo_team">Yönlendirilen ekip</dt><dd id="scTeam" class="text-white font-semibold"></dd>
+              <dt class="text-slate-400" data-i18n="demo_sum">Özet</dt><dd id="scSum" class="text-slate-200"></dd>
+              <dt class="text-slate-400" data-i18n="demo_next">Sonraki adım</dt><dd id="scNext" class="text-slate-200"></dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Özellikler -->
+    <section id="ozellikler" class="py-20 md:py-28 bg-slate-950/50 border-y border-slate-800/80">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-2xl mb-14">
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4" data-i18n="feat_h2">Bir çağrı merkezinin ihtiyaç duyduğu her şey.</h2>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-10">
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="list-ordered" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1" data-i18n="f1_h">Kuyruk ve anonslar</h3><p class="text-sm text-slate-300" data-i18n="f1_p">Bekleme müziği, sıra bilgisi, mesai dışı ve tatil yönlendirmesi.</p></div></div>
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="monitor" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1" data-i18n="f2_h">Tarayıcıdan çalışma</h3><p class="text-sm text-slate-300" data-i18n="f2_p">Kulaklığı takın, giriş yapın. Kurulum gerektirmez.</p></div></div>
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="languages" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1" data-i18n="f3_h">Çok dilli karşılama</h3><p class="text-sm text-slate-300" data-i18n="f3_p">Türkçe öncelikli; yabancı arayanlara kendi dillerinde ilk yanıt.</p></div></div>
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="bar-chart-3" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1" data-i18n="f4_h">Kayıt ve raporlar</h3><p class="text-sm text-slate-300" data-i18n="f4_p">Cevaplanan ve kaçan çağrılar, bekleme süreleri, ekip performansı.</p></div></div>
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="contact" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1" data-i18n="f5_h">Müşteri kartı</h3><p class="text-sm text-slate-300" data-i18n="f5_p">Arayan tanınır; geçmiş görüşmeler ve notlar çağrıyla birlikte açılır.</p></div></div>
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="phone-outgoing" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1" data-i18n="f6_h">Dış arama</h3><p class="text-sm text-slate-300" data-i18n="f6_p">Arama listeleri, geri dönüş ve hatırlatma aramaları.</p></div></div>
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="repeat" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1" data-i18n="f7_h">Operatör bağımsız</h3><p class="text-sm text-slate-300" data-i18n="f7_p">Kendi numaranızı ve operatörünüzü getirirsiniz; hiçbir sağlayıcıya bağlı kalmazsınız.</p></div></div>
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="eye" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1"><span data-i18n="f8_h">Süpervizör ekranı</span> <span class="ml-1 px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 text-xs align-middle" data-i18n="soon">Yakında</span></h3><p class="text-sm text-slate-300" data-i18n="f8_p">Kuyruk doluluğu, canlı dinleme ve görüşmeye müdahale.</p></div></div>
+          <div class="flex gap-4"><span class="shrink-0 w-11 h-11 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center"><i data-lucide="smartphone" class="w-5 h-5 text-cyan-400"></i></span><div><h3 class="font-bold text-white mb-1"><span data-i18n="f9_h">Mobil uygulama</span> <span class="ml-1 px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 text-xs align-middle" data-i18n="soon">Yakında</span></h3><p class="text-sm text-slate-300" data-i18n="f9_p">Çağrıları, raporları ve ekibinizi telefonunuzdan takip edin.</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Güven -->
+    <section class="py-20 md:py-28">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-12 max-w-2xl" data-i18n="trust_h2">Kontrol her zaman sizde.</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div><i data-lucide="user-check" class="w-7 h-7 text-cyan-400 mb-4"></i><h3 class="text-lg font-bold text-white mb-2" data-i18n="t1_h">İnsan her an devralır</h3><p class="text-slate-300" data-i18n="t1_p">Her yapay zekâ akışında temsilciye aktarma vardır. Arayan istediği an bir kişiye bağlanabilir.</p></div>
+          <div><i data-lucide="message-square-text" class="w-7 h-7 text-cyan-400 mb-4"></i><h3 class="text-lg font-bold text-white mb-2" data-i18n="t2_h">Türkçe için tasarlandı</h3><p class="text-slate-300" data-i18n="t2_p">Karşılama, anons ve özetler Türkçe konuşmaya göre hazırlanır. Anonslar kendi sunucularımızda seslendirilir.</p></div>
+          <div><i data-lucide="shield-check" class="w-7 h-7 text-cyan-400 mb-4"></i><h3 class="text-lg font-bold text-white mb-2" data-i18n="t3_h">Veri kuralları açık</h3><p class="text-slate-300" data-i18n="t3_p">Kayıt anonsu, saklama süresi ve erişim yetkileri panelden yönetilir. Kullanılan servisler aydınlatma metninde yer alır.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Mobil uygulama -->
+    <section id="mobil" class="py-20 md:py-24 bg-gradient-to-b from-blue-950/40 to-transparent border-y border-slate-800/80">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+        <div>
+          <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-400/15 text-amber-300 text-sm font-bold mb-5" data-i18n="soon">Yakında</span>
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4" data-i18n="mob_h2">Çağrı merkeziniz cebinizde.</h2>
+          <p class="text-lg text-slate-300 mb-6" data-i18n="mob_p">Yeni Santralio mobil uygulamasıyla ofiste olmasanız da kaçan çağrıları, bekleyen müşterileri ve ekibinizin durumunu anlık görün.</p>
+          <ul class="space-y-3 text-slate-200 mb-8">
+            <li class="flex gap-2"><i data-lucide="bell" class="w-5 h-5 text-cyan-400 shrink-0"></i><span data-i18n="mob_1">Kaçan ve bekleyen çağrı bildirimleri</span></li>
+            <li class="flex gap-2"><i data-lucide="file-text" class="w-5 h-5 text-cyan-400 shrink-0"></i><span data-i18n="mob_2">Görüşme özetlerini telefondan okuma</span></li>
+            <li class="flex gap-2"><i data-lucide="users" class="w-5 h-5 text-cyan-400 shrink-0"></i><span data-i18n="mob_3">Ekip durumu ve günlük rapor</span></li>
+          </ul>
+          <div class="flex flex-wrap gap-3">
+            <span class="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 text-sm font-semibold"><i data-lucide="smartphone" class="w-5 h-5"></i>App Store · <span data-i18n="soon">Yakında</span></span>
+            <span class="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 text-sm font-semibold"><i data-lucide="play" class="w-5 h-5"></i>Google Play · <span data-i18n="soon">Yakında</span></span>
+          </div>
+        </div>
+        <div class="flex justify-center" aria-hidden="true">
+          <div class="w-64 rounded-[2.5rem] p-2.5 bg-gradient-to-br from-blue-600 to-cyan-500 shadow-2xl shadow-cyan-500/20">
+            <div class="rounded-[2rem] bg-[#090D18] p-5 h-[460px] flex flex-col gap-3">
+              <div class="mx-auto w-20 h-1.5 rounded-full bg-slate-700 mb-2"></div>
+              <p class="text-sm font-bold text-white" data-i18n="mob_m1">Bugün</p>
+              <div class="p-3 rounded-2xl bg-slate-900 border border-slate-800"><p class="text-xs text-slate-400" data-i18n="mob_m2">Bekleyen çağrı</p><p class="text-sm font-bold text-white" data-i18n="mob_m3">Rezervasyon kuyruğu</p></div>
+              <div class="p-3 rounded-2xl bg-slate-900 border border-slate-800"><p class="text-xs text-slate-400" data-i18n="mob_m4">Yapay zekâ özeti</p><p class="text-sm text-slate-200" data-i18n="mob_m5">Misafir geç giriş için onay istiyor.</p></div>
+              <div class="p-3 rounded-2xl bg-cyan-950/50 border border-cyan-800/50"><p class="text-xs text-cyan-300" data-i18n="mob_m6">Kaçan çağrı</p><p class="text-sm text-white" data-i18n="mob_m7">Geri arama listesine eklendi</p></div>
+              <div class="mt-auto flex items-center justify-center gap-1 h-8">
+                <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Paketler -->
+    <section id="paketler" class="py-20 md:py-28">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center max-w-2xl mx-auto mb-14">
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4" data-i18n="pl_h2">Firmanıza uygun paketi seçin.</h2>
+          <p class="text-lg text-slate-300"><span data-i18n="pl_p">Lisans ve ödeme işlemleri</span> <a href="https://vozyy.pro/Shop" class="text-cyan-300 underline font-semibold">Vozyy</a> <span data-i18n="pl_p2">üzerinden yapılır.</span></p>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+          <div class="glass-card rounded-3xl p-8 flex flex-col">
+            <h3 class="text-xl font-bold text-white mb-2" data-i18n="p1_h">Santral</h3>
+            <p class="text-slate-300 mb-6" data-i18n="p1_p">Çağrılarını düzene sokmak ve klasik santralini yenilemek isteyen firmalar için.</p>
+            <ul class="space-y-3 text-sm text-slate-200 mb-8">
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p1_1">Kuyruk, anons ve çalışma saatleri</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p1_2">Tarayıcıdan temsilci ekranı</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p1_3">Çağrı kaydı ve temel raporlar</span></li>
+            </ul>
+            <a href="https://vozyy.pro/Shop" class="mt-auto text-center py-3.5 rounded-2xl font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700" data-i18n="p_cta">Vozyy’de incele</a>
+          </div>
+          <div class="relative rounded-3xl p-8 flex flex-col bg-gradient-to-b from-blue-950/80 to-slate-900 border-2 border-cyan-500/60 glow-cyan">
+            <span class="absolute -top-3.5 left-8 px-3 py-1 rounded-full bg-cyan-400 text-slate-950 text-xs font-extrabold" data-i18n="p2_badge">Önerilen</span>
+            <h3 class="text-xl font-bold text-white mb-2" data-i18n="p2_h">Santral + Yapay Zekâ</h3>
+            <p class="text-slate-300 mb-6" data-i18n="p2_p">Santral paketindeki her şey, üstüne yapay zekâ karşılama ve özet.</p>
+            <ul class="space-y-3 text-sm text-slate-200 mb-8">
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p2_1">Yapay zekâ ile sesli karşılama</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p2_2">Çok dilli karşılama</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p2_3">Temsilciye özetle aktarma</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p2_4">Müşteri kartı ve dış arama</span></li>
+            </ul>
+            <a href="https://vozyy.pro/Shop" class="mt-auto text-center py-3.5 rounded-2xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400" data-i18n="p_cta">Vozyy’de incele</a>
+          </div>
+          <div class="glass-card rounded-3xl p-8 flex flex-col">
+            <h3 class="text-xl font-bold text-white mb-2" data-i18n="p3_h">Kurumsal</h3>
+            <p class="text-slate-300 mb-6" data-i18n="p3_p">Çok şubeli yapılar, yüksek çağrı hacmi ve özel entegrasyon ihtiyaçları için.</p>
+            <ul class="space-y-3 text-sm text-slate-200 mb-8">
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p3_1">Şube ve ekip bazında yönetim</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p3_2">Kendi sistemlerinizle entegrasyon</span></li>
+              <li class="flex gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i><span data-i18n="p3_3">Firmanıza özel kurulum desteği</span></li>
+            </ul>
+            <a href="#kayit" class="mt-auto text-center py-3.5 rounded-2xl font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700" data-i18n="p3_cta">Bizimle görüşün</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SSS -->
+    <section id="sss" class="py-20 md:py-28 bg-slate-950/50 border-y border-slate-800/80">
+      <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-10" data-i18n="faq_h2">Sıkça sorulan sorular</h2>
+        <div class="space-y-3">
+          <details class="glass-card rounded-2xl p-5">
+            <summary class="flex justify-between items-center gap-4 cursor-pointer font-bold text-white"><span data-i18n="q1">Mevcut numaramı ve operatörümü kullanabilir miyim?</span><i data-lucide="chevron-down" class="chev w-5 h-5 shrink-0 transition-transform"></i></summary>
+            <p class="mt-4 text-slate-300" data-i18n="a1">Evet. Netgsm, Verimor veya başka bir operatördeki hattınızı Santralio’ya bağlarsınız. Numaranız sizin adınıza kalır; Santralio’dan ayrılsanız bile numaranızı kullanmaya devam edersiniz.</p>
+          </details>
+          <details class="glass-card rounded-2xl p-5">
+            <summary class="flex justify-between items-center gap-4 cursor-pointer font-bold text-white"><span data-i18n="q2">Yapay zekâ bir soruyu çözemezse ne olur?</span><i data-lucide="chevron-down" class="chev w-5 h-5 shrink-0 transition-transform"></i></summary>
+            <p class="mt-4 text-slate-300" data-i18n="a2">Çağrı, konuşmanın kısa özetiyle birlikte müsait temsilcinize aktarılır. Temsilciniz neyin konuşulduğunu bilerek görüşmeyi devralır. Arayan da istediği an bir kişiye bağlanmayı isteyebilir.</p>
+          </details>
+          <details class="glass-card rounded-2xl p-5">
+            <summary class="flex justify-between items-center gap-4 cursor-pointer font-bold text-white"><span data-i18n="q3">Görüşme verileri nerede işleniyor?</span><i data-lucide="chevron-down" class="chev w-5 h-5 shrink-0 transition-transform"></i></summary>
+            <p class="mt-4 text-slate-300" data-i18n="a3">Anonslar kendi sunucularımızda seslendirilir. Konuşmanın yazıya dökülmesi ve yanıtların hazırlanması için yapay zekâ servisleri kullanılır. Hangi servislerin kullanıldığı, verinin nerede işlendiği ve ne kadar saklandığı KVKK aydınlatma metnimizde açıkça yer alır.</p>
+          </details>
+          <details class="glass-card rounded-2xl p-5">
+            <summary class="flex justify-between items-center gap-4 cursor-pointer font-bold text-white"><span data-i18n="q4">Lisans ve ödeme nasıl yapılıyor?</span><i data-lucide="chevron-down" class="chev w-5 h-5 shrink-0 transition-transform"></i></summary>
+            <p class="mt-4 text-slate-300" data-i18n="a4">Paket seçimi, lisans ve faturalandırma Vozyy mağazası üzerinden yapılır. Aldığınız lisans, Santralio’daki firma hesabınızda ilgili özellikleri otomatik olarak açar.</p>
+          </details>
+          <details class="glass-card rounded-2xl p-5">
+            <summary class="flex justify-between items-center gap-4 cursor-pointer font-bold text-white"><span data-i18n="q5">Mobil uygulama ne zaman çıkacak?</span><i data-lucide="chevron-down" class="chev w-5 h-5 shrink-0 transition-transform"></i></summary>
+            <p class="mt-4 text-slate-300" data-i18n="a5">Mobil uygulama geliştirme aşamasında. Firma hesabı oluşturursanız yayına çıktığında ilk siz haberdar olursunuz.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- Kayıt -->
+    <section id="kayit" class="py-20 md:py-28">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+        <div>
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4" data-i18n="reg_h2">Firma hesabınızı oluşturun.</h2>
+          <p class="text-lg text-slate-300 mb-8" data-i18n="reg_p">Bilgilerinizi bırakın; ekibimiz firmanıza uygun kurulumu sizinle birlikte planlasın.</p>
+          <ul class="space-y-3 text-slate-200">
+            <li class="flex gap-2"><i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 shrink-0"></i><span data-i18n="reg_1">Sektörünüze uygun hazır karşılama senaryosu</span></li>
+            <li class="flex gap-2"><i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 shrink-0"></i><span data-i18n="reg_2">Mevcut numaranızla canlı deneme</span></li>
+            <li class="flex gap-2"><i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 shrink-0"></i><span data-i18n="reg_3">Mobil uygulama çıktığında ilk erişim</span></li>
+          </ul>
+          <p class="mt-8 text-slate-400"><span data-i18n="reg_have">Zaten hesabınız var mı?</span> <a href="https://panel.santralio.site" class="text-cyan-300 font-semibold underline" data-i18n="login">Giriş yap</a></p>
+        </div>
+            <form id="regForm" class="glass-card rounded-3xl p-6 sm:p-8 grid grid-cols-1 sm:grid-cols-2 gap-4" novalidate>
+          <label class="sm:col-span-2 text-sm font-semibold text-slate-300"><span data-i18n="fm_company">Firma adı</span>
+            <input name="company" required autocomplete="organization" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          </label>
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_name">Ad soyad</span>
+            <input name="name" required autocomplete="name" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          </label>
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_phone">Telefon</span>
+            <input name="phone" type="tel" required autocomplete="tel" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          </label>
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_email">İş e-postası</span>
+            <input name="email" type="email" required autocomplete="email" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          </label>
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_sector">Sektör</span>
+            <select name="sector" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+              <option value="hotel" data-i18n="s1_h">Oteller</option>
+              <option value="car" data-i18n="s2_h">Araç kiralama</option>
+              <option value="clinic" data-i18n="s3_h">Klinikler</option>
+              <option value="agency" data-i18n="s4_h">Seyahat acentaları</option>
+              <option value="other" data-i18n="fm_other">Diğer</option>
+            </select>
+          </label>
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_office">Vergi dairesi</span>
+            <input name="tax_office" required class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          </label>
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_number">Vergi / T.C. kimlik no</span>
+            <input name="tax_number" required inputmode="numeric" pattern="[0-9]{10,11}" maxlength="11" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          </label>
+          <p class="sm:col-span-2 -mt-2 text-xs text-slate-400" data-i18n="fm_tax_note">Vergi bilgileri yalnızca faturalama için Vozyy'ye iletilir.</p>
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_install">Kurulum türü</span>
+            <select name="install_mode" id="installMode" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+              <option value="hosted" data-i18n="fm_hosted">Bulutta (biz barındırırız)</option>
+              <option value="self_hosted" data-i18n="fm_self">Kendi sunucumda</option>
+            </select>
+          </label>
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_slug">Kısa ad</span>
+            <input name="requested_prefix" required minlength="3" maxlength="30" pattern="[a-z0-9-]{3,30}" autocapitalize="none" spellcheck="false" placeholder="ornekotel" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+            <span class="block mt-1 text-xs font-normal text-slate-400" data-i18n="fm_slug_note">Küçük harf, rakam ve tire; 3–30 karakter.</span>
+          </label>
+          <label id="domainField" class="sm:col-span-2 text-sm font-semibold text-slate-300 hidden"><span data-i18n="fm_domain">Panel alan adı</span>
+            <input name="panel_domain" autocapitalize="none" spellcheck="false" placeholder="santral.ornekotel.com" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          </label>
+          <label class="sm:col-span-2 flex gap-3 items-start text-sm text-slate-300">
+            <input name="kvkk" type="checkbox" required class="mt-1 w-4 h-4 accent-cyan-500">
+            <span><span data-i18n="fm_kvkk">KVKK aydınlatma metnini okudum, onaylıyorum.</span> <a href="#" class="text-cyan-300 underline" data-i18n="fm_kvkk_link">Metni görüntüle</a></span>
+          </label>
+          <div class="cf-turnstile sm:col-span-2" data-sitekey="@TURNSTILE_SITE_KEY@" data-theme="dark"></div>
+          <button type="submit" class="sm:col-span-2 py-4 disabled:opacity-60 rounded-2xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400" data-i18n="fm_submit">Hesap oluştur</button>
+          <p id="regMsg" class="sm:col-span-2 text-sm hidden" role="status"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="border-t border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-3 gap-10">
+      <div>
+        <div class="flex items-center mb-3"><span class="text-xl font-extrabold text-white">Santral</span><span class="text-xl font-extrabold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">io</span></div>
+        <p class="text-sm text-slate-400 max-w-xs" data-i18n="ft_p">Firmalar için yapay zekâ destekli santral ve çağrı merkezi. Lisanslama ve satış Vozyy tarafından sağlanır.</p>
+      </div>
+      <nav aria-label="Alt menü 1">
+        <p class="text-sm font-bold text-white mb-3" data-i18n="ft_h1">Ürün</p>
+        <ul class="space-y-2 text-sm text-slate-400">
+          <li><a href="#nasil-calisir" class="hover:text-cyan-300" data-i18n="nav_how">Nasıl çalışır?</a></li>
+          <li><a href="#ozellikler" class="hover:text-cyan-300" data-i18n="nav_features">Özellikler</a></li>
+          <li><a href="#paketler" class="hover:text-cyan-300" data-i18n="nav_plans">Paketler</a></li>
+          <li><a href="#mobil" class="hover:text-cyan-300" data-i18n="f9_h">Mobil uygulama</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Alt menü 2">
+        <p class="text-sm font-bold text-white mb-3" data-i18n="ft_h2">Hesap</p>
+        <ul class="space-y-2 text-sm text-slate-400">
+          <li><a href="https://panel.santralio.site" class="hover:text-cyan-300" data-i18n="login">Giriş yap</a></li>
+          <li><a href="#kayit" class="hover:text-cyan-300" data-i18n="register">Kayıt ol</a></li>
+          <li><a href="https://vozyy.pro/Shop" class="hover:text-cyan-300" data-i18n="ft_shop">Vozyy mağazası</a></li>
+          <li><a href="mailto:info@santralio.site" class="hover:text-cyan-300">info@santralio.site</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="border-t border-slate-800/80">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-wrap justify-between gap-4 text-sm text-slate-400">
+        <span>© 2026 Santralio</span>
+        <span class="flex flex-wrap gap-5"><a href="#" class="hover:text-white" data-i18n="ft_kvkk">KVKK aydınlatma metni</a><a href="#" class="hover:text-white" data-i18n="ft_terms">Kullanım koşulları</a></span>
+      </div>
+    </div>
+  </footer>
+
+<script>
+const I18N = {
+  tr: {
+    ann_title: "Yeni sistem: Santralio mobil uygulaması yakında.", ann_text: "Çağrılarınızı ve ekibinizi telefonunuzdan yönetin.", ann_link: "Detaylar",
+    nav_how: "Nasıl çalışır?", nav_sectors: "Sektörler", nav_features: "Özellikler", nav_demo: "Simülasyon", nav_plans: "Paketler", nav_faq: "SSS",
+    login: "Giriş yap", register: "Kayıt ol", soon: "Yakında",
+    hero_badge: "Firmalar için Türkçe öncelikli yapay zekâlı çağrı merkezi", hero_h1a: "Telefonu yapay zekâ açsın,", hero_h1b: "işi ekibiniz bitirsin.",
+    hero_sub: "Santralio firmanıza gelen aramaları karşılar, ne istendiğini anlar, sık sorulanları kendisi yanıtlar ve gerisini doğru kişiye konuşmanın özetiyle aktarır.",
+    hero_cta1: "Firma hesabı oluştur", hero_cta2: "Simülasyonu dene", hero_c1: "Türkçe öncelikli", hero_c2: "Her an temsilciye aktarma", hero_c3: "Numaranız sizde kalır",
+    live_title: "Canlı çağrı akışı", live_sub: "Örnek: Deniz Otel · rezervasyon hattı", live_s1: "Arayan misafir", live_q: "“Yarınki rezervasyonumun iptal koşullarını öğrenmek istiyorum.”",
+    live_s2: "Yapay zekâ karşıladı", live_intent_l: "Arayanın isteği", live_intent: "Rezervasyon iptal koşulları", live_route: "Rezervasyon ekibine aktarılıyor.",
+    live_s3: "Temsilci ekranı", live_sum_l: "Çağrı açılırken hazır olan özet", live_sum: "Misafir yarınki rezervasyonu için iptal koşullarını soruyor.", live_taken: "Ayşe Hanım çağrıyı devraldı",
+    ch_title: "Müşteriniz nereden ararsa arasın, tek ekranda:", ch_1: "Mevcut telefon numaranız", ch_2: "WhatsApp araması", ch_3: "Web sitenizdeki arama butonu", ch_4: "Mobil uygulama",
+    how_h2: "Üç ayrı araç yerine tek omurga.", how_p: "Bir çağrıda üç iş aynı anda yürür: arama bağlanır, müşteri derdini anlatır, ekibiniz çözer. Santralio bu üç işi tek üründe toplar.",
+    l1_h: "Santral", l1_p: "Arama karşılanır, sıraya alınır, doğru kişiye çalar, gerekirse aktarılır ve kayda alınır.", l1_1: "Kuyruk, bekleme müziği ve sıra anonsu", l1_2: "Çalışma saatleri ve tatil günleri", l1_3: "Netgsm, Verimor ve diğer operatörlerle uyum",
+    l2_h: "Temsilci ekranı", l2_p: "Ekibiniz tarayıcıdan giriş yapar, çağrıyı açar, not alır ve görüşmeyi sonuçlandırır.", l2_1: "Müsait, molada, görüşmede durumları", l2_2: "Müşteri kartı ve geçmiş görüşmeler", l2_3: "Ayrı program veya masa telefonu gerekmez",
+    l3_h: "Yapay zekâ asistanı", l3_p: "Karşılar, isteği anlar, çözebildiğini tamamlar; çözemediğini özetiyle ekibinize aktarır.", l3_1: "Doğal Türkçe sesli karşılama", l3_2: "Yabancı arayanlara kendi dilinde yanıt", l3_3: "Görüşme sonunda kısa özet",
+    sec_h2: "Telefonu hiç susmayan firmalar için.", sec_p: "Sektörünüze uygun hazır bir karşılama senaryosuyla başlarsınız, sonra kendi işinize göre değiştirirsiniz.",
+    s1_h: "Oteller", s1_p: "Müsaitlik ve fiyat soruları, rezervasyon değişikliği, giriş-çıkış saatleri. Yabancı misafire kendi dilinde yanıt.",
+    s2_h: "Araç kiralama", s2_p: "Müsait araç, teslim ve iade yeri, ek sürücü soruları. Yoğun sezonda çağrı kaçmaz.",
+    s3_h: "Klinikler", s3_p: "Randevu alma, erteleme ve hatırlatma. Sekreter hastayla ilgilenirken telefon cevapsız kalmaz.",
+    s4_h: "Seyahat acentaları", s4_p: "Tur bilgisi, rezervasyon durumu, transfer saati. Mesai dışında da ilk karşılama hazır.",
+    demo_h2: "Yapay zekânın bir çağrıyı nasıl karşıladığını görün.", demo_p: "Bir senaryo seçin. Santralio’nun arayana ne söylediğini ve ekibinize ne ilettiğini izleyin.",
+    demo_pick: "Örnek çağrı seçin:", sc_clinic_t: "Klinik randevusu", sc_clinic_q: "“Perşembe için diş temizliği randevusu almak istiyorum.”",
+    sc_car_t: "Araç kiralama", sc_car_q: "“Cumartesi havalimanından otomatik vites bir araç lazım.”", sc_hotel_t: "Mesai dışı, yabancı misafir", sc_hotel_q: "“Hello, can I check in later than midnight?”",
+    demo_reply_l: "Asistanın arayana yanıtı", demo_agent_l: "Ekibinize iletilen bilgi", demo_team: "Yönlendirilen ekip", demo_sum: "Özet", demo_next: "Sonraki adım",
+    feat_h2: "Bir çağrı merkezinin ihtiyaç duyduğu her şey.",
+    f1_h: "Kuyruk ve anonslar", f1_p: "Bekleme müziği, sıra bilgisi, mesai dışı ve tatil yönlendirmesi.", f2_h: "Tarayıcıdan çalışma", f2_p: "Kulaklığı takın, giriş yapın. Kurulum gerektirmez.",
+    f3_h: "Çok dilli karşılama", f3_p: "Türkçe öncelikli; yabancı arayanlara kendi dillerinde ilk yanıt.", f4_h: "Kayıt ve raporlar", f4_p: "Cevaplanan ve kaçan çağrılar, bekleme süreleri, ekip performansı.",
+    f5_h: "Müşteri kartı", f5_p: "Arayan tanınır; geçmiş görüşmeler ve notlar çağrıyla birlikte açılır.", f6_h: "Dış arama", f6_p: "Arama listeleri, geri dönüş ve hatırlatma aramaları.",
+    f7_h: "Operatör bağımsız", f7_p: "Kendi numaranızı ve operatörünüzü getirirsiniz; hiçbir sağlayıcıya bağlı kalmazsınız.", f8_h: "Süpervizör ekranı", f8_p: "Kuyruk doluluğu, canlı dinleme ve görüşmeye müdahale.",
+    f9_h: "Mobil uygulama", f9_p: "Çağrıları, raporları ve ekibinizi telefonunuzdan takip edin.",
+    trust_h2: "Kontrol her zaman sizde.", t1_h: "İnsan her an devralır", t1_p: "Her yapay zekâ akışında temsilciye aktarma vardır. Arayan istediği an bir kişiye bağlanabilir.",
+    t2_h: "Türkçe için tasarlandı", t2_p: "Karşılama, anons ve özetler Türkçe konuşmaya göre hazırlanır. Anonslar kendi sunucularımızda seslendirilir.",
+    t3_h: "Veri kuralları açık", t3_p: "Kayıt anonsu, saklama süresi ve erişim yetkileri panelden yönetilir. Kullanılan servisler aydınlatma metninde yer alır.",
+    mob_h2: "Çağrı merkeziniz cebinizde.", mob_p: "Yeni Santralio mobil uygulamasıyla ofiste olmasanız da kaçan çağrıları, bekleyen müşterileri ve ekibinizin durumunu anlık görün.",
+    mob_1: "Kaçan ve bekleyen çağrı bildirimleri", mob_2: "Görüşme özetlerini telefondan okuma", mob_3: "Ekip durumu ve günlük rapor",
+    mob_m1: "Bugün", mob_m2: "Bekleyen çağrı", mob_m3: "Rezervasyon kuyruğu", mob_m4: "Yapay zekâ özeti", mob_m5: "Misafir geç giriş için onay istiyor.", mob_m6: "Kaçan çağrı", mob_m7: "Geri arama listesine eklendi",
+    pl_h2: "Firmanıza uygun paketi seçin.", pl_p: "Lisans ve ödeme işlemleri", pl_p2: "üzerinden yapılır.", p_cta: "Vozyy’de incele",
+    p1_h: "Santral", p1_p: "Çağrılarını düzene sokmak ve klasik santralini yenilemek isteyen firmalar için.", p1_1: "Kuyruk, anons ve çalışma saatleri", p1_2: "Tarayıcıdan temsilci ekranı", p1_3: "Çağrı kaydı ve temel raporlar",
+    p2_badge: "Önerilen", p2_h: "Santral + Yapay Zekâ", p2_p: "Santral paketindeki her şey, üstüne yapay zekâ karşılama ve özet.", p2_1: "Yapay zekâ ile sesli karşılama", p2_2: "Çok dilli karşılama", p2_3: "Temsilciye özetle aktarma", p2_4: "Müşteri kartı ve dış arama",
+    p3_h: "Kurumsal", p3_p: "Çok şubeli yapılar, yüksek çağrı hacmi ve özel entegrasyon ihtiyaçları için.", p3_1: "Şube ve ekip bazında yönetim", p3_2: "Kendi sistemlerinizle entegrasyon", p3_3: "Firmanıza özel kurulum desteği", p3_cta: "Bizimle görüşün",
+    faq_h2: "Sıkça sorulan sorular",
+    q1: "Mevcut numaramı ve operatörümü kullanabilir miyim?", a1: "Evet. Netgsm, Verimor veya başka bir operatördeki hattınızı Santralio’ya bağlarsınız. Numaranız sizin adınıza kalır; Santralio’dan ayrılsanız bile numaranızı kullanmaya devam edersiniz.",
+    q2: "Yapay zekâ bir soruyu çözemezse ne olur?", a2: "Çağrı, konuşmanın kısa özetiyle birlikte müsait temsilcinize aktarılır. Temsilciniz neyin konuşulduğunu bilerek görüşmeyi devralır. Arayan da istediği an bir kişiye bağlanmayı isteyebilir.",
+    q3: "Görüşme verileri nerede işleniyor?", a3: "Anonslar kendi sunucularımızda seslendirilir. Konuşmanın yazıya dökülmesi ve yanıtların hazırlanması için yapay zekâ servisleri kullanılır. Hangi servislerin kullanıldığı, verinin nerede işlendiği ve ne kadar saklandığı KVKK aydınlatma metnimizde açıkça yer alır.",
+    q4: "Lisans ve ödeme nasıl yapılıyor?", a4: "Paket seçimi, lisans ve faturalandırma Vozyy mağazası üzerinden yapılır. Aldığınız lisans, Santralio’daki firma hesabınızda ilgili özellikleri otomatik olarak açar.",
+    q5: "Mobil uygulama ne zaman çıkacak?", a5: "Mobil uygulama geliştirme aşamasında. Firma hesabı oluşturursanız yayına çıktığında ilk siz haberdar olursunuz.",
+    reg_h2: "Firma hesabınızı oluşturun.", reg_p: "Bilgilerinizi bırakın; ekibimiz firmanıza uygun kurulumu sizinle birlikte planlasın.",
+    reg_1: "Sektörünüze uygun hazır karşılama senaryosu", reg_2: "Mevcut numaranızla canlı deneme", reg_3: "Mobil uygulama çıktığında ilk erişim", reg_have: "Zaten hesabınız var mı?",
+    fm_company: "Firma adı", fm_name: "Ad soyad", fm_phone: "Telefon", fm_email: "İş e-postası", fm_sector: "Sektör", fm_other: "Diğer",
+    fm_kvkk_link: "Metni görüntüle", fm_kvkk: "KVKK aydınlatma metnini okudum, onaylıyorum.", fm_submit: "Başvur",
+    fm_tax_office: "Vergi dairesi", fm_tax_number: "Vergi / T.C. kimlik no", fm_tax_note: "Vergi bilgileri yalnızca faturalama için Vozyy'ye iletilir.",
+    fm_install: "Kurulum türü", fm_hosted: "Bulutta (biz barındırırız)", fm_self: "Kendi sunucumda", fm_slug: "Kısa ad",
+    fm_slug_note: "Küçük harf, rakam ve tire; 3–30 karakter.", fm_domain: "Panel alan adı",
+    fm_slug_err: "Kısa ad 3–30 karakter olmalı; yalnızca küçük harf, rakam ve tire. www, api, sip, panel, admin kullanılamaz.",
+    fm_domain_err: "Kendi sunucunuz için gerçek bir alan adı yazın (ör. santral.firmaniz.com); IP adresi olamaz.",
+    fm_captcha: "Lütfen robot doğrulamasını tamamlayın.", fm_sending: "Gönderiliyor…",
+    fm_fail: "Başvuru gönderilemedi. Bilgileri kontrol edip tekrar deneyin.", fm_net: "Bağlantı kurulamadı. Lütfen biraz sonra tekrar deneyin.",
+    fm_err: "Lütfen tüm alanları doldurun ve aydınlatma metnini onaylayın.", fm_ok: "Başvurunuz alındı. Onay e-postası gelecek.",
+    ft_p: "Firmalar için yapay zekâ destekli santral ve çağrı merkezi. Lisanslama ve satış Vozyy tarafından sağlanır.", ft_h1: "Ürün", ft_h2: "Hesap", ft_shop: "Vozyy mağazası", ft_kvkk: "KVKK aydınlatma metni", ft_terms: "Kullanım koşulları"
+  },
+  en: {
+    ann_title: "New: the Santralio mobile app is coming soon.", ann_text: "Manage your calls and your team from your phone.", ann_link: "Details",
+    nav_how: "How it works", nav_sectors: "Industries", nav_features: "Features", nav_demo: "Simulation", nav_plans: "Plans", nav_faq: "FAQ",
+    login: "Log in", register: "Sign up", soon: "Coming soon",
+    hero_badge: "AI-powered contact center for businesses, built Turkish-first", hero_h1a: "Let AI answer the phone,", hero_h1b: "your team closes the deal.",
+    hero_sub: "Santralio answers your company’s incoming calls, understands what callers need, handles common questions itself and passes everything else to the right person with a summary of the conversation.",
+    hero_cta1: "Create a business account", hero_cta2: "Try the simulation", hero_c1: "Turkish-first", hero_c2: "Hand over to an agent anytime", hero_c3: "Keep your own number",
+    live_title: "Live call flow", live_sub: "Example: Deniz Hotel · reservations line", live_s1: "Calling guest", live_q: "“I’d like to know the cancellation terms for my reservation tomorrow.”",
+    live_s2: "Answered by AI", live_intent_l: "Caller’s request", live_intent: "Reservation cancellation terms", live_route: "Transferring to the reservations team.",
+    live_s3: "Agent screen", live_sum_l: "Summary ready when the call opens", live_sum: "Guest is asking about cancellation terms for tomorrow’s reservation.", live_taken: "Ayşe took over the call",
+    ch_title: "Wherever your customers call from, it lands on one screen:", ch_1: "Your existing phone number", ch_2: "WhatsApp calls", ch_3: "Call button on your website", ch_4: "Mobile app",
+    how_h2: "One backbone instead of three separate tools.", how_p: "Three things happen in every call: the line connects, the customer explains, your team resolves. Santralio brings all three into one product.",
+    l1_h: "Phone system", l1_p: "Calls are answered, queued, routed to the right person, transferred when needed and recorded.", l1_1: "Queues, hold music and position announcements", l1_2: "Business hours and holidays", l1_3: "Works with Netgsm, Verimor and other carriers",
+    l2_h: "Agent screen", l2_p: "Your team logs in from the browser, picks up calls, takes notes and closes each conversation.", l2_1: "Available, on break and on call statuses", l2_2: "Customer card and call history", l2_3: "No extra software or desk phone needed",
+    l3_h: "AI assistant", l3_p: "Greets callers, understands the request, completes what it can and hands the rest to your team with a summary.", l3_1: "Natural voice greeting in Turkish", l3_2: "Replies to foreign callers in their language", l3_3: "Short summary after every call",
+    sec_h2: "For businesses whose phones never stop ringing.", sec_p: "Start with a ready-made greeting scenario for your industry, then tailor it to your business.",
+    s1_h: "Hotels", s1_p: "Availability and price questions, booking changes, check-in and check-out times. Replies to foreign guests in their language.",
+    s2_h: "Car rental", s2_p: "Available cars, pick-up and drop-off locations, extra driver questions. No missed calls in peak season.",
+    s3_h: "Clinics", s3_p: "Booking, rescheduling and reminders. The phone gets answered while reception is with a patient.",
+    s4_h: "Travel agencies", s4_p: "Tour details, booking status, transfer times. First-line answering is ready after hours too.",
+    demo_h2: "See how the AI answers a call.", demo_p: "Pick a scenario. Watch what Santralio tells the caller and what it passes on to your team.",
+    demo_pick: "Choose a sample call:", sc_clinic_t: "Clinic appointment", sc_clinic_q: "“I’d like to book a dental cleaning for Thursday.”",
+    sc_car_t: "Car rental", sc_car_q: "“I need an automatic car from the airport on Saturday.”", sc_hotel_t: "After hours, foreign guest", sc_hotel_q: "“Hello, can I check in later than midnight?”",
+    demo_reply_l: "Assistant’s reply to the caller", demo_agent_l: "What your team receives", demo_team: "Routed to", demo_sum: "Summary", demo_next: "Next step",
+    feat_h2: "Everything a contact center needs.",
+    f1_h: "Queues and announcements", f1_p: "Hold music, queue position, after-hours and holiday routing.", f2_h: "Works in the browser", f2_p: "Put on a headset and log in. Nothing to install.",
+    f3_h: "Multilingual greeting", f3_p: "Turkish-first, with a first reply to foreign callers in their own language.", f4_h: "Recordings and reports", f4_p: "Answered and missed calls, wait times, team performance.",
+    f5_h: "Customer card", f5_p: "Callers are recognized; past calls and notes open with the call.", f6_h: "Outbound calls", f6_p: "Call lists, callbacks and reminder calls.",
+    f7_h: "Carrier-independent", f7_p: "Bring your own number and carrier; you’re never locked in to a provider.", f8_h: "Supervisor view", f8_p: "Queue load, live listening and call intervention.",
+    f9_h: "Mobile app", f9_p: "Follow calls, reports and your team from your phone.",
+    trust_h2: "You stay in control.", t1_h: "A person can always take over", t1_p: "Every AI flow includes a hand-off to an agent. Callers can ask for a person at any time.",
+    t2_h: "Designed for Turkish", t2_p: "Greetings, announcements and summaries are built around Turkish speech. Announcements are voiced on our own servers.",
+    t3_h: "Clear data rules", t3_p: "Recording notices, retention periods and access rights are managed in the panel. The services we use are listed in our privacy notice.",
+    mob_h2: "Your contact center in your pocket.", mob_p: "With the new Santralio mobile app, see missed calls, waiting customers and your team’s status in real time, even when you’re away from the office.",
+    mob_1: "Missed and waiting call notifications", mob_2: "Read call summaries on your phone", mob_3: "Team status and daily report",
+    mob_m1: "Today", mob_m2: "Waiting call", mob_m3: "Reservations queue", mob_m4: "AI summary", mob_m5: "Guest is asking to approve a late check-in.", mob_m6: "Missed call", mob_m7: "Added to the callback list",
+    pl_h2: "Choose the plan that fits your business.", pl_p: "Licensing and payment are handled through", pl_p2: "", p_cta: "View on Vozyy",
+    p1_h: "Phone system", p1_p: "For businesses that want to organize their calls and replace a classic PBX.", p1_1: "Queues, announcements and business hours", p1_2: "Browser-based agent screen", p1_3: "Call recording and basic reports",
+    p2_badge: "Recommended", p2_h: "Phone system + AI", p2_p: "Everything in the phone system plan, plus AI greeting and summaries.", p2_1: "AI voice greeting", p2_2: "Multilingual greeting", p2_3: "Hand-off to agents with a summary", p2_4: "Customer card and outbound calls",
+    p3_h: "Enterprise", p3_p: "For multi-branch organizations, high call volumes and custom integrations.", p3_1: "Management by branch and team", p3_2: "Integration with your own systems", p3_3: "Dedicated setup support", p3_cta: "Talk to us",
+    faq_h2: "Frequently asked questions",
+    q1: "Can I use my existing number and carrier?", a1: "Yes. Connect your line from Netgsm, Verimor or any other carrier to Santralio. The number stays in your name, and you keep using it even if you leave Santralio.",
+    q2: "What happens if the AI can’t resolve a question?", a2: "The call is transferred to an available agent with a short summary of the conversation, so your agent picks up knowing what was discussed. Callers can also ask for a person at any time.",
+    q3: "Where is call data processed?", a3: "Announcements are voiced on our own servers. AI services are used to transcribe speech and prepare replies. Which services are used, where data is processed and how long it is kept are stated clearly in our privacy notice.",
+    q4: "How do licensing and payment work?", a4: "Plan selection, licensing and billing are handled through the Vozyy store. Your license automatically enables the matching features in your Santralio business account.",
+    q5: "When will the mobile app be released?", a5: "The mobile app is in development. Create a business account and you’ll be the first to know when it launches.",
+    reg_h2: "Create your business account.", reg_p: "Leave your details and our team will plan the right setup for your business with you.",
+    reg_1: "A ready-made greeting scenario for your industry", reg_2: "A live trial with your existing number", reg_3: "Early access to the mobile app", reg_have: "Already have an account?",
+    fm_company: "Company name", fm_name: "Full name", fm_phone: "Phone", fm_email: "Work email", fm_sector: "Industry", fm_other: "Other",
+    fm_kvkk_link: "View notice", fm_kvkk: "I have read and accept the privacy notice (KVKK).", fm_submit: "Apply",
+    fm_tax_office: "Tax office", fm_tax_number: "Tax / national ID number", fm_tax_note: "Tax details are sent only to Vozyy for invoicing.",
+    fm_install: "Installation", fm_hosted: "In the cloud (hosted by us)", fm_self: "On my own server", fm_slug: "Short name",
+    fm_slug_note: "Lowercase letters, digits and hyphens; 3–30 characters.", fm_domain: "Panel domain",
+    fm_slug_err: "The short name must be 3–30 characters: lowercase letters, digits and hyphens. www, api, sip, panel and admin are reserved.",
+    fm_domain_err: "Enter a real domain for your own server (e.g. pbx.yourcompany.com); IP addresses are not allowed.",
+    fm_captcha: "Please complete the robot check.", fm_sending: "Sending…",
+    fm_fail: "The application could not be sent. Please check your details and try again.", fm_net: "Could not connect. Please try again shortly.",
+    fm_err: "Please fill in all fields and accept the privacy notice.", fm_ok: "Your application has been received. You will receive a confirmation email.",
+    ft_p: "AI-powered phone system and contact center for businesses. Licensing and sales are provided by Vozyy.", ft_h1: "Product", ft_h2: "Account", ft_shop: "Vozyy store", ft_kvkk: "Privacy notice (KVKK)", ft_terms: "Terms of use"
+  }
+};
+
+const SCENARIOS = {
+  tr: {
+    clinic: { reply: "Gülümse Diş Kliniği’ne hoş geldiniz. Perşembe günü 14:30 ve 16:00 saatleri boş. Hangisi size uyar?", team: "Sekreterlik", sum: "Hasta perşembe için diş temizliği randevusu istiyor; 14:30’u tercih etti.", next: "Randevu onayı için sekretere aktarıldı." },
+    car: { reply: "Cumartesi havalimanı teslimli otomatik vites araç talebinizi aldım. Fiyat ve müsaitliği netleştirmek için sizi rezervasyon ekibimize bağlıyorum.", team: "Rezervasyon", sum: "Müşteri cumartesi havalimanından otomatik vites araç istiyor.", next: "Rezervasyon temsilcisine bağlandı." },
+    hotel: { reply: "Hello, welcome to Deniz Hotel. Late check-in after midnight is possible. I’ve noted your request, and our front desk will confirm it by message.", team: "Resepsiyon (sabah vardiyası)", sum: "Yabancı misafir gece yarısından sonra giriş yapmak istiyor; İngilizce konuşuldu.", next: "Mesai dışı; geri dönüş listesine eklendi." }
+  },
+  en: {
+    clinic: { reply: "Welcome to Gülümse Dental Clinic. Thursday at 2:30 pm and 4:00 pm are available. Which suits you?", team: "Reception", sum: "Patient wants a dental cleaning on Thursday and prefers 2:30 pm.", next: "Transferred to reception to confirm the appointment." },
+    car: { reply: "I’ve noted your request for an automatic car with airport pick-up on Saturday. I’m connecting you to our reservations team to confirm price and availability.", team: "Reservations", sum: "Customer needs an automatic car from the airport on Saturday.", next: "Connected to a reservations agent." },
+    hotel: { reply: "Hello, welcome to Deniz Hotel. Late check-in after midnight is possible. I’ve noted your request, and our front desk will confirm it by message.", team: "Front desk (morning shift)", sum: "Foreign guest wants to check in after midnight; the call was in English.", next: "After hours; added to the callback list." }
+  }
+};
+
+let lang = 'tr';
+let scenario = 'clinic';
+
+function renderScenario() {
+  const s = SCENARIOS[lang][scenario];
+  document.getElementById('scReply').textContent = '“' + s.reply + '”';
+  document.getElementById('scTeam').textContent = s.team;
+  document.getElementById('scSum').textContent = s.sum;
+  document.getElementById('scNext').textContent = s.next;
+  document.querySelectorAll('.scenario').forEach(b => {
+    const on = b.dataset.scenario === scenario;
+    b.setAttribute('aria-pressed', on);
+    b.classList.toggle('border-cyan-500', on);
+    b.classList.toggle('border-slate-800', !on);
+  });
+}
+
+function setLang(next) {
+  lang = I18N[next] ? next : 'tr';
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const v = I18N[lang][el.dataset.i18n];
+    if (v !== undefined) el.textContent = v;
+  });
+  document.querySelectorAll('.lang-btn').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === lang));
+  document.title = lang === 'en' ? 'Santralio — AI-powered phone system and contact center for businesses' : 'Santralio — Firmalar için yapay zekâ destekli santral ve çağrı merkezi';
+  renderScenario();
+  try { localStorage.setItem('santralio-lang', lang); } catch (e) {}
+}
+
+document.querySelectorAll('.lang-btn').forEach(b => b.addEventListener('click', () => setLang(b.dataset.lang)));
+document.querySelectorAll('.scenario').forEach(b => b.addEventListener('click', () => { scenario = b.dataset.scenario; renderScenario(); }));
+
+const menuBtn = document.getElementById('menuBtn');
+const mobileMenu = document.getElementById('mobileMenu');
+menuBtn.addEventListener('click', () => {
+  const open = mobileMenu.classList.toggle('hidden') === false;
+  menuBtn.setAttribute('aria-expanded', open);
+});
+mobileMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => { mobileMenu.classList.add('hidden'); menuBtn.setAttribute('aria-expanded', 'false'); }));
+
+// Kayıt: başvuru doğrudan Vozyy'ye gider (vergi bilgileri dahil; Santralio bunları görmez ve saklamaz).
+const VOZYY_API = '@VOZYY_SANTRALIO_API@';
+const NOTICE_VERSION = '2026-11';
+const RESERVED = new Set(['www', 'api', 'sip', 'panel', 'admin']);
+const validDomain = d => d.length <= 253 && !/^[0-9.]+$/.test(d) && !d.includes(':') && !/(^|\.)(localhost|local|internal)$/.test(d)
+  && /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(d);
+const installMode = document.getElementById('installMode');
+const domainField = document.getElementById('domainField');
+installMode.addEventListener('change', () => {
+  const self = installMode.value === 'self_hosted';
+  domainField.classList.toggle('hidden', !self);
+  domainField.querySelector('input').required = self;
+});
+
+document.getElementById('regForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target, msg = document.getElementById('regMsg'), btn = form.querySelector('button[type="submit"]');
+  const show = (key, ok) => {
+    msg.className = 'sm:col-span-2 text-sm ' + (ok ? 'text-emerald-300' : 'text-rose-300');
+    msg.textContent = I18N[lang][key] ?? key;
+  };
+  const f = new FormData(form);
+  const v = k => String(f.get(k) ?? '').trim();
+  const mode = v('install_mode') === 'self_hosted' ? 'self_hosted' : 'hosted';
+  const slug = v('requested_prefix').toLowerCase();
+  const domain = v('panel_domain').toLowerCase();
+  if (!form.checkValidity()) return show('fm_err');
+  if (!/^[a-z0-9-]{3,30}$/.test(slug) || RESERVED.has(slug)) return show('fm_slug_err');
+  if (mode === 'self_hosted' && !validDomain(domain)) return show('fm_domain_err');
+  const captcha = v('cf-turnstile-response');
+  if (!captcha) return show('fm_captcha');
+  const body = {
+    company_name: v('company'), contact_name: v('name'), email: v('email').toLowerCase(), phone: v('phone'),
+    tax_office: v('tax_office'), tax_number: v('tax_number'),
+    sector: v('sector'), locale: lang === 'en' ? 'en' : 'tr',
+    install: { mode, panel_domain: mode === 'self_hosted' ? domain : null, requested_prefix: slug },
+    consent: { kvkk: true, notice_version: NOTICE_VERSION, accepted_at: new Date().toISOString() },
+    turnstile_token: captcha,
+  };
+  btn.disabled = true;
+  show('fm_sending', true);
+  try {
+    const res = await fetch(VOZYY_API + '/applications', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 201 && data.ok) {
+      show('fm_ok', true);
+      form.reset();
+      installMode.dispatchEvent(new Event('change'));
+    } else {
+      show('fm_fail');
+      if (data.error) msg.textContent += ' (' + String(data.error).slice(0, 80) + ')';
+    }
+  } catch (err) {
+    show('fm_net');
+  } finally {
+    btn.disabled = false;
+    if (window.turnstile) window.turnstile.reset();
+  }
+});
+
+let saved = null;
+try { saved = localStorage.getItem('santralio-lang'); } catch (e) {}
+setLang(saved || ((navigator.language || 'tr').toLowerCase().startsWith('tr') ? 'tr' : 'en'));
+// /basvuru: aynı sayfa, kayıt formuna gider.
+if (location.pathname.replace(/\/$/, '') === '/basvuru') document.getElementById('kayit').scrollIntoView();
+</script>
+</body>
+</html>
