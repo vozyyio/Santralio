@@ -3,12 +3,16 @@
 # Anahtar ekrana yazılmaz, düz metin olarak diske yazılmaz. Kullanım:
 #   sudo infra/set-secret.sh anthropic     # Anthropic API anahtarı (Claude)
 #   sudo infra/set-secret.sh azure-speech  # Azure Speech anahtarı (bölge: /etc/santralio/site.env SANTRALIO_AZURE_SPEECH_REGION)
+#   sudo infra/set-secret.sh vozyy-signing # Vozyy olay imza anahtarı (Vozyy'deki Santralio__SigningSecret)
+#   sudo infra/set-secret.sh vozyy-inbound # Vozyy servis anahtarı (Vozyy'deki Santralio__InboundServiceKey)
 set -euo pipefail
 [ "$(id -u)" -eq 0 ] || { echo "root olarak çalıştırın" >&2; exit 1; }
 case "${1:-}" in
-  anthropic) NAME=santralio-anthropic-api-key ;;
-  azure-speech) NAME=santralio-azure-speech-key ;;
-  *) echo "kullanım: $0 anthropic | azure-speech" >&2; exit 1 ;;
+  anthropic) NAME=santralio-anthropic-api-key; UNIT=santralio-ai ;;
+  azure-speech) NAME=santralio-azure-speech-key; UNIT=santralio-ai ;;
+  vozyy-signing) NAME=santralio-vozyy-signing-secret; UNIT=santralio-api ;;
+  vozyy-inbound) NAME=santralio-vozyy-inbound-key; UNIT=santralio-api ;;
+  *) echo "kullanım: $0 anthropic | azure-speech | vozyy-signing | vozyy-inbound" >&2; exit 1 ;;
 esac
 read -r -s -p "$1 anahtarı: " KEY </dev/tty
 echo
@@ -17,5 +21,5 @@ install -d -m 0700 /etc/credstore.encrypted
 printf '%s' "$KEY" | systemd-creds encrypt --name="$NAME" - "/etc/credstore.encrypted/$NAME"
 chmod 0600 "/etc/credstore.encrypted/$NAME"
 unset KEY
-systemctl restart santralio-ai 2>/dev/null || true
-echo "kaydedildi: $NAME (santralio-ai yeniden başlatıldı)"
+systemctl restart "$UNIT" 2>/dev/null || true
+echo "kaydedildi: $NAME ($UNIT yeniden başlatıldı)"

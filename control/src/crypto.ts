@@ -26,6 +26,7 @@ export function open(enc: Buffer, aad: string, key: Buffer): string {
 export const aad = {
   trunk: (tenantId: number) => `trunks:${tenantId}`,
   extension: (tenantId: number, number: string) => `extensions:${tenantId}:${number}`,
+  invite: (userId: number) => `user_invites:${userId}`,
 };
 
 // SIP şifreleri ve Contact token'ları için: yalnızca küçük harf ve rakam.

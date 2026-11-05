@@ -19,6 +19,21 @@ export const AMI_HOST = "127.0.0.1";
 export const AMI_PORT = 5038;
 export const AMI_USER = "santralio-ctl";
 
+// Panelin adresi (hosted kiracıların hepsi için aynı; firmaya özel alt alan adı henüz yok).
+export const PANEL_URL = `https://panel.${BASE_DOMAIN}`;
+export const VOZYY_API_BASE = (process.env.VOZYY_API_BASE ?? "https://api.vozyy.com").replace(/\/+$/, "");
+
+// İsteğe bağlı credential: yoksa null (ör. Vozyy anahtarları henüz girilmemişse).
+export function optionalCredential(name: string): string | null {
+  const dir = process.env.CREDENTIALS_DIRECTORY;
+  if (!dir) return null;
+  try {
+    return readFileSync(join(dir, name), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 // Şu an kullanılan ana anahtarın kimliği. Anahtar yenilenince yeni kimlik eklenir.
 export const CURRENT_KEY_ID = "k1";
 

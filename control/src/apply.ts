@@ -8,13 +8,15 @@ import { aad, open } from "./crypto.ts";
 import { masterKey, SOUNDS_DIR, TENANTS_DIR } from "./config.ts";
 import type { Db } from "./db.ts";
 import { getPolicy, UserError } from "./ops.ts";
+import { hasModule } from "./permissions.ts";
 import { DEFAULT_VOICE, resolveVoice, synthesize } from "./voices.ts";
 import { recordingDir, renderTenant, type RenderedFiles, type TenantModel } from "./render.ts";
 
 export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel> {
   const t = (
     await db.query(
-      `SELECT t.id, t.prefix, t.name, t.status, t.recording_enabled, t.pbx_open, t.ai_enabled, l.active, l.valid_until, l.max_channels
+      `SELECT t.id, t.prefix, t.name, t.status, t.recording_enabled, t.pbx_open, t.ai_enabled, l.active, l.valid_until, l.max_channels,
+              CASE WHEN l.source = 'vozyy' THEN l.modules END AS modules
          FROM tenants t LEFT JOIN licenses l ON l.tenant_id = t.id WHERE t.id = $1`,
       [tenantId],
     )
@@ -99,7 +101,7 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       secret: open(e.secret_enc, aad.extension(tenantId, e.number), masterKey(e.key_id)),
       enabled: e.enabled,
       paused: e.paused,
-      outbound: e.outbound,
+      outbound: e.outbound && hasModule(t.modules, "outbound") && hasModule(t.modules, "agent_desk"),
     })),
     queues: queues.map((q) => ({
       name: q.name,
@@ -125,11 +127,12 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       holidays: holidays.filter((h) => h.schedule_id === x.id).map((h) => h.day),
     })),
     entryPoints: entries.map((e) => ({ address: e.address, flow: e.flow, enabled: e.enabled })),
-    recording: { enabled: t.recording_enabled },
+    // Vozyy lisansında modül yoksa kapalı (manuel lisansta her şey açık).
+    recording: { enabled: t.recording_enabled && hasModule(t.modules, "recording") },
     outbound: pol,
     pbxOpen: t.pbx_open,
     ai: {
-      enabled: t.ai_enabled,
+      enabled: t.ai_enabled && hasModule(t.modules, "ai"),
       flows: aiFlows.map((f) => ({
         name: f.name,
         enabled: f.enabled,

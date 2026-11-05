@@ -37,3 +37,19 @@ export const APPS = {
   agent: ["agent.desk"],
 } as const satisfies Record<string, readonly Permission[]>;
 export type App = keyof typeof APPS;
+
+// Lisans modülleri ve kapattıkları yetkiler (Vozyy lisansı; bkz. vozyy.ts).
+const MODULE_PERMISSIONS: Record<string, Permission[]> = {
+  agent_desk: ["agent.desk", "agent.outbound"],
+  outbound: ["agent.outbound"],
+  recording: ["recordings.listen"],
+  reports: ["reports.view"],
+  crm: ["crm.use"],
+};
+
+// Vozyy lisanslı kiracıda modülü olmayan yetkiler düşer (manuel lisans: modules null, her şey açık).
+export function effectivePermissions(perms: Permission[], modules: string[] | null): Permission[] {
+  if (!modules) return perms;
+  return perms.filter((p) => Object.entries(MODULE_PERMISSIONS).every(([m, list]) => !list.includes(p) || modules.includes(m)));
+}
+export const hasModule = (modules: string[] | null, m: string) => !modules || modules.includes(m);

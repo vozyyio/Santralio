@@ -25,7 +25,8 @@ import {
   verifyPassword,
   type User,
 } from "./auth.ts";
-import { BASE_DOMAIN, masterKey, PG_DATABASE, PG_HOST, SIP_HOST, SOUNDS_DIR } from "./config.ts";
+import { BASE_DOMAIN, masterKey, optionalCredential, PG_DATABASE, PG_HOST, SIP_HOST, SOUNDS_DIR } from "./config.ts";
+import * as vozyy from "./vozyy.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
 import { listCalls, parseRange, summary, type CallRow } from "./reports.ts";
@@ -80,6 +81,9 @@ type Route = { method: string; pattern: RegExp; auth: boolean; raw: boolean; han
 // Değişiklik yapan istekler tek bir veritabanı işleminde çalışır: bir adım reddedilirse hiçbiri kalmaz.
 // Asterisk'e uygulama, işlem tamamlandıktan sonra yapılır.
 const pendingApply = new WeakSet<Db>();
+// Uygulama hatası yanıtı değiştirmez (kayıt tamamlandı; yapılandırma bir sonraki uygulamada yeniden üretilir).
+// Vozyy olayları için: 500 dönülürse Vozyy işlenmiş olayı boşuna yeniden dener.
+const softApply = new WeakSet<Db>();
 
 const routes: Route[] = [];
 // raw: gövde JSON değil ham baytlardır (ör. ses dosyası yükleme), en fazla MAX_RAW_BODY.
@@ -173,6 +177,10 @@ route(
     if (!(await verifyPassword(password, u.password_hash))) {
       loginFailed(ctx.ip);
       throw new UserError("e-posta ya da şifre hatalı", 401);
+    }
+    if (u.tenant_id) {
+      const t = (await ctx.db.query("SELECT status FROM tenants WHERE id = $1", [u.tenant_id])).rows[0];
+      if (t.status !== "active") throw new UserError("hesabınız askıya alınmış ya da kapatılmış; destek için bize ulaşın", 403);
     }
     const token = await createSession(ctx.db, u.id, ctx.ip);
     const web = ctx.req.headers["x-santralio-client"] === "web";
@@ -819,6 +827,68 @@ route("GET", "/api/system", async (ctx) => {
   };
 });
 
+// --- Vozyy lisans entegrasyonu ---
+// Vozyy -> Santralio olayları (api.santralio.site). İmza ham gövde üzerinde, ayrıştırmadan önce doğrulanır.
+// 200: işlendi (yinelenen ve eski olaylar dahil); 400: kalıcı hata; 401: imza; 503: yapılandırılmadı ya da geçici (Vozyy yeniden dener).
+
+const header = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+
+route(
+  "POST",
+  "/api/vozyy/events",
+  async (ctx) => {
+    const secret = optionalCredential(vozyy.SECRET_SIGNING);
+    if (!secret) throw new UserError("vozyy entegrasyonu yapılandırılmadı", 503);
+    const raw = ctx.body as Buffer;
+    if (raw.length > MAX_BODY) throw new UserError("istek çok büyük", 413);
+    const h = ctx.req.headers;
+    const bad = vozyy.verifySignature(secret, header(h["x-vozyy-timestamp"]), header(h["x-vozyy-signature"]), raw, Math.floor(Date.now() / 1000));
+    if (bad) throw new UserError(bad, 401);
+    const ev = vozyy.parseEvent(raw, header(h["x-vozyy-event-id"]));
+    const r = await vozyy.handleEvent(ctx.db, ev);
+    if (r.apply) {
+      applyChanges(ctx.db);
+      softApply.add(ctx.db);
+    }
+    return r.body;
+  },
+  false,
+  true,
+);
+
+// Davet: ilk yönetici şifresini belirler (bağlantı: panel/#/davet/<token>; token adreste değil gövdede gider).
+route(
+  "POST",
+  "/api/invite/check",
+  async (ctx) => {
+    const info = await vozyy.inviteInfo(ctx.db, str(ctx.body?.token, "token"));
+    if (!info) throw new UserError("davet bağlantısı geçersiz ya da süresi dolmuş", 404);
+    return info;
+  },
+  false,
+);
+
+route(
+  "POST",
+  "/api/invite/accept",
+  async (ctx) => {
+    if (!loginAllowed(ctx.ip)) throw new UserError("çok fazla deneme; 15 dakika sonra tekrar deneyin", 429);
+    try {
+      const email = await vozyy.acceptInvite(ctx.db, str(ctx.body?.token, "token"), str(ctx.body?.password, "password"));
+      return { ok: true, email };
+    } catch (e) {
+      if (e instanceof UserError && e.status === 404) loginFailed(ctx.ip);
+      throw e;
+    }
+  },
+  false,
+);
+
+route("GET", "/api/vozyy/licenses", async (ctx) => {
+  platformOnly(ctx);
+  return { configured: !!optionalCredential(vozyy.SECRET_SIGNING), licenses: await vozyy.listLicenses(ctx.db) };
+});
+
 // --- Kayıt ve raporlar ---
 
 route("PUT", "/api/tenants/:prefix/recording", async (ctx) => {
@@ -1184,11 +1254,16 @@ const server = createServer(async (req, res) => {
     const result = req.method === "GET" ? await r.handler(ctx) : await tx(db, () => r.handler(ctx));
     if (pendingApply.has(db)) {
       pendingApply.delete(db);
-      await runApply(db);
+      const soft = softApply.delete(db);
+      await runApply(db).catch((err) => {
+        if (!soft) throw err;
+        console.error(new Date().toISOString(), "uygulama hatası (kayıt tamam):", err);
+      });
     }
     send(res, 200, result);
   } catch (err) {
     pendingApply.delete(db);
+    softApply.delete(db);
     if (err instanceof UserError) return send(res, err.status, { error: err.message });
     console.error(new Date().toISOString(), req.method, url.pathname, err);
     send(res, 500, { error: "sunucu hatası" });

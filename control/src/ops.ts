@@ -8,6 +8,7 @@ import { DEFAULT_ROLES } from "./permissions.ts";
 import { CURRENT_KEY_ID, masterKey } from "./config.ts";
 import { aad, randomToken, seal } from "./crypto.ts";
 import { audit, tx, type Db } from "./db.ts";
+import { createDefaultDispositions } from "./crm.ts";
 
 export class UserError extends Error {
   status: number;
@@ -339,6 +340,25 @@ export async function deleteRole(db: Db, t: Tenant, id: number, actor?: string) 
   if (used) throw new UserError(`"${r.name}" rolünde ${used} personel var; önce başka role alın`);
   await db.query("DELETE FROM roles WHERE id = $1 AND tenant_id = $2", [id, t.id]);
   await audit(db, "role.delete", t.id, { name: r.name }, actor);
+}
+
+// Yeni kiracı: önek t<id>, varsayılan roller, sonuç kodları ve yalnızca gelen arama politikası.
+export async function createTenant(db: Db, name: string, resellerId: number, slug: string | null = null, actor?: string): Promise<{ id: number; prefix: string }> {
+  const id = Number((await db.query("SELECT nextval(pg_get_serial_sequence('tenants', 'id')) AS id")).rows[0].id);
+  const r = (
+    await db.query("INSERT INTO tenants (id, prefix, name, reseller_id, slug) VALUES ($1, $2, $3, $4, $5) RETURNING id, prefix", [
+      id,
+      `t${id}`,
+      name,
+      resellerId,
+      slug,
+    ])
+  ).rows[0];
+  await createDefaultRoles(db, r.id);
+  await createDefaultDispositions(db, r.id);
+  await db.query("INSERT INTO outbound_policies (tenant_id, template) VALUES ($1, 'inbound_only') ON CONFLICT DO NOTHING", [r.id]);
+  await audit(db, "tenant.create", r.id, { name, slug }, actor);
+  return r;
 }
 
 export async function createDefaultRoles(db: Db, tenantId: number) {

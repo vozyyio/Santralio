@@ -12,6 +12,9 @@ SupplementaryGroups=asterisk
 UMask=0027
 LoadCredentialEncrypted=santralio-master-key-k1
 LoadCredentialEncrypted=santralio-ami-secret
+# Vozyy entegrasyonu (isteğe bağlı; yoksa /api/vozyy/events 503 döner): sudo infra/set-secret.sh vozyy-signing | vozyy-inbound
+ImportCredential=santralio-vozyy-signing-secret
+ImportCredential=santralio-vozyy-inbound-key
 WorkingDirectory=/opt/santralio/control
 EnvironmentFile=/etc/santralio/site.env
 ExecStart=/usr/bin/node /opt/santralio/control/src/api.ts

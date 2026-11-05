@@ -3,7 +3,7 @@
 
 import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import type { Db } from "./db.ts";
-import { ALL_PERMISSIONS, APPS, type App, type Permission } from "./permissions.ts";
+import { ALL_PERMISSIONS, APPS, effectivePermissions, type App, type Permission } from "./permissions.ts";
 
 const scrypt = (password: string, salt: Buffer, keylen: number, opts: ScryptOptions) =>
   new Promise<Buffer>((resolve, reject) => scryptCb(password, salt, keylen, opts, (err, key) => (err ? reject(err) : resolve(key))));
@@ -75,15 +75,19 @@ export async function userBySession(db: Db, token: string): Promise<User | null>
   const row = (
     await db.query(
       `UPDATE sessions s SET last_seen = now()
-         FROM users u LEFT JOIN roles r ON r.id = u.role_id
+         FROM users u LEFT JOIN roles r ON r.id = u.role_id LEFT JOIN tenants t ON t.id = u.tenant_id
+             LEFT JOIN licenses l ON l.tenant_id = u.tenant_id
         WHERE s.token_hash = $1 AND s.user_id = u.id AND NOT s.revoked AND s.expires_at > now() AND NOT u.disabled
+          AND (u.tenant_id IS NULL OR t.status = 'active')
         RETURNING u.id, u.email, u.name, u.role, u.reseller_id, u.tenant_id, u.extension_id, u.role_id,
-                  r.name AS role_name, r.permissions`,
+                  r.name AS role_name, r.permissions, CASE WHEN l.source = 'vozyy' THEN l.modules END AS modules`,
       [tokenHash(token)],
     )
   ).rows[0];
   if (!row) return null;
-  return { ...row, permissions: row.role === "tenant_user" ? (row.permissions ?? []) : ALL_PERMISSIONS };
+  const { modules, ...u } = row;
+  // Vozyy lisanslı kiracıda lisansta olmayan modülün yetkileri düşer (ör. CRM'siz pakette crm.use).
+  return { ...u, permissions: row.role === "tenant_user" ? effectivePermissions(row.permissions ?? [], modules) : ALL_PERMISSIONS };
 }
 
 // Kullanıcı bu kiracının kapsamında mı (yetkiden bağımsız)?
