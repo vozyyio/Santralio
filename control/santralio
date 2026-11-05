@@ -10,6 +10,8 @@ exec systemd-run --quiet --wait --collect $MODE \
   -p UMask=0027 \
   -p LoadCredentialEncrypted=santralio-master-key-k1 \
   -p LoadCredentialEncrypted=santralio-ami-secret \
+  -p ImportCredential=santralio-vozyy-inbound-key \
+  -p ImportCredential=santralio-vozyy-install-token \
   -p WorkingDirectory=/opt/santralio/control \
   -p EnvironmentFile=/etc/santralio/site.env \
   -E SUDO_USER="${SUDO_USER:-root}" \

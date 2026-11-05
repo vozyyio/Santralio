@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { PG_DATABASE } from "../src/config.ts";
 import { effectivePermissions } from "../src/permissions.ts";
-import { signature, validDomain, verifySignature } from "../src/vozyy.ts";
+import { parseRemoteLicense, reportInstallStatus, signature, validDomain, verifySignature, vozyyUrl } from "../src/vozyy.ts";
 
 const SECRET = "test-signing-secret-" + randomBytes(8).toString("hex");
 
@@ -46,6 +46,32 @@ test("modüller: lisansta olmayan modülün yetkisi düşer; manuel lisansta hep
   assert.deepEqual(santral, ["agent.desk", "recordings.listen", "reports.view", "settings.manage"]);
   assert.deepEqual(effectivePermissions([...all], ["pbx", "agent_desk", "recording", "reports", "ai", "crm", "outbound"]), [...all]);
   assert.deepEqual(effectivePermissions([...all], null), [...all]);
+});
+
+test("Vozyy adresi: yalnızca https ve gerçek alan adı (iç ağa/IP'ye istek yok)", () => {
+  assert.equal(vozyyUrl("https://api.vozyy.com/license", "/licenses/lic_1"), "https://api.vozyy.com/license/api/santralio/licenses/lic_1");
+  for (const b of ["http://api.vozyy.com", "https://127.0.0.1", "https://10.0.0.5/x", "https://localhost", "https://user:pw@api.vozyy.com", "https://api.vozyy.com:8443"]) {
+    assert.throws(() => vozyyUrl(b, "/x"), b);
+  }
+});
+
+test("uzak lisans: kimlik eşleşmeli, alanlar olay sözleşmesiyle doğrulanır", () => {
+  const l = { id: "lic_a", plan: "santral", status: "active", valid_from: null, valid_until: "2027-01-01T00:00:00Z", limits: { max_extensions: 5, max_channels: 2 }, modules: ["pbx", "x"] };
+  assert.equal(parseRemoteLicense({ ok: true, data: l }, "lic_a").max_extensions, 5);
+  assert.deepEqual(parseRemoteLicense({ license: l }, "lic_a").modules, ["pbx"], "bilinmeyen modül yok sayılır");
+  assert.throws(() => parseRemoteLicense({ license: l }, "lic_b"), /eşleşmiyor/);
+  assert.throws(() => parseRemoteLicense({ license: { ...l, status: "x" } }, "lic_a"), /geçersiz/);
+});
+
+test("kurulum bildirimi: doğru gövde ve Bearer; geçersiz alan adı gönderilmez", async () => {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fake = (async (url: string, init: RequestInit) => (calls.push({ url, init }), new Response('{"ok":true}', { status: 200 }))) as unknown as typeof fetch;
+  const body = await reportInstallStatus("https://api.vozyy.com/license", "kurulum-anahtari", { licenseId: "lic_1", tenantPrefix: "t12", panelDomain: "Santral.OrnekOtel.com" }, fake);
+  assert.deepEqual(body, { license_id: "lic_1", status: "provisioned", tenant_prefix: "t12", panel_url: "https://santral.ornekotel.com", panel_domain: "santral.ornekotel.com" });
+  assert.equal(calls[0].url, "https://api.vozyy.com/license/api/santralio/install-status");
+  assert.equal((calls[0].init.headers as Record<string, string>).authorization, "Bearer kurulum-anahtari");
+  await assert.rejects(reportInstallStatus("https://api.vozyy.com", "k", { licenseId: "lic_1", tenantPrefix: "t12", panelDomain: "192.168.1.10" }, fake));
+  assert.equal(calls.length, 1);
 });
 
 // --- Uçtan uca (test veritabanı) ---
@@ -208,7 +234,7 @@ describe("Vozyy olayları (uçtan uca)", { skip: !TEST_DB && "SANTRALIO_TEST_DB 
     const db = await connect();
     const lic = (await listLicenses(db).finally(() => db.end())).find((l) => l.licenseId === b.license.id)!;
     assert.ok(lic.invite && !lic.invite.sent);
-    const token = /#\/davet\/([A-Za-z0-9_-]{32})$/.exec(lic.invite.link)![1];
+    const token = /#\/davet\/([A-Za-z0-9_-]{32})$/.exec(lic.invite.link!)![1];
     assert.ok(lic.invite.link.startsWith("https://panel.santralio.site/#/davet/"));
     assert.equal((await json("/api/invite/check", { token })).body.email, b.customer.email);
     assert.equal((await json("/api/invite/accept", { token, password: "kisa" })).status, 400);
@@ -273,6 +299,34 @@ describe("Vozyy olayları (uçtan uca)", { skip: !TEST_DB && "SANTRALIO_TEST_DB 
     for (const d of ["127.0.0.1", "localhost", null]) {
       const x = await post(licenseBody("license.activated", `lic_${RUN}_shbad`, { install: { ...install, panel_domain: d } }));
       assert.equal(x.body.error, "invalid_panel_domain", String(d));
+    }
+  });
+
+  test("günlük doğrulama: fark varsa Vozyy esas; hatalı yanıt kaydedilir, uygulanmaz", async () => {
+    const id = `lic_${RUN}_sync`;
+    assert.equal((await post(licenseBody("license.activated", id, { slug: `sync-${RUN}` }))).status, 200);
+    const remote = { id, plan: "kurumsal", status: "active", valid_from: null, valid_until: "2027-06-01T00:00:00Z", limits: { max_extensions: 40, max_channels: 8 }, modules: ["pbx", "agent_desk"] };
+    let answer: unknown = { ok: true, data: remote };
+    const fake = (async (url: string) => {
+      const m = /licenses\/([^/?]+)$/.exec(url)!;
+      return new Response(JSON.stringify(m[1] === id ? answer : { license: { ...remote, id: m[1] } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { connect } = await import("../src/db.ts");
+    const { syncLicenses } = await import("../src/vozyy.ts");
+    const db = await connect();
+    try {
+      const r = await syncLicenses(db, "https://api.vozyy.com/license", "anahtar", fake);
+      assert.ok(r.changed.includes(id));
+      const [l] = await q("SELECT v.plan, v.max_extensions AS v, l.max_extensions AS t, l.modules, v.check_error FROM vozyy_licenses v JOIN licenses l ON l.tenant_id = v.tenant_id WHERE v.license_id = $1", [id]);
+      assert.deepEqual(l, { plan: "kurumsal", v: 40, t: 40, modules: ["pbx", "agent_desk"], check_error: null });
+      answer = { license: { ...remote, id: "lic_baska", max_extensions: 1 } };
+      const r2 = await syncLicenses(db, "https://api.vozyy.com/license", "anahtar", fake);
+      assert.ok(r2.errors.some((e) => e.startsWith(id)));
+      const [l2] = await q("SELECT max_extensions, check_error FROM vozyy_licenses WHERE license_id = $1", [id]);
+      assert.equal(l2.max_extensions, 40, "hatalı yanıt uygulanmaz");
+      assert.match(l2.check_error, /eşleşmiyor/);
+    } finally {
+      await db.end();
     }
   });
 

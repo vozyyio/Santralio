@@ -198,6 +198,17 @@ sudo infra/set-secret.sh azure-speech    # bölge: /etc/santralio/site.env SANTR
 sudo infra/set-secret.sh anthropic
 ```
 
+Vozyy lisans entegrasyonu (anahtarlar sunucuda gizli girişle; ayrıntı docs/architecture.md):
+
+```sh
+sudo infra/set-secret.sh vozyy-signing   # Vozyy'deki Santralio__SigningSecret
+sudo infra/set-secret.sh vozyy-inbound   # Vozyy'deki Santralio__InboundServiceKey
+sudo infra/site-deploy.sh                # santralio.site (TURNSTILE_SITE_KEY, VOZYY_API_BASE: /etc/santralio/site.env)
+santralio vozyy sync                     # lisans doğrulaması (her gün zamanlayıcıyla da çalışır)
+# Uçtan uca testler ayrı test veritabanında:
+SANTRALIO_TEST_DB=santralio_test SANTRALIO_PG_DATABASE=santralio_test node --test tests/vozyy.test.ts
+```
+
 Dış arama (yalnızca platform yöneticisi; ayrıntı panelde Genel → Dış arama):
 
 ```sh

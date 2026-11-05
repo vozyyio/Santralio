@@ -1,0 +1,9 @@
+# Santralio: Vozyy lisanslarını doğrular; fark varsa Vozyy esas alınır. control/install.sh kurar.
+[Unit]
+Description=Santralio Vozyy lisans doğrulaması
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/santralio vozyy sync

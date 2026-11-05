@@ -1,0 +1,11 @@
+# Santralio: Vozyy lisans doğrulaması her gün 04:15 (UTC), rastgele en fazla 30 dk gecikmeyle.
+[Unit]
+Description=Santralio Vozyy lisans doğrulaması (her gün)
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

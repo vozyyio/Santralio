@@ -61,7 +61,7 @@ export type VozyyLicense = {
   lastCheckedAt: string | null;
   checkError: string | null;
   prefix: string | null;
-  invite: { link: string; expiresAt: string; sent: boolean } | null;
+  invite: { link: string | null; expiresAt: string; sent: boolean } | null;
 };
 export type AiFlow = {
   name: string;

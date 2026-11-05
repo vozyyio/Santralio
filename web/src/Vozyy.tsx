@@ -111,9 +111,13 @@ export function VozyyLicenses() {
               {l.invite && (
                 <div className="small">
                   Davet {l.invite.sent ? "e-postayla gönderildi" : "gönderilmedi (e-posta yapılandırılmadı); bağlantıyı müşteriye iletin"}:{" "}
-                  <button className="ghost" onClick={() => copy(l.licenseId, l.invite!.link)}>
-                    {copied === l.licenseId ? "Kopyalandı" : "Bağlantıyı kopyala"}
-                  </button>{" "}
+                  {l.invite.link ? (
+                    <button className="ghost" onClick={() => copy(l.licenseId, l.invite!.link!)}>
+                      {copied === l.licenseId ? "Kopyalandı" : "Bağlantıyı kopyala"}
+                    </button>
+                  ) : (
+                    <span className="error">bağlantı çözülemedi; yeni davet gerekir</span>
+                  )}{" "}
                   <span className="muted">(son gün {new Date(l.invite.expiresAt).toLocaleDateString("tr-TR")})</span>
                 </div>
               )}

@@ -104,4 +104,9 @@ systemctl restart santralio-ai
 install -m 0644 "$REPO/control/santralio-recordings-purge.service" "$REPO/control/santralio-recordings-purge.timer" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --quiet --now santralio-recordings-purge.timer
+
+# 10. Vozyy lisanslarının günlük doğrulaması (anahtar yoksa iş hata verip geçer)
+install -m 0644 "$REPO/control/santralio-vozyy-sync.service" "$REPO/control/santralio-vozyy-sync.timer" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --quiet --now santralio-vozyy-sync.timer
 echo "Kontrol servisi kuruldu."

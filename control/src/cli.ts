@@ -7,13 +7,14 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { Ami, reloadTenants } from "./ami.ts";
 import { renderAll } from "./apply.ts";
-import { CURRENT_KEY_ID, masterKey, SIP_HOST } from "./config.ts";
+import { CURRENT_KEY_ID, masterKey, optionalCredential, SIP_HOST, VOZYY_API_BASE } from "./config.ts";
 import { aad, open, randomToken, seal } from "./crypto.ts";
 import { audit, connect, migrate, tx, type Db } from "./db.ts";
 import { hashPassword } from "./auth.ts";
 import * as ops from "./ops.ts";
 import { dialPatterns, TEMPLATES } from "./outbound.ts";
 import { recordingDir } from "./render.ts";
+import * as vozyy from "./vozyy.ts";
 import { assertTarget, tenantByPrefix, UserError } from "./ops.ts";
 
 const HELP = `santralio <komut>
@@ -62,6 +63,9 @@ const HELP = `santralio <komut>
   recording set <önek> --enabled yes|no [--retention gün] [--notice "anons"]
                                            Arama kaydı (varsayılan kapalı). Açıkken arayan önce anonsu duyar
   recordings purge                         Saklama süresi dolan kayıtları siler (her gece zamanlayıcıyla çalışır)
+  vozyy sync                               Lisansları Vozyy'den doğrular; fark varsa Vozyy esas (her gün zamanlayıcıyla)
+  vozyy install-status <lisans> <önek> <panel-alan-adı>
+                                           self_hosted kurulum bitti: Vozyy'ye bildirir (kurulum anahtarı credential'dan)
   operator ip add <operatör> <cidr> [--note metin]
   apply                                    Konfigürasyonu üretir ve Asterisk'i yeniden yükler
   status [<önek>]                          Trunk kaydı ve dahililerin durumu
@@ -589,6 +593,33 @@ async function main() {
           if (removed) await audit(db, "recordings.purge", t.id, { removed, retentionDays: t.days });
           console.log(`${t.prefix}: ${removed} kayıt silindi (saklama ${t.days} gün, kalan ${files.length - removed})`);
         }
+        break;
+      }
+
+      case "vozyy sync": {
+        const key = optionalCredential(vozyy.SECRET_INBOUND);
+        if (!key) throw new UserError("Vozyy servis anahtarı yok: sudo infra/set-secret.sh vozyy-inbound");
+        const r = await vozyy.syncLicenses(db, VOZYY_API_BASE, key);
+        console.log(`doğrulandı: ${r.checked}, değişen: ${r.changed.join(", ") || "yok"}`);
+        for (const e of r.errors) console.error(`hata: ${e}`);
+        if (r.tenants.size) await apply(db);
+        if (r.errors.length) process.exitCode = 1;
+        break;
+      }
+
+      case "vozyy install-status": {
+        const [licenseId, tenantPrefix, panelDomain] = rest;
+        if (!licenseId || !tenantPrefix || !panelDomain) throw new UserError("kullanım: vozyy install-status <lisans> <önek> <panel-alan-adı>");
+        // Kendi sunucusundaki kurulumda o lisansın kurulum anahtarı; yoksa servis anahtarı.
+        const token = optionalCredential("santralio-vozyy-install-token") ?? optionalCredential(vozyy.SECRET_INBOUND);
+        if (!token) throw new UserError("Vozyy kurulum anahtarı yok");
+        const sent = await vozyy.reportInstallStatus(VOZYY_API_BASE, token, { licenseId, tenantPrefix, panelDomain });
+        await db.query("UPDATE vozyy_licenses SET install_status = 'provisioned', panel_domain = $2, updated_at = now() WHERE license_id = $1", [
+          licenseId,
+          sent.panel_domain,
+        ]);
+        await audit(db, "vozyy.install_status", null, sent);
+        console.log(`Vozyy'ye bildirildi: ${sent.panel_url} (${tenantPrefix})`);
         break;
       }
 

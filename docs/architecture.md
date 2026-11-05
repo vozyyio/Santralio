@@ -238,6 +238,30 @@ Bilerek sonraya bırakılanlar:
 - **Beklet:** Görüşme içi yeniden davetle (re-INVITE, `sendonly`) yapılır. Beklemedeki tarafa kiracının bekleme müziği çalar (endpoint'te `moh_suggest`).
 - **Danışmalı aktarma:** Arayan beklemeye alınır, temsilci ikinci bir görüşme açar: bir dahili ya da, dış arama yetkisi varsa, politika içindeki bir numara. Temsilci iki görüşme arasında geçebilir. "Aktarımı tamamla" danışma görüşmesini arayanla değiştirir (REFER + Replaces); santral arayanı doğrudan danışılan kişiye bağlar, temsilcinin iki bağlantısı da kapanır. "Vazgeç" danışmayı kapatıp arayana döner. Danışma sırasında arayan kapatırsa danışma görüşmesi normal görüşme olarak sürer.
 
+## Vozyy lisans entegrasyonu (sözleşme v0.3)
+
+Müşteri vozyy.com'a gitmez. Kayıt ve ödeme santralio.site'de biter; kart formu Vozyy'nin widget'ıdır, Santralio kart görmez.
+
+- **Site** (`site/`, `infra/site-deploy.sh`): Ana sayfa ve `/basvuru` (aynı sayfa) kayıt formunu doğrudan Vozyy'ye gönderir: `POST <VOZYY_API_BASE>/api/santralio/applications`, Turnstile ile. Vergi dairesi ve vergi numarası yalnızca Vozyy'ye gider. `/odeme?token=` Vozyy'nin `santralio-checkout.js` script'ini yükler. Tutar yalnızca Vozyy'den gelir; ödemenin sonucu Vozyy'nin durum sorgusundan okunur. Bu sayfalarda `Referrer-Policy: no-referrer` gönderilir, Caddy erişim günlüğü tutmaz.
+- **Olaylar** (`POST https://api.santralio.site/api/vozyy/events`, `control/src/vozyy.ts`):
+  - **İmza:** Ham gövde üzerinde, JSON ayrıştırılmadan önce doğrulanır: `sha256=HMAC(secret, ts + "." + gövde)`, en fazla ±5 dk sapma.
+  - **Yinelenen olay:** Aynı `event_id` için ilk yanıt döner.
+  - **Sırasız olay:** Aynı lisans için uygulanmış olandan eski `occurred_at` taşıyan olay uygulanmaz, 200 döner.
+  - **Yanıt kodları:** 400 kalıcı hata, 401 imza hatası. 503 iki durumda döner: anahtar tanımlı değilse ya da bilinmeyen bir lisansa güncelleme gelirse; Vozyy bu durumda yeniden dener.
+- **Lisans olayları:**
+  - `activated` + `hosted`: Kiracı açılır (önek `t<id>`); kısa ad `tenants.slug` sütununa yazılır. İlk yönetici Patron rolüyle açılır ve davet oluşturulur.
+  - `activated` + `self_hosted`: Yalnızca lisans kaydedilir (`awaiting_install`).
+  - `updated`: Plan, limitler, `valid_until` ve modüller uygulanır.
+  - `suspended`: Kiracı askıya alınır, oturumlar kapanır, giriş 403 döner; veri silinmez.
+  - `cancelled`: Kiracı kapanır; sonraki etkinleştirmeler yok sayılır.
+- **Modüller:** Vozyy lisanslı kiracıda lisansta olmayan modülün yetkileri düşer (`crm`, `agent_desk`, `outbound`, `recording`, `reports`). Santralde de `ai`, kayıt ve dış arama kapanır. Manuel lisanslı kiracılar etkilenmez.
+- **Davet:** E-posta henüz yapılandırılmadığı için `invite_sent: false` döner. Bağlantı (`panel/#/davet/<token>`, 7 gün geçerli) platform yöneticisinin Sistem sayfasında gösterilir; token şifreli saklanır.
+- **Santralio → Vozyy:**
+  - `santralio vozyy sync` her gün çalışır (`santralio-vozyy-sync.timer`): `GET licenses/{id}` ile lisansları okur, fark varsa Vozyy'yi esas alır.
+  - `santralio vozyy install-status` self_hosted kurulumun bittiğini bildirir.
+  - İstekler yalnızca https ve gerçek alan adı taşıyan `VOZYY_API_BASE` adresine gider.
+- **Anahtarlar:** `sudo infra/set-secret.sh vozyy-signing | vozyy-inbound` (systemd-creds). Vergi bilgileri Santralio'da saklanmaz.
+
 ## Yapay zekâ karşılaması
 
 - **Akış:** Numara, menü tuşu ya da çalışma saati bir yapay zekâ akışına (`ai:<akış>`) yönlenir. Dialplan (`tN-ai-<akış>`) çağrıyı açar, çağrı bilgisini AstDB'ye yazar (`santralio_ai/<uuid>`: kiracı, akış, callid, aranan numara, arayan) ve sesi AudioSocket ile `santralio-ai` servisine akıtır. Servis yalnızca `127.0.0.1:9092`'yi dinler. Servis kararını `santralio_ai/<uuid>/route`'a yazıp bağlantıyı kapatır; dialplan oradan ilgili kuyruğa, dahiliye ya da menüye gider. AstDB kayıtları çağrı kapanınca silinir.

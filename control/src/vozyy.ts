@@ -368,14 +368,118 @@ export async function listLicenses(db: Db) {
          FROM vozyy_licenses l LEFT JOIN tenants t ON t.id = l.tenant_id ORDER BY l.created_at DESC`,
     )
   ).rows;
+  // Çözülemeyen bir davet (ör. anahtar değişti) bütün listeyi bozmaz: o satırda bağlantı yerine hata gösterilir.
+  const link = (i: { enc: string; userId: number; keyId: string }) => {
+    try {
+      return inviteLink(open(Buffer.from(i.enc, "base64"), aad.invite(i.userId), masterKey(i.keyId)));
+    } catch {
+      return null;
+    }
+  };
   return rows.map(({ invite, ...r }) => ({
     ...r,
-    invite: invite
-      ? {
-          link: inviteLink(open(Buffer.from(invite.enc, "base64"), aad.invite(invite.userId), masterKey(invite.keyId))),
-          expiresAt: invite.expiresAt,
-          sent: invite.sent,
-        }
-      : null,
+    invite: invite ? { link: link(invite), expiresAt: invite.expiresAt, sent: invite.sent } : null,
   }));
+}
+
+// --- Santralio -> Vozyy ---
+// Yalnızca yapılandırılmış Vozyy adresine (https, gerçek alan adı) istek atılır; iç ağ ya da IP adresine değil.
+
+export type Fetch = typeof fetch;
+
+export function vozyyUrl(base: string, path: string): string {
+  const u = new URL(base);
+  if (u.protocol !== "https:" || !validDomain(u.hostname) || u.username || u.password || u.port) throw new Error(`Vozyy adresi geçersiz: ${base}`);
+  return `${base.replace(/\/+$/, "")}/api/santralio${path}`;
+}
+
+// Vozyy'nin lisans yanıtı: olaylardaki "license" nesnesi (doğrudan, ya da license/data altında).
+export function parseRemoteLicense(body: unknown, id: string): LicenseEvent["license"] {
+  const b = body as any;
+  const l = b?.license ?? b?.data?.license ?? b?.data ?? b;
+  if (!isObj(l) || l.id !== id) throw new Error("yanıttaki lisans kimliği eşleşmiyor");
+  const raw = Buffer.from(JSON.stringify({ event: "license.updated", event_id: "evt_sync", occurred_at: new Date().toISOString(), license: l }));
+  try {
+    return parseEvent(raw, "evt_sync").license;
+  } catch (e) {
+    throw new Error(`lisans yanıtı geçersiz: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+export async function fetchLicense(base: string, key: string, id: string, fetchImpl: Fetch = fetch): Promise<LicenseEvent["license"]> {
+  const res = await fetchImpl(vozyyUrl(base, `/licenses/${encodeURIComponent(id)}`), {
+    headers: { authorization: `Bearer ${key}`, accept: "application/json" },
+    redirect: "error",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`Vozyy ${res.status}`);
+  return parseRemoteLicense(await res.json(), id);
+}
+
+const sameLicense = (a: any, r: LicenseEvent["license"]) =>
+  a.plan === r.plan &&
+  a.status === r.status &&
+  (a.valid_until?.getTime() ?? null) === (r.valid_until?.getTime() ?? null) &&
+  a.max_extensions === r.max_extensions &&
+  a.max_channels === r.max_channels &&
+  [...a.modules].sort().join(",") === [...r.modules].sort().join(",");
+
+// Günlük doğrulama: her lisans Vozyy'den okunur; fark varsa Vozyy esas alınır (güncelleme olayı gibi uygulanır).
+// Döner: değişen kiracılar (yeniden uygulanacak) ve sayılar. Hata olan lisans atlanır, hatası kaydedilir.
+export async function syncLicenses(db: Db, base: string, key: string, fetchImpl: Fetch = fetch) {
+  const ids = (await db.query("SELECT license_id FROM vozyy_licenses WHERE status <> 'cancelled' ORDER BY license_id")).rows.map((r) => r.license_id as string);
+  const out = { checked: 0, changed: [] as string[], errors: [] as string[], tenants: new Set<number>() };
+  for (const id of ids) {
+    try {
+      const remote = await fetchLicense(base, key, id, fetchImpl);
+      await db.query("BEGIN");
+      try {
+        const local = (await db.query("SELECT * FROM vozyy_licenses WHERE license_id = $1 FOR UPDATE", [id])).rows[0];
+        if (local && !sameLicense(local, remote)) {
+          const ev: LicenseEvent = { event: "license.updated", event_id: "evt_sync", occurred_at: new Date(), license: remote, install: null, customer: null };
+          const { outcome } = await applyEvent(db, ev);
+          if (outcome === "applied") {
+            out.changed.push(id);
+            if (local.tenant_id) out.tenants.add(local.tenant_id);
+            await audit(db, "vozyy.sync", local.tenant_id, { license: id, plan: remote.plan, status: remote.status }, "vozyy-sync");
+          }
+        }
+        await db.query("UPDATE vozyy_licenses SET last_checked_at = now(), check_error = NULL WHERE license_id = $1", [id]);
+        await db.query("COMMIT");
+      } catch (e) {
+        await db.query("ROLLBACK");
+        throw e;
+      }
+      out.checked++;
+    } catch (e) {
+      const msg = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+      out.errors.push(`${id}: ${msg}`);
+      await db.query("UPDATE vozyy_licenses SET last_checked_at = now(), check_error = $2 WHERE license_id = $1", [id, msg]);
+    }
+  }
+  return out;
+}
+
+// self_hosted kurulum bitti: Vozyy'ye bildirilir (Bearer: o lisansın kurulum anahtarı).
+export async function reportInstallStatus(
+  base: string,
+  token: string,
+  r: { licenseId: string; tenantPrefix: string; panelDomain: string },
+  fetchImpl: Fetch = fetch,
+) {
+  if (!/^lic_[A-Za-z0-9_-]{1,64}$/.test(r.licenseId)) throw new UserError("lisans kimliği geçersiz");
+  if (!/^t[0-9]{1,6}$/.test(r.tenantPrefix)) throw new UserError("kiracı öneki geçersiz");
+  const domain = r.panelDomain.toLowerCase();
+  if (!validDomain(domain)) throw new UserError("panel alan adı geçersiz (gerçek alan adı olmalı)");
+  const body = { license_id: r.licenseId, status: "provisioned", tenant_prefix: r.tenantPrefix, panel_url: `https://${domain}`, panel_domain: domain };
+  const res = await fetchImpl(vozyyUrl(base, "/install-status"), {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body),
+    redirect: "error",
+    signal: AbortSignal.timeout(15_000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new UserError(`Vozyy ${res.status}: ${text.slice(0, 200)}`);
+  return body;
 }
