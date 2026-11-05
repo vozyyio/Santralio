@@ -79,6 +79,65 @@ agent.@SANTRALIO_BASE_DOMAIN@ {
 	import santralio_app
 }
 
+# Tanıtım sitesi, kayıt (/basvuru) ve ödeme (/odeme) sayfaları: statik, /opt/santralio/site.
+# Bu blok yokken Cloudflare origin'e bu adla bağlanınca sertifika bulamıyor, TLS kesiliyordu (525).
+# Referrer-Policy no-referrer: /odeme?token=… adresi başka sitelere sızmasın. Caddy erişim günlüğü tutmaz (log yok);
+# token sunucuda kaydedilmez.
+@SANTRALIO_BASE_DOMAIN@, www.@SANTRALIO_BASE_DOMAIN@ {
+	import cloudflare
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	route {
+		respond @not_cloudflare "Yalnızca @SANTRALIO_BASE_DOMAIN@ adresleri üzerinden erişilebilir." 403
+		root * /opt/santralio/site
+		try_files {path} {path}.html {path}/index.html
+		file_server
+	}
+
+	# Hata yanıtlarında Caddy önceki başlıkları siler; no-referrer burada da gönderilir.
+	handle_errors {
+		header Referrer-Policy "no-referrer"
+		header X-Content-Type-Options "nosniff"
+		respond "{err.status_code} {err.status_text}"
+	}
+}
+
+# Dış servislerin çağırdığı API: şimdilik yalnızca Vozyy lisans olayları (POST /api/vozyy/events). Gerisi 404.
+api.@SANTRALIO_BASE_DOMAIN@ {
+	import cloudflare
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	route {
+		respond @not_cloudflare "Yalnızca @SANTRALIO_BASE_DOMAIN@ adresleri üzerinden erişilebilir." 403
+		@vozyy_events {
+			method POST
+			path /api/vozyy/events
+		}
+		handle @vozyy_events {
+			request_body {
+				max_size 64KB
+			}
+			reverse_proxy 127.0.0.1:8090 {
+				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@
+			}
+		}
+		respond 404
+	}
+}
+
 http://@SANTRALIO_SIP_HOST@ {
 	handle /.well-known/acme-challenge/* {
 		root * /var/lib/santralio-acme
