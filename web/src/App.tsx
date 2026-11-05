@@ -11,6 +11,7 @@ import { Audit, Roles, Staff, SystemPage } from "./Admin";
 import { Contacts, DispositionsCard, FollowUps } from "./Crm";
 import { OutboundPolicyCard } from "./Outbound";
 import { AiSessions, AiTab } from "./Ai";
+import { InvitePage } from "./Vozyy";
 import { PbxCard, PromptsTab } from "./Prompts";
 import { Calls, Reports } from "./Reports";
 import { api, ApiError, type AppName, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
@@ -53,6 +54,8 @@ export function App() {
     document.title = `Santralio ${APP_LABEL[app]}`;
   }, [app]);
 
+  const invite = /^#\/davet\/([A-Za-z0-9_-]{32})$/.exec(location.hash);
+  if (invite && app === "panel") return <InvitePage token={invite[1]} onDone={load} />;
   if (me === undefined) return <div className="center muted">Yükleniyor…</div>;
   if (me === null) return <Login app={app} onDone={load} />;
   return <Shell app={app} me={me} onLogout={() => api.logout().finally(() => setMe(null))} />;

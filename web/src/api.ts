@@ -44,6 +44,25 @@ export type TenantRow = {
   max_channels: number | null;
 };
 export type Hours = { weekdays: string; opens: string; closes: string };
+export type VozyyLicense = {
+  licenseId: string;
+  plan: string;
+  status: string;
+  installMode: string;
+  installStatus: string;
+  panelDomain: string | null;
+  slug: string | null;
+  validUntil: string | null;
+  maxExtensions: number;
+  maxChannels: number;
+  modules: string[];
+  company: string;
+  email: string;
+  lastCheckedAt: string | null;
+  checkError: string | null;
+  prefix: string | null;
+  invite: { link: string; expiresAt: string; sent: boolean } | null;
+};
 export type AiFlow = {
   name: string;
   enabled: boolean;
@@ -265,6 +284,9 @@ export const api = {
   audit: (p: string | null, from: string, to: string, action = "") =>
     call<AuditRow[]>("GET", `${p ? `${t(p)}/audit` : "/api/audit"}?from=${from}&to=${to}${action ? `&action=${encodeURIComponent(action)}` : ""}`),
   system: () => call<SystemStatus>("GET", "/api/system"),
+  vozyyLicenses: () => call<{ configured: boolean; licenses: VozyyLicense[] }>("GET", "/api/vozyy/licenses"),
+  inviteCheck: (token: string) => call<{ email: string; name: string; company: string }>("POST", "/api/invite/check", { token }),
+  inviteAccept: (token: string, password: string) => call<{ ok: true; email: string }>("POST", "/api/invite/accept", { token, password }),
   directory: () => call<{ queues: { name: string; number: string | null }[]; extensions: { number: string; name: string }[] }>("GET", "/api/agent/directory"),
   setPause: (paused: boolean, reason?: string) => call<{ paused: boolean }>("PUT", "/api/agent/pause", { paused, reason: reason ?? null }),
 };

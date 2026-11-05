@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, type AuditRow, type Me, type RoleRow, type StaffRow, type SystemStatus, type Tenant } from "./api";
 import { RangePicker } from "./Reports";
+import { VozyyLicenses } from "./Vozyy";
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
@@ -438,6 +439,7 @@ export function SystemPage() {
               {s.asterisk.registrations.length === 0 && <li className="muted">Hat yok.</li>}
             </ul>
           </div>
+          <VozyyLicenses />
           <div className="card wide">
             <h3>Son santral uyarıları</h3>
             {s.recentProblems.length === 0 ? (
