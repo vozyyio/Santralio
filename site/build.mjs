@@ -16,7 +16,9 @@ const ALIASES = { "check-circle-2": "circle-check", "bar-chart-3": "chart-column
 
 const turnstile = process.env.TURNSTILE_SITE_KEY ?? "";
 if (!/^[0-9A-Za-z_-]*$/.test(turnstile)) throw new Error("TURNSTILE_SITE_KEY geçersiz");
-const vozyyBase = (process.env.VOZYY_API_BASE || "https://api.vozyy.com").replace(/\/+$/, "");
+let vozyyBase = (process.env.VOZYY_API_BASE || "https://api.vozyy.com/license").replace(/\/+$/, "");
+// Kayıt ucu /license altındadır. Eski taban (yol yok) CORS'suz 404 verir; /license varsa eklenmez.
+if (vozyyBase === "https://api.vozyy.com") vozyyBase = "https://api.vozyy.com/license";
 if (!/^https:\/\/[a-z0-9.-]+(\/[a-z0-9_-]+)*$/i.test(vozyyBase)) throw new Error("VOZYY_API_BASE geçersiz");
 const vozyyApi = `${vozyyBase}/api/santralio`;
 if (!turnstile) console.warn("uyarı: TURNSTILE_SITE_KEY boş; kayıt formu robot doğrulaması olmadan gönderilemez");
