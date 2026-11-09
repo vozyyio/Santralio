@@ -456,14 +456,39 @@
               <option value="car" data-i18n="s2_h">Araç kiralama</option>
               <option value="clinic" data-i18n="s3_h">Klinikler</option>
               <option value="agency" data-i18n="s4_h">Seyahat acentaları</option>
+              <option value="restaurant" data-i18n="sec_restaurant">Restoran</option>
+              <option value="retail" data-i18n="sec_retail">Perakende</option>
+              <option value="estate" data-i18n="sec_estate">Emlak</option>
+              <option value="education" data-i18n="sec_edu">Eğitim</option>
+              <option value="logistics" data-i18n="sec_logistics">Lojistik</option>
               <option value="other" data-i18n="fm_other">Diğer</option>
             </select>
           </label>
-          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_office">Vergi dairesi</span>
-            <input name="tax_office" required class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_website">Web sitesi (isteğe bağlı)</span>
+            <input name="website" type="text" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" maxlength="500" placeholder="ornekotel.com" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
           </label>
-          <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_number">Vergi / T.C. kimlik no</span>
-            <input name="tax_number" required inputmode="numeric" pattern="[0-9]{10,11}" maxlength="11" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          <fieldset class="sm:col-span-2 border-0 p-0 m-0 min-w-0">
+            <legend class="text-sm font-semibold text-slate-300 mb-2" data-i18n="fm_entity">Kurum türü</legend>
+            <div class="flex flex-wrap gap-3">
+              <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-700 bg-[#070B14] text-sm font-semibold">
+                <input type="radio" name="entity" value="ticari" checked class="accent-cyan-500">
+                <span data-i18n="fm_entity_co">Ticari</span>
+              </label>
+              <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-700 bg-[#070B14] text-sm font-semibold">
+                <input type="radio" name="entity" value="sahis" class="accent-cyan-500">
+                <span data-i18n="fm_entity_sole">Şahıs</span>
+              </label>
+            </div>
+          </fieldset>
+          <label id="taxOfficeField" class="relative text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_office">Vergi dairesi</span>
+            <input name="tax_office" required autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="taxOfficeList" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+            <ul id="taxOfficeList" role="listbox" class="hidden absolute z-30 left-0 right-0 mt-1 max-h-60 overflow-auto rounded-xl border border-slate-700 bg-[#070B14] shadow-lg"></ul>
+          </label>
+          <label id="taxNumberField" class="text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_number">Vergi no</span>
+            <input name="tax_number" required inputmode="numeric" pattern="[0-9]{10}" maxlength="10" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          </label>
+          <label id="nationalIdField" class="sm:col-span-2 text-sm font-semibold text-slate-300 hidden"><span data-i18n="fm_national_id">T.C. kimlik no</span>
+            <input name="national_id" inputmode="numeric" pattern="[0-9]{11}" maxlength="11" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
           </label>
           <p class="sm:col-span-2 -mt-2 text-xs text-slate-400" data-i18n="fm_tax_note">Vergi bilgileri yalnızca faturalama için Vozyy'ye iletilir.</p>
           <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_install">Kurulum türü</span>
@@ -481,7 +506,7 @@
           </label>
           <label class="sm:col-span-2 flex gap-3 items-start text-sm text-slate-300">
             <input name="kvkk" type="checkbox" required class="mt-1 w-4 h-4 accent-cyan-500">
-            <span data-i18n="fm_kvkk">KVKK aydınlatma metnini okudum, onaylıyorum.</span>
+            <span><span data-i18n="fm_kvkk">KVKK aydınlatma metnini okudum, onaylıyorum.</span> <a data-i18n="fm_kvkk_link" data-legal="privacy" class="text-cyan-300 underline" href="https://vozyy.com/Culture/SetCulture?culture=tr-TR&returnUrl=%2FPrivacy">Metni görüntüle</a></span>
           </label>
           <div class="cf-turnstile sm:col-span-2" data-sitekey="@TURNSTILE_SITE_KEY@" data-theme="dark"></div>
           <button type="submit" class="sm:col-span-2 py-4 disabled:opacity-60 rounded-2xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400" data-i18n="fm_submit">Hesap oluştur</button>
@@ -518,8 +543,8 @@
     <div class="border-t border-slate-800/80">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-wrap justify-between gap-4 text-sm text-slate-400">
         <span>© 2026 Santralio</span>
-        <!-- Bu depoda KVKK veya kullanım koşulları sayfası yok; bağlantı verilmedi. -->
-        <span class="flex flex-wrap gap-5"><span data-i18n="ft_kvkk">KVKK aydınlatma metni</span><span data-i18n="ft_terms">Kullanım koşulları</span></span>
+        <!-- KVKK Vozyy gizlilik sayfasına gider. /Legal/terms-of-service tr-TR ve en-US için 404; kullanım koşulları metin kaldı. -->
+        <span class="flex flex-wrap gap-5"><a data-i18n="ft_kvkk" data-legal="privacy" class="hover:text-white" href="https://vozyy.com/Culture/SetCulture?culture=tr-TR&returnUrl=%2FPrivacy">KVKK aydınlatma metni</a><span data-i18n="ft_terms">Kullanım koşulları</span></span>
       </div>
     </div>
   </footer>
@@ -575,8 +600,12 @@ const I18N = {
     reg_h2: "Firma hesabınızı oluşturun.", reg_p: "Bilgilerinizi bırakın; ekibimiz firmanıza uygun kurulumu sizinle birlikte planlasın.",
     reg_1: "Sektörünüze uygun hazır karşılama senaryosu", reg_2: "Mevcut numaranızla canlı deneme", reg_3: "Mobil uygulama çıktığında ilk erişim", reg_have: "Zaten hesabınız var mı?",
     fm_company: "Firma adı", fm_name: "Ad soyad", fm_phone: "Telefon", fm_email: "İş e-postası", fm_sector: "Sektör", fm_other: "Diğer",
-    fm_kvkk: "KVKK aydınlatma metnini okudum, onaylıyorum.", fm_submit: "Hesap oluştur",
-    fm_tax_office: "Vergi dairesi", fm_tax_number: "Vergi / T.C. kimlik no", fm_tax_note: "Vergi bilgileri yalnızca faturalama için Vozyy'ye iletilir.",
+    sec_restaurant: "Restoran", sec_retail: "Perakende", sec_estate: "Emlak", sec_edu: "Eğitim", sec_logistics: "Lojistik",
+    fm_website: "Web sitesi (isteğe bağlı)", fm_entity: "Kurum türü", fm_entity_co: "Ticari", fm_entity_sole: "Şahıs",
+    fm_kvkk_link: "Metni görüntüle", fm_kvkk: "KVKK aydınlatma metnini okudum, onaylıyorum.", fm_submit: "Hesap oluştur",
+    fm_tax_office: "Vergi dairesi", fm_tax_number: "Vergi no", fm_national_id: "T.C. kimlik no", fm_tax_note: "Vergi bilgileri yalnızca faturalama için Vozyy'ye iletilir.",
+    fm_id_err: "T.C. kimlik no 11 rakam olmalıdır.", fm_taxno_err: "Vergi no 10 rakam olmalıdır.",
+    fm_web_err: "Web sitesi bir alan adı (ornekotel.com) ya da http(s) adresi olmalıdır.",
     fm_install: "Kurulum türü", fm_hosted: "Bulutta (biz barındırırız)", fm_self: "Kendi sunucumda", fm_slug: "Kısa ad",
     fm_slug_note: "Küçük harf, rakam ve tire; 3–30 karakter.", fm_domain: "Panel alan adı",
     fm_slug_err: "Kısa ad 3–30 karakter olmalı; yalnızca küçük harf, rakam ve tire. www, api, sip, panel, admin kullanılamaz.",
@@ -635,8 +664,12 @@ const I18N = {
     reg_h2: "Create your business account.", reg_p: "Leave your details and our team will plan the right setup for your business with you.",
     reg_1: "A ready-made greeting scenario for your industry", reg_2: "A live trial with your existing number", reg_3: "Early access to the mobile app", reg_have: "Already have an account?",
     fm_company: "Company name", fm_name: "Full name", fm_phone: "Phone", fm_email: "Work email", fm_sector: "Industry", fm_other: "Other",
-    fm_kvkk: "I have read and accept the privacy notice (KVKK).", fm_submit: "Create account",
-    fm_tax_office: "Tax office", fm_tax_number: "Tax / national ID number", fm_tax_note: "Tax details are sent only to Vozyy for invoicing.",
+    sec_restaurant: "Restaurant", sec_retail: "Retail", sec_estate: "Real estate", sec_edu: "Education", sec_logistics: "Logistics",
+    fm_website: "Website (optional)", fm_entity: "Entity type", fm_entity_co: "Commercial", fm_entity_sole: "Sole proprietor",
+    fm_kvkk_link: "View notice", fm_kvkk: "I have read and accept the privacy notice (KVKK).", fm_submit: "Create account",
+    fm_tax_office: "Tax office", fm_tax_number: "Tax number", fm_national_id: "Turkish ID number", fm_tax_note: "Tax details are sent only to Vozyy for invoicing.",
+    fm_id_err: "The Turkish ID number must be 11 digits.", fm_taxno_err: "The tax number must be 10 digits.",
+    fm_web_err: "Website must be a hostname (example.com) or an http(s) URL.",
     fm_install: "Installation", fm_hosted: "In the cloud (hosted by us)", fm_self: "On my own server", fm_slug: "Short name",
     fm_slug_note: "Lowercase letters, digits and hyphens; 3–30 characters.", fm_domain: "Panel domain",
     fm_slug_err: "The short name must be 3–30 characters: lowercase letters, digits and hyphens. www, api, sip, panel and admin are reserved.",
@@ -678,12 +711,23 @@ function renderScenario() {
   });
 }
 
+const LEGAL = {
+  privacy: {
+    tr: 'https://vozyy.com/Culture/SetCulture?culture=tr-TR&returnUrl=%2FPrivacy',
+    en: 'https://vozyy.com/Culture/SetCulture?culture=en-US&returnUrl=%2FPrivacy',
+  },
+};
+
 function setLang(next) {
   lang = I18N[next] ? next : 'tr';
   document.documentElement.lang = lang;
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const v = I18N[lang][el.dataset.i18n];
     if (v !== undefined) el.textContent = v;
+  });
+  document.querySelectorAll('[data-legal]').forEach(a => {
+    const href = LEGAL[a.dataset.legal]?.[lang];
+    if (href) a.href = href;
   });
   document.querySelectorAll('.lang-btn').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === lang));
   document.title = lang === 'en' ? 'Santralio — AI-powered phone system and contact center for businesses' : 'Santralio — Firmalar için yapay zekâ destekli santral ve çağrı merkezi';
@@ -708,13 +752,129 @@ const NOTICE_VERSION = '2026-11';
 const RESERVED = new Set(['www', 'api', 'sip', 'panel', 'admin']);
 const validDomain = d => d.length <= 253 && !/^[0-9.]+$/.test(d) && !d.includes(':') && !/(^|\.)(localhost|local|internal)$/.test(d)
   && /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(d);
+const hostOk = h => h.length <= 253 && /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h);
+// Boşsa gönderme. Alan adı veya http(s) adresi olduğu gibi gider; başka biçim reddedilir.
+function websiteValue(raw) {
+  const s = raw.trim();
+  if (!s) return '';
+  if (/\s/.test(s) || s.length > 500) return null;
+  if (/^https?:\/\//i.test(s)) {
+    let u;
+    try { u = new URL(s); } catch (e) { return null; }
+    if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.username || u.password) return null;
+    if (!hostOk(u.hostname)) return null;
+    return s;
+  }
+  if (/[:/?#@]/.test(s)) return null;
+  let ascii = '';
+  try { ascii = new URL('http://' + s).hostname; } catch (e) { return null; }
+  if (!hostOk(ascii)) return null;
+  return s;
+}
 const installMode = document.getElementById('installMode');
 const domainField = document.getElementById('domainField');
+const taxOfficeField = document.getElementById('taxOfficeField');
+const taxNumberField = document.getElementById('taxNumberField');
+const nationalIdField = document.getElementById('nationalIdField');
 installMode.addEventListener('change', () => {
   const self = installMode.value === 'self_hosted';
   domainField.classList.toggle('hidden', !self);
   domainField.querySelector('input').required = self;
 });
+function syncEntity() {
+  const sole = document.querySelector('input[name="entity"]:checked')?.value === 'sahis';
+  taxOfficeField.classList.toggle('hidden', sole);
+  taxNumberField.classList.toggle('hidden', sole);
+  nationalIdField.classList.toggle('hidden', !sole);
+  taxOfficeField.querySelector('input').disabled = sole;
+  taxNumberField.querySelector('input').disabled = sole;
+  nationalIdField.querySelector('input').disabled = !sole;
+  if (sole) hideTaxList();
+}
+const taxInput = taxOfficeField.querySelector('input');
+const taxList = document.getElementById('taxOfficeList');
+let taxNames = null;
+let taxLoad = null;
+let taxMatches = [];
+let taxActive = -1;
+function hideTaxList() {
+  taxList.classList.add('hidden');
+  taxList.replaceChildren();
+  taxInput.setAttribute('aria-expanded', 'false');
+  taxInput.removeAttribute('aria-activedescendant');
+  taxMatches = [];
+  taxActive = -1;
+}
+function foldTr(s) { return s.toLocaleLowerCase('tr-TR'); }
+function ensureTaxNames() {
+  if (taxNames) return Promise.resolve(taxNames);
+  if (!taxLoad) {
+    // Vozyy Reference API. Şehir süzgeci yok; dönen adlar yerelde süzülür. CORS: ACAO *.
+    taxLoad = fetch('https://api.vozyy.com/reference/api/reference/countries/TR/tax-offices')
+      .then(r => { if (!r.ok) throw new Error('tax-offices'); return r.json(); })
+      .then(body => {
+        const rows = Array.isArray(body && body.data) ? body.data : [];
+        taxNames = rows.map(row => String(row && row.name || '').trim()).filter(Boolean);
+        return taxNames;
+      })
+      .catch(() => { taxNames = null; taxLoad = null; return []; });
+  }
+  return taxLoad;
+}
+function showTaxList(matches) {
+  taxMatches = matches;
+  taxActive = -1;
+  taxList.replaceChildren();
+  if (!matches.length) { hideTaxList(); return; }
+  matches.forEach((name, i) => {
+    const li = document.createElement('li');
+    li.id = 'taxOpt' + i;
+    li.setAttribute('role', 'option');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'w-full text-left px-4 py-2.5 text-sm font-normal text-slate-100 hover:bg-slate-800';
+    btn.textContent = name;
+    btn.addEventListener('mousedown', e => { e.preventDefault(); taxInput.value = name; hideTaxList(); });
+    li.appendChild(btn);
+    taxList.appendChild(li);
+  });
+  taxList.classList.remove('hidden');
+  taxInput.setAttribute('aria-expanded', 'true');
+}
+async function refreshTaxList() {
+  if (taxInput.disabled) { hideTaxList(); return; }
+  const q = taxInput.value.trim();
+  if (q.length < 3) { hideTaxList(); return; }
+  const names = await ensureTaxNames();
+  if (taxInput.value.trim() !== q || taxInput.disabled) return;
+  const nq = foldTr(q);
+  showTaxList(names.filter(name => foldTr(name).includes(nq)).slice(0, 8));
+}
+taxInput.addEventListener('input', refreshTaxList);
+taxInput.addEventListener('blur', () => { setTimeout(hideTaxList, 150); });
+taxInput.addEventListener('keydown', e => {
+  if (taxList.classList.contains('hidden')) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const n = taxMatches.length;
+    if (!n) return;
+    taxActive = e.key === 'ArrowDown' ? (taxActive + 1) % n : (taxActive - 1 + n) % n;
+    taxList.querySelectorAll('[role="option"]').forEach((el, i) => {
+      const on = i === taxActive;
+      el.setAttribute('aria-selected', on);
+      el.querySelector('button').classList.toggle('bg-slate-800', on);
+    });
+    taxInput.setAttribute('aria-activedescendant', 'taxOpt' + taxActive);
+  } else if (e.key === 'Enter' && taxActive >= 0) {
+    e.preventDefault();
+    taxInput.value = taxMatches[taxActive];
+    hideTaxList();
+  } else if (e.key === 'Escape') {
+    hideTaxList();
+  }
+});
+document.querySelectorAll('input[name="entity"]').forEach(el => el.addEventListener('change', syncEntity));
+syncEntity();
 
 document.getElementById('regForm').addEventListener('submit', async e => {
   e.preventDefault();
@@ -731,16 +891,27 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   if (!form.checkValidity()) return show('fm_err');
   if (!/^[a-z0-9-]{3,30}$/.test(slug) || RESERVED.has(slug)) return show('fm_slug_err');
   if (mode === 'self_hosted' && !validDomain(domain)) return show('fm_domain_err');
+  const sole = v('entity') === 'sahis';
+  const taxNumber = sole ? v('national_id') : v('tax_number');
+  if (sole && !/^[0-9]{11}$/.test(taxNumber)) return show('fm_id_err');
+  if (!sole && !/^[0-9]{10}$/.test(taxNumber)) return show('fm_taxno_err');
+  const website = websiteValue(v('website'));
+  if (website === null) return show('fm_web_err');
   const captcha = v('cf-turnstile-response');
   if (!captcha) return show('fm_captcha');
+  // SantralioApplyRequest ek alan kabul etmez. Kurum türü gönderilmez.
+  // Boş web sitesi gitmez. Alan adı veya http(s) adresi website olarak gider.
+  // Şahısta T.C. kimlik no tax_number olur, tax_office gitmez. Ticaride vergi dairesi ve vergi no gider.
   const body = {
     company_name: v('company'), contact_name: v('name'), email: v('email').toLowerCase(), phone: v('phone'),
-    tax_office: v('tax_office'), tax_number: v('tax_number'),
+    tax_number: taxNumber,
     sector: v('sector'), locale: lang === 'en' ? 'en' : 'tr',
     install: { mode, panel_domain: mode === 'self_hosted' ? domain : null, requested_prefix: slug },
     consent: { kvkk: true, notice_version: NOTICE_VERSION, accepted_at: new Date().toISOString() },
     turnstile_token: captcha,
   };
+  if (website) body.website = website;
+  if (!sole) body.tax_office = v('tax_office');
   btn.disabled = true;
   show('fm_sending', true);
   try {
@@ -750,6 +921,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
       show('fm_ok', true);
       form.reset();
       installMode.dispatchEvent(new Event('change'));
+      syncEntity();
     } else {
       show('fm_fail');
       if (data.error) msg.textContent += ' (' + String(data.error).slice(0, 80) + ')';
