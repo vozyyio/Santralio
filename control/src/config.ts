@@ -21,7 +21,7 @@ export const AMI_USER = "santralio-ctl";
 
 // Panelin adresi (hosted kiracıların hepsi için aynı; firmaya özel alt alan adı henüz yok).
 export const PANEL_URL = `https://panel.${BASE_DOMAIN}`;
-export const VOZYY_API_BASE = (process.env.VOZYY_API_BASE ?? "https://api.vozyy.com").replace(/\/+$/, "");
+export const VOZYY_API_BASE = (process.env.VOZYY_API_BASE ?? "https://api.vozyy.com/license").replace(/\/+$/, "");
 
 // İsteğe bağlı credential: yoksa null (ör. Vozyy anahtarları henüz girilmemişse).
 export function optionalCredential(name: string): string | null {
