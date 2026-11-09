@@ -480,8 +480,9 @@
               </label>
             </div>
           </fieldset>
-          <label id="taxOfficeField" class="text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_office">Vergi dairesi</span>
-            <input name="tax_office" required class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+          <label id="taxOfficeField" class="relative text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_office">Vergi dairesi</span>
+            <input name="tax_office" required autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="taxOfficeList" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+            <ul id="taxOfficeList" role="listbox" class="hidden absolute z-30 left-0 right-0 mt-1 max-h-60 overflow-auto rounded-xl border border-slate-700 bg-[#070B14] shadow-lg"></ul>
           </label>
           <label id="taxNumberField" class="text-sm font-semibold text-slate-300"><span data-i18n="fm_tax_number">Vergi no</span>
             <input name="tax_number" required inputmode="numeric" pattern="[0-9]{10}" maxlength="10" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
@@ -542,7 +543,7 @@
     <div class="border-t border-slate-800/80">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-wrap justify-between gap-4 text-sm text-slate-400">
         <span>© 2026 Santralio</span>
-        <!-- KVKK: Vozyy gizlilik sayfası. Kullanım koşulları sayfası Vozyy'de yok. -->
+        <!-- KVKK Vozyy gizlilik sayfasına gider. /Legal/terms-of-service tr-TR ve en-US için 404; kullanım koşulları metin kaldı. -->
         <span class="flex flex-wrap gap-5"><a data-i18n="ft_kvkk" data-legal="privacy" class="hover:text-white" href="https://vozyy.com/Culture/SetCulture?culture=tr-TR&returnUrl=%2FPrivacy">KVKK aydınlatma metni</a><span data-i18n="ft_terms">Kullanım koşulları</span></span>
       </div>
     </div>
@@ -767,7 +768,90 @@ function syncEntity() {
   taxOfficeField.querySelector('input').disabled = sole;
   taxNumberField.querySelector('input').disabled = sole;
   nationalIdField.querySelector('input').disabled = !sole;
+  if (sole) hideTaxList();
 }
+const taxInput = taxOfficeField.querySelector('input');
+const taxList = document.getElementById('taxOfficeList');
+let taxNames = null;
+let taxLoad = null;
+let taxMatches = [];
+let taxActive = -1;
+function hideTaxList() {
+  taxList.classList.add('hidden');
+  taxList.replaceChildren();
+  taxInput.setAttribute('aria-expanded', 'false');
+  taxInput.removeAttribute('aria-activedescendant');
+  taxMatches = [];
+  taxActive = -1;
+}
+function foldTr(s) { return s.toLocaleLowerCase('tr-TR'); }
+function ensureTaxNames() {
+  if (taxNames) return Promise.resolve(taxNames);
+  if (!taxLoad) {
+    // Vozyy Reference API. Şehir süzgeci yok; dönen adlar yerelde süzülür. CORS: ACAO *.
+    taxLoad = fetch('https://api.vozyy.com/reference/api/reference/countries/TR/tax-offices')
+      .then(r => { if (!r.ok) throw new Error('tax-offices'); return r.json(); })
+      .then(body => {
+        const rows = Array.isArray(body && body.data) ? body.data : [];
+        taxNames = rows.map(row => String(row && row.name || '').trim()).filter(Boolean);
+        return taxNames;
+      })
+      .catch(() => { taxNames = null; taxLoad = null; return []; });
+  }
+  return taxLoad;
+}
+function showTaxList(matches) {
+  taxMatches = matches;
+  taxActive = -1;
+  taxList.replaceChildren();
+  if (!matches.length) { hideTaxList(); return; }
+  matches.forEach((name, i) => {
+    const li = document.createElement('li');
+    li.id = 'taxOpt' + i;
+    li.setAttribute('role', 'option');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'w-full text-left px-4 py-2.5 text-sm font-normal text-slate-100 hover:bg-slate-800';
+    btn.textContent = name;
+    btn.addEventListener('mousedown', e => { e.preventDefault(); taxInput.value = name; hideTaxList(); });
+    li.appendChild(btn);
+    taxList.appendChild(li);
+  });
+  taxList.classList.remove('hidden');
+  taxInput.setAttribute('aria-expanded', 'true');
+}
+async function refreshTaxList() {
+  if (taxInput.disabled) { hideTaxList(); return; }
+  const q = taxInput.value.trim();
+  if (q.length < 3) { hideTaxList(); return; }
+  const names = await ensureTaxNames();
+  if (taxInput.value.trim() !== q || taxInput.disabled) return;
+  const nq = foldTr(q);
+  showTaxList(names.filter(name => foldTr(name).includes(nq)).slice(0, 8));
+}
+taxInput.addEventListener('input', refreshTaxList);
+taxInput.addEventListener('blur', () => { setTimeout(hideTaxList, 150); });
+taxInput.addEventListener('keydown', e => {
+  if (taxList.classList.contains('hidden')) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const n = taxMatches.length;
+    if (!n) return;
+    taxActive = e.key === 'ArrowDown' ? (taxActive + 1) % n : (taxActive - 1 + n) % n;
+    taxList.querySelectorAll('[role="option"]').forEach((el, i) => {
+      const on = i === taxActive;
+      el.setAttribute('aria-selected', on);
+      el.querySelector('button').classList.toggle('bg-slate-800', on);
+    });
+    taxInput.setAttribute('aria-activedescendant', 'taxOpt' + taxActive);
+  } else if (e.key === 'Enter' && taxActive >= 0) {
+    e.preventDefault();
+    taxInput.value = taxMatches[taxActive];
+    hideTaxList();
+  } else if (e.key === 'Escape') {
+    hideTaxList();
+  }
+});
 document.querySelectorAll('input[name="entity"]').forEach(el => el.addEventListener('change', syncEntity));
 syncEntity();
 
