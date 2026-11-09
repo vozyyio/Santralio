@@ -465,7 +465,7 @@
             </select>
           </label>
           <label class="text-sm font-semibold text-slate-300"><span data-i18n="fm_website">Web sitesi (isteğe bağlı)</span>
-            <input name="website" type="url" inputmode="url" autocomplete="url" placeholder="https://" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
+            <input name="website" type="text" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" maxlength="500" placeholder="ornekotel.com" class="mt-1.5 w-full px-4 py-3 rounded-xl bg-[#070B14] border border-slate-700 text-white focus:border-cyan-500 outline-none">
           </label>
           <fieldset class="sm:col-span-2 border-0 p-0 m-0 min-w-0">
             <legend class="text-sm font-semibold text-slate-300 mb-2" data-i18n="fm_entity">Kurum türü</legend>
@@ -605,6 +605,7 @@ const I18N = {
     fm_kvkk_link: "Metni görüntüle", fm_kvkk: "KVKK aydınlatma metnini okudum, onaylıyorum.", fm_submit: "Hesap oluştur",
     fm_tax_office: "Vergi dairesi", fm_tax_number: "Vergi no", fm_national_id: "T.C. kimlik no", fm_tax_note: "Vergi bilgileri yalnızca faturalama için Vozyy'ye iletilir.",
     fm_id_err: "T.C. kimlik no 11 rakam olmalıdır.", fm_taxno_err: "Vergi no 10 rakam olmalıdır.",
+    fm_web_err: "Web sitesi bir alan adı (ornekotel.com) ya da http(s) adresi olmalıdır.",
     fm_install: "Kurulum türü", fm_hosted: "Bulutta (biz barındırırız)", fm_self: "Kendi sunucumda", fm_slug: "Kısa ad",
     fm_slug_note: "Küçük harf, rakam ve tire; 3–30 karakter.", fm_domain: "Panel alan adı",
     fm_slug_err: "Kısa ad 3–30 karakter olmalı; yalnızca küçük harf, rakam ve tire. www, api, sip, panel, admin kullanılamaz.",
@@ -668,6 +669,7 @@ const I18N = {
     fm_kvkk_link: "View notice", fm_kvkk: "I have read and accept the privacy notice (KVKK).", fm_submit: "Create account",
     fm_tax_office: "Tax office", fm_tax_number: "Tax number", fm_national_id: "Turkish ID number", fm_tax_note: "Tax details are sent only to Vozyy for invoicing.",
     fm_id_err: "The Turkish ID number must be 11 digits.", fm_taxno_err: "The tax number must be 10 digits.",
+    fm_web_err: "Website must be a hostname (example.com) or an http(s) URL.",
     fm_install: "Installation", fm_hosted: "In the cloud (hosted by us)", fm_self: "On my own server", fm_slug: "Short name",
     fm_slug_note: "Lowercase letters, digits and hyphens; 3–30 characters.", fm_domain: "Panel domain",
     fm_slug_err: "The short name must be 3–30 characters: lowercase letters, digits and hyphens. www, api, sip, panel and admin are reserved.",
@@ -750,6 +752,25 @@ const NOTICE_VERSION = '2026-11';
 const RESERVED = new Set(['www', 'api', 'sip', 'panel', 'admin']);
 const validDomain = d => d.length <= 253 && !/^[0-9.]+$/.test(d) && !d.includes(':') && !/(^|\.)(localhost|local|internal)$/.test(d)
   && /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(d);
+const hostOk = h => h.length <= 253 && /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h);
+// Boşsa gönderme. Alan adı veya http(s) adresi olduğu gibi gider; başka biçim reddedilir.
+function websiteValue(raw) {
+  const s = raw.trim();
+  if (!s) return '';
+  if (/\s/.test(s) || s.length > 500) return null;
+  if (/^https?:\/\//i.test(s)) {
+    let u;
+    try { u = new URL(s); } catch (e) { return null; }
+    if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.username || u.password) return null;
+    if (!hostOk(u.hostname)) return null;
+    return s;
+  }
+  if (/[:/?#@]/.test(s)) return null;
+  let ascii = '';
+  try { ascii = new URL('http://' + s).hostname; } catch (e) { return null; }
+  if (!hostOk(ascii)) return null;
+  return s;
+}
 const installMode = document.getElementById('installMode');
 const domainField = document.getElementById('domainField');
 const taxOfficeField = document.getElementById('taxOfficeField');
@@ -874,9 +895,12 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   const taxNumber = sole ? v('national_id') : v('tax_number');
   if (sole && !/^[0-9]{11}$/.test(taxNumber)) return show('fm_id_err');
   if (!sole && !/^[0-9]{10}$/.test(taxNumber)) return show('fm_taxno_err');
+  const website = websiteValue(v('website'));
+  if (website === null) return show('fm_web_err');
   const captcha = v('cf-turnstile-response');
   if (!captcha) return show('fm_captcha');
-  // SantralioApplyRequest ek alan kabul etmez. Kurum türü ve web sitesi gönderilmez.
+  // SantralioApplyRequest ek alan kabul etmez. Kurum türü gönderilmez.
+  // Boş web sitesi gitmez. Alan adı veya http(s) adresi website olarak gider.
   // Şahısta T.C. kimlik no tax_number olur, tax_office gitmez. Ticaride vergi dairesi ve vergi no gider.
   const body = {
     company_name: v('company'), contact_name: v('name'), email: v('email').toLowerCase(), phone: v('phone'),
@@ -886,6 +910,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
     consent: { kvkk: true, notice_version: NOTICE_VERSION, accepted_at: new Date().toISOString() },
     turnstile_token: captcha,
   };
+  if (website) body.website = website;
   if (!sole) body.tax_office = v('tax_office');
   btn.disabled = true;
   show('fm_sending', true);
