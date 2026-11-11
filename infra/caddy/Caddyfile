@@ -95,8 +95,28 @@ agent.@SANTRALIO_BASE_DOMAIN@ {
 		-Server
 	}
 
+	# Bakım modu: /opt/santralio/maintenance.on varsa ana sayfa, /basvuru ve /odeme yerine bakım sayfası
+	# (bakim.html) 503 ile sunulur. Panel, API ve santral etkilenmez. Aç/kapat: sudo infra/maintenance.sh true | false
+	# Dosya her istekte kontrol edilir; Caddy'yi yeniden yüklemek gerekmez. /assets/* (CSS) bakımda da sunulur.
+	@maintenance {
+		file {
+			root /opt/santralio
+			try_files maintenance.on
+		}
+		not path /assets/*
+	}
+
 	route {
 		respond @not_cloudflare "Yalnızca @SANTRALIO_BASE_DOMAIN@ adresleri üzerinden erişilebilir." 403
+		handle @maintenance {
+			header Retry-After "3600"
+			header Cache-Control "no-store"
+			root * /opt/santralio/site
+			rewrite * /bakim.html
+			file_server {
+				status 503
+			}
+		}
 		root * /opt/santralio/site
 		try_files {path} {path}.html {path}/index.html
 		file_server

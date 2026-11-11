@@ -8,7 +8,7 @@
 #   2. /etc/credstore.encrypted/<ad>   (systemd-creds decrypt; control/install.sh, infra/set-secret.sh)
 #
 # Kullanım: infra/secret-fingerprint.sh <ad>
-# Örnek:    sudo infra/secret-fingerprint.sh santralio-vozyy-inbound-key
+# Örnek:    sudo infra/secret-fingerprint.sh vozyy-signing   (tam ad da olur: santralio-vozyy-signing-secret)
 set +x
 set -euo pipefail
 umask 077
@@ -17,6 +17,13 @@ usage() { echo "kullanım: $0 <ad>" >&2; exit 1; }
 
 name="${1:-}"
 [ "$#" -eq 1 ] || usage
+# set-secret.sh ile aynı kısa adlar.
+case "$name" in
+  vozyy-signing) name=santralio-vozyy-signing-secret ;;
+  vozyy-inbound) name=santralio-vozyy-inbound-key ;;
+  anthropic) name=santralio-anthropic-api-key ;;
+  azure-speech) name=santralio-azure-speech-key ;;
+esac
 # systemd credential dosya adı. Yol, boşluk veya seçenek kabul edilmez.
 [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || usage
 
