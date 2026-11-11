@@ -12,6 +12,7 @@ import { Contacts, DispositionsCard, FollowUps } from "./Crm";
 import { OutboundPolicyCard } from "./Outbound";
 import { AiSessions, AiTab } from "./Ai";
 import { InvitePage } from "./Vozyy";
+import { Login } from "./Login";
 import { PbxCard, PromptsTab } from "./Prompts";
 import { Calls, Reports } from "./Reports";
 import { api, ApiError, type AppName, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
@@ -59,44 +60,6 @@ export function App() {
   if (me === undefined) return <div className="center muted">Yükleniyor…</div>;
   if (me === null) return <Login app={app} onDone={load} />;
   return <Shell app={app} me={me} onLogout={() => api.logout().finally(() => setMe(null))} />;
-}
-
-function Login({ app, onDone }: { app: AppName; onDone: () => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await api.login(email, password);
-      onDone();
-    } catch (err) {
-      setError(message(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="center">
-      <form className="card login" onSubmit={submit}>
-        <h1>Santralio {APP_LABEL[app]}</h1>
-        <p className="muted">Giriş yapın. Aynı hesapla Panel, CRM ve Temsilci ekranları arasında geçebilirsiniz.</p>
-        <label>
-          E-posta
-          <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Şifre
-          <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button disabled={busy}>{busy ? "Giriş yapılıyor…" : "Giriş yap"}</button>
-      </form>
-    </div>
-  );
 }
 
 function AppLinks({ me, app }: { me: Me; app: AppName }) {
