@@ -13,8 +13,10 @@ import { OutboundPolicyCard } from "./Outbound";
 import { AiSessions, AiTab } from "./Ai";
 import { InvitePage } from "./Vozyy";
 import { Login } from "./Login";
-import { Layout, type NavItem, type NavSection } from "./Layout";
+import { Layout, type Chip, type LayoutContext, type NavItem, type NavSection, type Tone } from "./Layout";
+import { Icon } from "./Icons";
 import { Overview } from "./Overview";
+import { operatorName, regLabel } from "./labels";
 import type { IconName } from "./Icons";
 import { PbxCard, PromptsTab } from "./Prompts";
 import { Calls, Reports } from "./Reports";
@@ -86,6 +88,27 @@ const allowedTabs = (me: Me, list: [string, string, string[]][]) => list.filter(
 const resolveTab = (tabs: [string, string, string[]][], requested: string) =>
   tabs.some(([id]) => id === requested) ? requested : (tabs[0]?.[0] ?? "");
 
+// Firma bilgisi ve santral durumu: kenar menü, üst bar ve Özet ekranı aynı veriyi kullanır. Durum dakikada bir yenilenir.
+export type TenantInfo = { t: Tenant | null; status: Status | null };
+function useTenantInfo(me: Me, prefix: string | null): TenantInfo {
+  const [t, setT] = useState<Tenant | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
+  const canTenant = can(me, "settings.manage", "staff.manage");
+  const canStatus = can(me, "settings.manage");
+  useEffect(() => {
+    setT(null);
+    setStatus(null);
+    if (!prefix) return;
+    if (canTenant) api.tenant(prefix).then(setT).catch(() => setT(null));
+    if (!canStatus) return;
+    const load = () => api.status(prefix).then(setStatus).catch(() => setStatus(null));
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, [prefix, canTenant, canStatus]);
+  return { t, status };
+}
+
 function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => void }) {
   const [hash, go] = useHash();
   const m = /^#\/t\/([^/]+)(?:\/([a-z]+))?(?:\/(\d+))?/.exec(hash);
@@ -93,7 +116,6 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
   const scoped = me.role !== "tenant_user";
   const isSystem = app === "panel" && hash.startsWith("#/sistem") && me.role === "platform_admin";
 
-  // Platform/bayi yöneticisi için önek → firma adı (kenar menüde gösterilir).
   const [names, setNames] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!scoped) return;
@@ -104,9 +126,14 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
   }, [scoped]);
 
   const prefix = m?.[1] ?? null;
+  const info = useTenantInfo(me, app === "agent" ? null : prefix);
   const panelTabs = allowedTabs(me, PANEL_TABS);
   const crmTabs = allowedTabs(me, CRM_TABS);
   const tab = prefix ? resolveTab(app === "crm" ? crmTabs : panelTabs, m?.[2] ?? "") : "";
+
+  const online = info.status ? new Set(info.status.onlineExtensions) : null;
+  const exts = info.t?.extensions.filter((e) => e.enabled) ?? [];
+  const onlineCount = online ? exts.filter((e) => online.has(e.number)).length : null;
 
   const sections: NavSection[] = [];
   if (scoped && app !== "agent") {
@@ -116,21 +143,50 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
   }
   if (prefix && app !== "agent") {
     const list = app === "crm" ? crmTabs : panelTabs;
-    sections.push({
-      title: scoped ? "Firma" : undefined,
-      items: list.map(([id, label]) => ({ href: `#/t/${prefix}/${id}`, label, icon: TAB_ICON[id] ?? "settings", active: tab === id })),
+    const main = list.filter(([id]) => !["personel", "roller"].includes(id));
+    const team = list.filter(([id]) => ["personel", "roller"].includes(id));
+    const item = ([id, label]: [string, string, string[]]): NavItem => ({
+      href: `#/t/${prefix}/${id}`,
+      label,
+      icon: TAB_ICON[id] ?? "settings",
+      active: tab === id,
+      badge: id === "dahililer" && onlineCount !== null ? `${onlineCount}/${exts.length}` : undefined,
     });
+    sections.push({ title: app === "crm" ? "CRM" : "Santral", items: main.map(item) });
+    if (team.length) sections.push({ title: "Ekip", items: team.map(item) });
   }
   if (app === "agent") sections.push({ items: [{ href: "#/", label: "Temsilci masası", icon: "headset", active: true }] });
 
   const tenantName = prefix ? (me.tenant?.prefix === prefix ? me.tenant.name : (names[prefix] ?? prefix)) : (me.tenant?.name ?? null);
-  const context = scoped
-    ? prefix
-      ? { label: tenantName ?? prefix, back: { href: "#/", label: "Tüm müşteriler" } }
-      : null
-    : me.tenant
-      ? { label: me.tenant.name }
+  const reg = info.status ? regLabel(info.status.registration) : null;
+  const trunkLine =
+    reg && info.t
+      ? { text: `Operatör hattı: ${info.t.trunk ? operatorName(info.t.trunk.operator) : "—"} (${reg[0]})`, tone: reg[1] }
+      : undefined;
+  const context: LayoutContext | null =
+    tenantName && app !== "agent" && (prefix || !scoped)
+      ? {
+          label: tenantName,
+          code: scoped && prefix ? prefix : undefined,
+          line: trunkLine,
+          back: scoped ? { href: "#/", label: "Tüm müşteriler" } : undefined,
+        }
       : null;
+
+  const chips: Chip[] = [];
+  if (prefix && app === "panel") {
+    if (reg) chips.push({ label: "Hat", value: reg[0], tone: reg[1] });
+    if (onlineCount !== null) chips.push({ label: "Çevrimiçi", value: `${onlineCount} / ${exts.length} dahili`, tone: onlineCount ? "ok" : "idle" });
+    const lic = info.t?.license;
+    if (lic) chips.push({ label: "Lisans", value: `${lic.max_extensions} dahili / ${lic.max_channels} kanal`, tone: lic.active ? "info" : "bad" });
+  }
+  const action =
+    me.apps.includes("agent") && app !== "agent" ? (
+      <a className="btn-primary" href={me.origins.agent + "/"}>
+        <Icon name="headset" size={16} />
+        <span>Temsilci masası</span>
+      </a>
+    ) : null;
 
   const tabLabel = [...PANEL_TABS, ...CRM_TABS].find(([id]) => id === tab)?.[1];
   const title = !allowed
@@ -140,13 +196,15 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
       : isSystem
         ? "Sistem"
         : prefix
-          ? (tabLabel ?? "")
+          ? tab === "ozet"
+            ? "Operasyon konsolu"
+            : (tabLabel ?? "")
           : scoped
             ? "Müşteriler"
             : "";
 
   return (
-    <Layout app={app} me={me} sections={sections} context={context} title={title} onLogout={onLogout}>
+    <Layout app={app} me={me} sections={sections} context={context} title={title} chips={chips} action={action} onLogout={onLogout}>
       {!allowed ? (
         <div className="card">
           <h2>Bu ekrana erişiminiz yok</h2>
@@ -173,7 +231,7 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
         app === "crm" ? (
           <CrmPage me={me} prefix={prefix} tab={tab} id={m?.[3] ? Number(m[3]) : null} />
         ) : tab === "ozet" ? (
-          <Overview me={me} prefix={prefix} />
+          <Overview me={me} prefix={prefix} info={info} />
         ) : (
           <TenantPage me={me} prefix={prefix} tab={tab} />
         )
