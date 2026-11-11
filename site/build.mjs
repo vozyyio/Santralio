@@ -36,6 +36,11 @@ const icon = (name, cls) => {
 execFileSync("node_modules/.bin/tailwindcss", ["-c", "tailwind.config.cjs", "-i", join(SRC, "site.css"), "-o", join(DIST, "assets", "site.css"), "--minify"], {
   stdio: "inherit",
 });
+// Font dosyaları: düz assets/ altına (site-deploy.sh alt klasör kopyalamaz).
+const FONTS = "node_modules/@fontsource-variable/plus-jakarta-sans/files";
+for (const [from, to] of [["plus-jakarta-sans-latin-wght-normal.woff2", "pjs-latin.woff2"], ["plus-jakarta-sans-latin-ext-wght-normal.woff2", "pjs-latin-ext.woff2"]]) {
+  writeFileSync(join(DIST, "assets", to), readFileSync(join(FONTS, from)));
+}
 const cssHash = createHash("sha256").update(readFileSync(join(DIST, "assets", "site.css"))).digest("hex").slice(0, 12);
 
 for (const page of readdirSync(SRC).filter((f) => f.endsWith(".html"))) {
@@ -43,7 +48,7 @@ for (const page of readdirSync(SRC).filter((f) => f.endsWith(".html"))) {
   html = html.replace(/<i data-lucide="([a-z0-9-]+)"(?: class="([^"]*)")?><\/i>/g, (_m, name, cls = "") => icon(name, cls));
   if (/data-lucide=/.test(html)) throw new Error(`${page}: çevrilemeyen ikon kaldı`);
   html = html.replaceAll("@SITE_CSS_HASH@", cssHash).replaceAll("@TURNSTILE_SITE_KEY@", turnstile).replaceAll("@VOZYY_SANTRALIO_API@", vozyyApi);
-  for (const cdn of ["cdn.tailwindcss.com", "unpkg.com/lucide", "cdn.jsdelivr.net/npm/lucide"]) {
+  for (const cdn of ["cdn.tailwindcss.com", "unpkg.com/lucide", "cdn.jsdelivr.net/npm/lucide", "fonts.googleapis.com", "fonts.gstatic.com"]) {
     if (html.includes(cdn)) throw new Error(`${page}: CDN kaldı: ${cdn}`);
   }
   writeFileSync(join(DIST, page), html);

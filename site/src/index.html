@@ -6,9 +6,6 @@
   <title>Santralio — Firmalar için yapay zekâ destekli santral ve çağrı merkezi</title>
   <meta name="description" content="Santralio; telefon santralini, temsilci ekranını ve yapay zekâyı tek üründe toplayan, Türkçe öncelikli çağrı merkezi yazılımıdır.">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- Derlenmiş Tailwind (site/build.mjs); ikonlar satır içi SVG. -->
   <link rel="stylesheet" href="/assets/site.css?v=@SITE_CSS_HASH@">
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
@@ -506,7 +503,7 @@
           </label>
           <label class="sm:col-span-2 flex gap-3 items-start text-sm text-slate-300">
             <input name="kvkk" type="checkbox" required class="mt-1 w-4 h-4 accent-cyan-500">
-            <span><span data-i18n="fm_kvkk">KVKK aydınlatma metnini okudum, onaylıyorum.</span> <a data-i18n="fm_kvkk_link" data-legal="privacy" class="text-cyan-300 underline" href="https://vozyy.com/Culture/SetCulture?culture=tr-TR&returnUrl=%2FPrivacy">Metni görüntüle</a></span>
+            <span><span data-i18n="fm_kvkk">KVKK aydınlatma metnini okudum, onaylıyorum.</span> <a data-i18n="fm_kvkk_link" data-legal="privacy" class="text-cyan-300 underline" href="/kvkk" target="_blank" rel="noopener">Metni görüntüle</a></span>
           </label>
           <div class="cf-turnstile sm:col-span-2" data-sitekey="@TURNSTILE_SITE_KEY@" data-theme="dark"></div>
           <button type="submit" class="sm:col-span-2 py-4 disabled:opacity-60 rounded-2xl font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400" data-i18n="fm_submit">Hesap oluştur</button>
@@ -543,8 +540,7 @@
     <div class="border-t border-slate-800/80">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-wrap justify-between gap-4 text-sm text-slate-400">
         <span>© 2026 Santralio</span>
-        <!-- KVKK Vozyy gizlilik sayfasına gider. /Legal/terms-of-service tr-TR ve en-US için 404; kullanım koşulları metin kaldı. -->
-        <span class="flex flex-wrap gap-5"><a data-i18n="ft_kvkk" data-legal="privacy" class="hover:text-white" href="https://vozyy.com/Culture/SetCulture?culture=tr-TR&returnUrl=%2FPrivacy">KVKK aydınlatma metni</a><span data-i18n="ft_terms">Kullanım koşulları</span></span>
+                <span class="flex flex-wrap gap-5"><a data-i18n="ft_kvkk" data-legal="privacy" class="hover:text-white" href="/kvkk">KVKK aydınlatma metni</a><a data-i18n="ft_terms" data-legal="terms" class="hover:text-white" href="/kosullar">Kullanım koşulları</a></span>
       </div>
     </div>
   </footer>
@@ -712,10 +708,8 @@ function renderScenario() {
 }
 
 const LEGAL = {
-  privacy: {
-    tr: 'https://vozyy.com/Culture/SetCulture?culture=tr-TR&returnUrl=%2FPrivacy',
-    en: 'https://vozyy.com/Culture/SetCulture?culture=en-US&returnUrl=%2FPrivacy',
-  },
+  privacy: { tr: '/kvkk', en: '/kvkk#en' },
+  terms: { tr: '/kosullar', en: '/kosullar#en' },
 };
 
 function setLang(next) {
