@@ -13,12 +13,14 @@ import { OutboundPolicyCard } from "./Outbound";
 import { AiSessions, AiTab } from "./Ai";
 import { InvitePage } from "./Vozyy";
 import { Login } from "./Login";
+import { Layout, type NavItem, type NavSection } from "./Layout";
+import { Overview } from "./Overview";
+import type { IconName } from "./Icons";
 import { PbxCard, PromptsTab } from "./Prompts";
 import { Calls, Reports } from "./Reports";
 import { api, ApiError, type AppName, type Hours, type Me, type Sip, type Status, type Tenant, type TenantRow } from "./api";
 
 const APP_LABEL: Record<AppName, string> = { panel: "Panel", crm: "CRM", agent: "Temsilci" };
-const SCOPE_LABEL: Record<string, string> = { platform_admin: "Platform yöneticisi", reseller_admin: "Bayi yöneticisi" };
 
 // Adresin ilk parçası: panel / crm / agent. Geliştirme ortamında (localhost) panel.
 export function currentApp(): AppName {
@@ -62,79 +64,125 @@ export function App() {
   return <Shell app={app} me={me} onLogout={() => api.logout().finally(() => setMe(null))} />;
 }
 
-function AppLinks({ me, app }: { me: Me; app: AppName }) {
-  return (
-    <nav className="apps">
-      {me.apps.map((a) => (
-        <a key={a} href={me.origins[a] + "/"} className={a === app ? "active" : ""}>
-          {APP_LABEL[a]}
-        </a>
-      ))}
-    </nav>
-  );
-}
+const TAB_ICON: Record<string, IconName> = {
+  ozet: "dashboard",
+  genel: "settings",
+  menuler: "menu",
+  anonslar: "megaphone",
+  yapayzeka: "sparkles",
+  saatler: "clock",
+  kuyruklar: "queue",
+  dahililer: "phone",
+  personel: "users",
+  roller: "shield",
+  musteriler: "contact",
+  geriarama: "callback",
+  gorusmeler: "history",
+  raporlar: "chart",
+  gunluk: "log",
+};
+
+const allowedTabs = (me: Me, list: [string, string, string[]][]) => list.filter(([, , perms]) => can(me, ...perms));
+const resolveTab = (tabs: [string, string, string[]][], requested: string) =>
+  tabs.some(([id]) => id === requested) ? requested : (tabs[0]?.[0] ?? "");
 
 function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => void }) {
   const [hash, go] = useHash();
   const m = /^#\/t\/([^/]+)(?:\/([a-z]+))?(?:\/(\d+))?/.exec(hash);
   const allowed = me.apps.includes(app);
   const scoped = me.role !== "tenant_user";
+  const isSystem = app === "panel" && hash.startsWith("#/sistem") && me.role === "platform_admin";
+
+  // Platform/bayi yöneticisi için önek → firma adı (kenar menüde gösterilir).
+  const [names, setNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!scoped) return;
+    api
+      .tenants()
+      .then((rows) => setNames(Object.fromEntries(rows.map((r) => [r.prefix, r.name]))))
+      .catch(() => {});
+  }, [scoped]);
+
+  const prefix = m?.[1] ?? null;
+  const panelTabs = allowedTabs(me, PANEL_TABS);
+  const crmTabs = allowedTabs(me, CRM_TABS);
+  const tab = prefix ? resolveTab(app === "crm" ? crmTabs : panelTabs, m?.[2] ?? "") : "";
+
+  const sections: NavSection[] = [];
+  if (scoped && app !== "agent") {
+    const items: NavItem[] = [{ href: "#/", label: "Müşteriler", icon: "building", active: !prefix && !isSystem }];
+    if (me.role === "platform_admin" && app === "panel") items.push({ href: "#/sistem", label: "Sistem", icon: "server", active: isSystem });
+    sections.push({ title: me.role === "platform_admin" ? "Platform" : "Bayi", items });
+  }
+  if (prefix && app !== "agent") {
+    const list = app === "crm" ? crmTabs : panelTabs;
+    sections.push({
+      title: scoped ? "Firma" : undefined,
+      items: list.map(([id, label]) => ({ href: `#/t/${prefix}/${id}`, label, icon: TAB_ICON[id] ?? "settings", active: tab === id })),
+    });
+  }
+  if (app === "agent") sections.push({ items: [{ href: "#/", label: "Temsilci masası", icon: "headset", active: true }] });
+
+  const tenantName = prefix ? (me.tenant?.prefix === prefix ? me.tenant.name : (names[prefix] ?? prefix)) : (me.tenant?.name ?? null);
+  const context = scoped
+    ? prefix
+      ? { label: tenantName ?? prefix, back: { href: "#/", label: "Tüm müşteriler" } }
+      : null
+    : me.tenant
+      ? { label: me.tenant.name }
+      : null;
+
+  const tabLabel = [...PANEL_TABS, ...CRM_TABS].find(([id]) => id === tab)?.[1];
+  const title = !allowed
+    ? "Erişim yok"
+    : app === "agent"
+      ? "Temsilci masası"
+      : isSystem
+        ? "Sistem"
+        : prefix
+          ? (tabLabel ?? "")
+          : scoped
+            ? "Müşteriler"
+            : "";
+
   return (
-    <>
-      <header className="top">
-        <a href="#/" className="brand">
-          Santralio <span className="muted">{APP_LABEL[app]}</span>
-        </a>
-        <AppLinks me={me} app={app} />
-        {me.role === "platform_admin" && app === "panel" && (
-          <a href="#/sistem" className="small">
-            Sistem
-          </a>
-        )}
-        <span className="spacer" />
-        <span className="muted small">
-          {me.email} · {scoped ? SCOPE_LABEL[me.role] : (me.roleName ?? "")}
-        </span>
-        <button className="ghost" onClick={onLogout}>
-          Çıkış
-        </button>
-      </header>
-      <main>
-        {!allowed ? (
-          <div className="card">
-            <h2>Bu ekrana erişiminiz yok</h2>
-            {me.apps.length ? (
-              <p>
-                Hesabınızla açabileceğiniz ekranlar:{" "}
-                {me.apps.map((a, i) => (
-                  <span key={a}>
-                    {i > 0 && ", "}
-                    <a href={me.origins[a] + "/"}>{APP_LABEL[a]}</a>
-                  </span>
-                ))}
-                .
-              </p>
-            ) : (
-              <p className="muted">Rolünüzde açık bir yetki yok. Yöneticinizle görüşün.</p>
-            )}
-          </div>
-        ) : app === "agent" ? (
-          <AgentDesk />
-        ) : app === "panel" && hash.startsWith("#/sistem") && me.role === "platform_admin" ? (
-          <SystemPage />
-        ) : m ? (
-          app === "crm" ? (
-            <CrmPage me={me} prefix={m[1]} tab={m[2] ?? ""} id={m[3] ? Number(m[3]) : null} />
+    <Layout app={app} me={me} sections={sections} context={context} title={title} onLogout={onLogout}>
+      {!allowed ? (
+        <div className="card">
+          <h2>Bu ekrana erişiminiz yok</h2>
+          {me.apps.length ? (
+            <p>
+              Hesabınızla açabileceğiniz ekranlar:{" "}
+              {me.apps.map((a, i) => (
+                <span key={a}>
+                  {i > 0 && ", "}
+                  <a href={me.origins[a] + "/"}>{APP_LABEL[a]}</a>
+                </span>
+              ))}
+              .
+            </p>
           ) : (
-            <TenantPage me={me} prefix={m[1]} tab={m[2] ?? "genel"} />
-          )
-        ) : scoped ? (
-          <TenantList go={go} />
+            <p className="muted">Rolünüzde açık bir yetki yok. Yöneticinizle görüşün.</p>
+          )}
+        </div>
+      ) : app === "agent" ? (
+        <AgentDesk />
+      ) : isSystem ? (
+        <SystemPage />
+      ) : prefix ? (
+        app === "crm" ? (
+          <CrmPage me={me} prefix={prefix} tab={tab} id={m?.[3] ? Number(m[3]) : null} />
+        ) : tab === "ozet" ? (
+          <Overview me={me} prefix={prefix} />
         ) : (
-          <OwnTenant me={me} go={go} />
-        )}
-      </main>
-    </>
+          <TenantPage me={me} prefix={prefix} tab={tab} />
+        )
+      ) : scoped ? (
+        <TenantList go={go} />
+      ) : (
+        <OwnTenant me={me} go={go} />
+      )}
+    </Layout>
   );
 }
 
@@ -196,6 +244,7 @@ const can = (me: Me, ...perms: string[]) => perms.some((p) => me.permissions.inc
 
 // Panel sekmeleri ve gereken yetki.
 const PANEL_TABS: [string, string, string[]][] = [
+  ["ozet", "Özet", ["settings.manage", "staff.manage", "reports.view"]],
   ["genel", "Genel", ["settings.manage"]],
   ["menuler", "Menüler", ["settings.manage"]],
   ["anonslar", "Anonslar", ["settings.manage"]],
@@ -206,18 +255,6 @@ const PANEL_TABS: [string, string, string[]][] = [
   ["personel", "Personel", ["staff.manage"]],
   ["roller", "Roller", ["staff.manage"]],
 ];
-
-function Tabs({ prefix, tabs, active }: { prefix: string; tabs: [string, string][]; active: string }) {
-  return (
-    <nav className="tabs">
-      {tabs.map(([id, label]) => (
-        <a key={id} href={`#/t/${prefix}/${id}`} className={active === id ? "active" : ""}>
-          {label}
-        </a>
-      ))}
-    </nav>
-  );
-}
 
 function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; tab: string }) {
   const tabs = PANEL_TABS.filter(([, , perms]) => can(me, ...perms)).map(([id, label]) => [id, label] as [string, string]);
@@ -235,11 +272,6 @@ function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; ta
   if (!t) return <p className="muted">Yükleniyor…</p>;
   return (
     <>
-      <div className="title">
-        <h2>{t.name}</h2>
-        <span className="mono muted">{t.prefix}</span>
-      </div>
-      <Tabs prefix={prefix} tabs={tabs} active={tab} />
       {tab === "genel" && <General t={t} reload={reload} />}
       {tab === "anonslar" && <PromptsTab t={t} reload={reload} />}
       {tab === "yapayzeka" && <AiTab t={t} reload={reload} />}
@@ -268,14 +300,8 @@ const CRM_TABS: [string, string, string[]][] = [
 function CrmPage({ me, prefix, tab: requested, id }: { me: Me; prefix: string; tab: string; id: number | null }) {
   const tabs = CRM_TABS.filter(([, , perms]) => can(me, ...perms)).map(([id, label]) => [id, label] as [string, string]);
   const tab = tabs.some(([id]) => id === requested) ? requested : (tabs[0]?.[0] ?? "");
-  const name = me.tenant?.prefix === prefix ? me.tenant.name : prefix;
   return (
     <>
-      <div className="title">
-        <h2>{name}</h2>
-        <span className="mono muted">{prefix}</span>
-      </div>
-      <Tabs prefix={prefix} tabs={tabs} active={tab} />
       {tab === "musteriler" && <Contacts prefix={prefix} contactId={id} />}
       {tab === "geriarama" && <FollowUps prefix={prefix} />}
       {tab === "gorusmeler" && <Calls prefix={prefix} own={!can(me, "calls.all")} />}
