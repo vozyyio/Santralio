@@ -58,7 +58,7 @@
 .auth-word { font-size: 1.6em; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
 .auth-word b { font-weight: 800; background: linear-gradient(90deg, #60a5fa, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .auth-console { font-size: 0.8125em; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--a-muted); padding-left: 56px; }
-.auth-pitch-h { margin: 18px 0 8px; font-size: 1.5em; font-weight: 800; line-height: 1.25; letter-spacing: -0.02em; color: #fff; }
+.auth-pitch-h { margin: 0 0 8px; font-size: 1.5em; font-weight: 800; line-height: 1.25; letter-spacing: -0.02em; color: #fff; }
 .auth-pitch-p { margin: 0 0 20px; color: var(--a-muted); }
 .auth-points { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .auth-points li { display: flex; align-items: center; gap: 10px; color: #dbe4ee; font-size: 0.9375em; }
@@ -71,6 +71,22 @@
 .auth-wave i:nth-child(4) { animation-delay: 0.45s; }
 .auth-wave i:nth-child(5) { animation-delay: 0.2s; }
 @keyframes auth-wave { to { height: 26px; } }
+
+/* Santral çizimi */
+.auth-art { display: block; width: 100%; max-width: 380px; height: auto; margin: 16px auto 8px; flex: 1 1 auto; overflow: visible; }
+.auth-art-node { fill: #0c1426; stroke: rgba(148, 163, 184, 0.35); stroke-width: 1.5; }
+.auth-art-node-on { stroke: rgba(52, 211, 153, 0.7); }
+.auth-art-line { fill: none; stroke: rgba(148, 163, 184, 0.28); stroke-width: 1.5; stroke-dasharray: 2 6; stroke-linecap: round; }
+.auth-art-flow { fill: none; stroke: #22d3ee; stroke-width: 2; stroke-dasharray: 6 8; stroke-linecap: round; animation: auth-flow 1.4s linear infinite; }
+.auth-art-flow-on { stroke: #34d399; }
+.auth-art-ring { fill: none; stroke: rgba(34, 211, 238, 0.35); stroke-width: 1.5; transform-origin: 180px 124px; animation: auth-ring 2.6s ease-out infinite; }
+.auth-art-bars rect { fill: #38bdf8; transform-box: fill-box; transform-origin: center; animation: auth-bar 1s ease-in-out infinite alternate; }
+.auth-art-bars rect:nth-child(2) { animation-delay: 0.2s; }
+.auth-art-bars rect:nth-child(3) { animation-delay: 0.4s; }
+.auth-art-bars rect:nth-child(4) { animation-delay: 0.1s; }
+@keyframes auth-flow { to { stroke-dashoffset: -28; } }
+@keyframes auth-ring { from { transform: scale(0.85); opacity: 0.9; } to { transform: scale(1.25); opacity: 0; } }
+@keyframes auth-bar { from { transform: scaleY(0.5); } to { transform: scaleY(1.15); } }
 
 /* Sağ: form */
 .auth-form-wrap { padding: 28px 48px 24px; display: flex; flex-direction: column; background: rgba(13, 20, 36, 0.9); }
@@ -143,7 +159,7 @@
   .auth-shell { grid-template-columns: 1fr; max-width: 520px; border-radius: 20px; }
   .auth-brand { padding: 22px 24px; gap: 0; border-right: 0; border-bottom: 1px solid var(--a-line); }
   .auth-pitch-h { margin: 14px 0 0; font-size: 1.125em; }
-  .auth-pitch .auth-wave, .auth-pitch-p, .auth-points { display: none; }
+  .auth-art, .auth-pitch-p, .auth-points { display: none; }
   .auth-form-wrap { padding: 16px 24px 20px; }
   .auth-form { margin-top: 8px; }
 }
@@ -158,5 +174,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .auth-wave i { animation: none; height: 16px; }
+  .auth-art-flow, .auth-art-ring, .auth-art-bars rect { animation: none; }
+  .auth-art-ring { opacity: 0.4; }
   .auth-input, .auth .auth-submit { transition: none; }
 }

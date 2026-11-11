@@ -68,14 +68,6 @@ function initialLang(): Lang {
   return (navigator.language || "tr").toLowerCase().startsWith("tr") ? "tr" : "en";
 }
 
-function Wave() {
-  return (
-    <span className="auth-wave" aria-hidden="true">
-      <i /><i /><i /><i /><i />
-    </span>
-  );
-}
-
 function Logo() {
   return (
     <span className="auth-logo">
@@ -94,6 +86,95 @@ function Logo() {
         Santral<b>io</b>
       </span>
     </span>
+  );
+}
+
+
+// Santral çizimi: gelen çağrı → santral merkezi → yapay zekâ ve temsilciler. Yalnızca süs (aria-hidden).
+const PHONE =
+  "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z";
+const HEADSET = "M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3";
+const SPARK = "M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z";
+
+function Glyph({ d, x, y, size = 24, color, fill = false }: { d: string; x: number; y: number; size?: number; color: string; fill?: boolean }) {
+  const k = size / 24;
+  return (
+    <path
+      d={d}
+      transform={`translate(${x - size / 2} ${y - size / 2}) scale(${k})`}
+      fill={fill ? color : "none"}
+      stroke={color}
+      strokeWidth={2 / k > 2.6 ? 2.6 : 2 / k}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  );
+}
+
+function PbxArt() {
+  const agents = [
+    { x: 300, y: 54, on: true },
+    { x: 316, y: 124, on: false },
+    { x: 300, y: 194, on: false },
+  ];
+  return (
+    <svg className="auth-art" viewBox="0 0 360 250" aria-hidden="true">
+      <defs>
+        <linearGradient id="artHub" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#2563EB" />
+          <stop offset="1" stopColor="#22D3EE" />
+        </linearGradient>
+        <linearGradient id="artBars" x1="164" y1="100" x2="194" y2="148" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#38BDF8" />
+          <stop offset="1" stopColor="#2563EB" />
+        </linearGradient>
+        <radialGradient id="artGlow">
+          <stop offset="0" stopColor="#22D3EE" stopOpacity="0.35" />
+          <stop offset="1" stopColor="#22D3EE" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      {/* bağlantılar */}
+      <path className="auth-art-flow" d="M70 124 H136" />
+      <path className="auth-art-line" d="M180 124 L118 52" />
+      {agents.map((a) => (
+        <path key={a.y} className={a.on ? "auth-art-flow auth-art-flow-on" : "auth-art-line"} d={`M224 124 Q262 ${a.y} ${a.x - 22} ${a.y}`} />
+      ))}
+
+      {/* gelen çağrı */}
+      <circle cx="46" cy="124" r="24" className="auth-art-node" />
+      <Glyph d={PHONE} x={46} y={124} size={20} color="#38BDF8" />
+      <g className="auth-art-bars">
+        <rect x="80" y="104" width="3" height="10" rx="1.5" />
+        <rect x="86" y="100" width="3" height="18" rx="1.5" />
+        <rect x="92" y="106" width="3" height="6" rx="1.5" />
+        <rect x="98" y="102" width="3" height="14" rx="1.5" />
+      </g>
+
+      {/* yapay zekâ */}
+      <circle cx="110" cy="44" r="20" className="auth-art-node" />
+      <Glyph d={SPARK} x={110} y={44} size={20} color="#22D3EE" fill />
+
+      {/* santral merkezi */}
+      <circle cx="180" cy="124" r="70" fill="url(#artGlow)" />
+      <circle cx="180" cy="124" r="52" className="auth-art-ring" />
+      <circle cx="180" cy="124" r="44" fill="#080D19" stroke="url(#artHub)" strokeWidth="2.5" />
+      <g className="auth-art-hub-bars" stroke="url(#artBars)" strokeWidth="5" strokeLinecap="round">
+        <line x1="164" y1="116" x2="164" y2="132" />
+        <line x1="174" y1="106" x2="174" y2="142" />
+        <line x1="184" y1="100" x2="184" y2="148" />
+        <line x1="194" y1="110" x2="194" y2="138" />
+      </g>
+
+      {/* temsilciler */}
+      {agents.map((a) => (
+        <g key={a.y}>
+          <circle cx={a.x} cy={a.y} r="22" className={a.on ? "auth-art-node auth-art-node-on" : "auth-art-node"} />
+          <Glyph d={HEADSET} x={a.x} y={a.y} size={20} color={a.on ? "#34D399" : "#7C8CA3"} />
+          {a.on && <circle cx={a.x + 16} cy={a.y - 16} r="5" fill="#34D399" stroke="#0C1426" strokeWidth="2.5" />}
+        </g>
+      ))}
+    </svg>
   );
 }
 
@@ -167,8 +248,8 @@ export function Login({ app, onDone }: { app: AppName; onDone: () => void }) {
             <Logo />
             <span className="auth-console">{t.console[app]}</span>
           </div>
+          <PbxArt />
           <div className="auth-pitch">
-            <Wave />
             <p className="auth-pitch-h">{t.pitch}</p>
             <p className="auth-pitch-p">{t.pitchSub}</p>
             <ul className="auth-points">
