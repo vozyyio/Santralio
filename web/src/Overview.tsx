@@ -162,8 +162,8 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
         <div className="kpis">
           {showReports && (tot ? (
             <>
-              <Kpi label="Bugünkü çağrı" value={num(tot.offered)} note={`${pct(tot.answerRate)} cevaplama oranı`} noteTone="ok" icon="phone" tone="white" />
-              <Kpi label="Cevaplanan" value={num(tot.answered)} note={`Ort. bekleme ${dur(tot.avgWaitS)}`} icon="check" tone="ok" />
+              <Kpi label="Bugünkü çağrı" value={num(tot.offered)} note={tot.offered ? `${pct(tot.answerRate)} cevaplama oranı` : "Henüz çağrı yok"} noteTone={tot.offered ? "ok" : undefined} icon="phone" tone="white" />
+              <Kpi label="Cevaplanan" value={num(tot.answered)} note={tot.answered ? `Ort. bekleme ${dur(tot.avgWaitS)}` : "—"} icon="check" tone={tot.answered ? "ok" : "white"} />
               <Kpi label="Kaçan çağrı" value={num(missed)} note={tot.closedHours ? `Mesai dışı: ${num(tot.closedHours)} çağrı` : "Mesai dışı çağrı yok"} icon="callback" tone={missed ? "bad" : "white"} />
             </>
           ) : day === "error" ? (
@@ -177,22 +177,23 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
               value={onlineCount === null ? "–" : `${onlineCount} / ${exts.length}`}
               note={onlineCount === null ? "Santral durumu bekleniyor" : `${exts.length - onlineCount} dahili çevrimdışı`}
               icon="users"
-              tone="cyan"
+              tone={onlineCount ? "cyan" : "white"}
             />
           )}
           {showReports && tot && (
             <>
-              <Kpi label="En uzun bekleme" value={dur(tot.maxWaitS)} note={`Ortalama ${dur(tot.avgWaitS)}`} icon="clock" tone="warn" />
-              <Kpi label="Ort. konuşma" value={dur(tot.avgTalkS)} note={`Toplam ${dur(tot.totalTalkS)}`} icon="headset" tone="violet" />
+              <Kpi label="En uzun bekleme" value={dur(tot.maxWaitS)} note={tot.offered ? `Ortalama ${dur(tot.avgWaitS)}` : "—"} icon="clock" tone={tot.maxWaitS ? "warn" : "white"} />
+              <Kpi label="Ort. konuşma" value={dur(tot.avgTalkS)} note={tot.answered ? `Toplam ${dur(tot.totalTalkS)}` : "—"} icon="headset" tone={tot.avgTalkS ? "violet" : "white"} />
             </>
           )}
         </div>
       )}
 
-      <div className="ov-row">
-        {showCalls && (
+      <div className="ov-cols">
+        <div className="ov-col">
+          {showCalls && (
           <Panel
-            className="span-8"
+           
             title="Bugünün çağrıları"
             dot
             meta={
@@ -209,7 +210,10 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
             ) : !calls ? (
               <p className="muted">Yükleniyor…</p>
             ) : recent.length === 0 ? (
-              <p className="muted">Bugün henüz çağrı yok.</p>
+              <div className="empty">
+                <Icon name="phone" size={22} />
+                <span>Bugün henüz çağrı yok.</span>
+              </div>
             ) : (
               <div className="tbl-wrap">
                 <table className="tbl stack">
@@ -270,43 +274,8 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
             </footer>
           </Panel>
         )}
-
-        {showSettings && (
-          <Panel className="span-4" title="Temsilci durumları" icon="users" meta={<span className="mono">{exts.length} kayıtlı dahili</span>}>
-            {!t || !online ? (
-              <p className="muted">Yükleniyor…</p>
-            ) : (
-              <ul className="agents">
-                {exts.map((e) => {
-                  const on = online.has(e.number);
-                  const qs = memberOf(e.number);
-                  return (
-                    <li key={e.number} className={on ? "on" : ""}>
-                      <span className="agent-no">
-                        {e.number}
-                        <span className="agent-dot" />
-                      </span>
-                      <span className="agent-main">
-                        <strong>{e.display_name || `Dahili ${e.number}`}</strong>
-                        <small>{on ? "Çevrimiçi" : "Çevrimdışı"}</small>
-                      </span>
-                      <span className="agent-meta">{qs.length ? `Kuyruk: ${qs.join(", ")}` : "Dahili hat"}</span>
-                    </li>
-                  );
-                })}
-                {exts.length === 0 && <li className="muted">Henüz dahili yok.</li>}
-              </ul>
-            )}
-            <a className="btn-ghost-wide" href={`#/t/${prefix}/dahililer`}>
-              <Icon name="phone" size={16} /> Yeni dahili hat tanımla
-            </a>
-          </Panel>
-        )}
-      </div>
-
-      <div className="ov-row">
-        {showSettings && t && (
-          <Panel className="span-6" title="Arama akışı" icon="route" meta={<span className="mono">{t.entryPoints.length} numara</span>}>
+          {showSettings && t && (
+          <Panel title="Arama akışı" icon="route" meta={<span className="mono">{t.entryPoints.length} numara</span>}>
             {t.entryPoints.length === 0 ? (
               <p className="muted">Henüz numara bağlanmamış.</p>
             ) : (
@@ -340,13 +309,17 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
             </a>
           </Panel>
         )}
-
-        {showReports && (
-          <Panel className="span-6" title="Son 7 gün" icon="chart" meta={updated ? <span className="mono">Güncelleme {updated.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span> : null}>
+          {showReports && (
+          <Panel title="Son 7 gün" icon="chart" meta={updated ? <span className="mono">Güncelleme {updated.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span> : null}>
             {week === "error" ? (
               <p className="error">Yüklenemedi.</p>
             ) : !days.length ? (
               <p className="muted">Yükleniyor…</p>
+            ) : days.every((d) => d.offered === 0) ? (
+              <div className="empty">
+                <Icon name="chart" size={22} />
+                <span>Son 7 günde çağrı yok. İlk çağrılar geldiğinde grafik burada görünecek.</span>
+              </div>
             ) : (
               <>
                 <div className="bars" role="img" aria-label={`Son 7 günde ${num(days.reduce((a, d) => a + d.offered, 0))} çağrı`}>
@@ -368,11 +341,8 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
             )}
           </Panel>
         )}
-      </div>
-
-      <div className="ov-row">
-        {showReports && day && day !== "error" && day.byQueue.length > 0 && (
-          <Panel className="span-8" title="Bugün kuyruklar" icon="queue">
+          {showReports && day && day !== "error" && day.byQueue.length > 0 && (
+          <Panel title="Bugün kuyruklar" icon="queue">
             <div className="tbl-wrap">
               <table className="tbl">
                 <thead>
@@ -401,13 +371,53 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
             </div>
           </Panel>
         )}
-
-        {t && lic !== undefined && (
-          <Panel className="span-4" title="Vozyy lisansı" icon="license" meta={lic ? <span className={`pill t-${lic.active ? "ok" : "bad"}`}><span className="lay-dot" />{lic.active ? "Etkin" : "Pasif"}</span> : null}>
+        </div>
+        <div className="ov-col ov-col-side">
+          {showSettings && (
+          <Panel title="Temsilci durumları" icon="users" meta={<span className="mono">{exts.length} kayıtlı dahili</span>}>
+            {!t || !online ? (
+              <p className="muted">Yükleniyor…</p>
+            ) : (
+              <ul className="agents">
+                {exts.map((e) => {
+                  const on = online.has(e.number);
+                  const qs = memberOf(e.number);
+                  return (
+                    <li key={e.number} className={on ? "on" : ""}>
+                      <span className="agent-no">
+                        {e.number}
+                        <span className="agent-dot" />
+                      </span>
+                      <span className="agent-main">
+                        <strong>{e.display_name || `Dahili ${e.number}`}</strong>
+                        <small>{on ? "Çevrimiçi" : "Çevrimdışı"}</small>
+                        {qs.length > 0 && (
+                          <span className="agent-queues">
+                            {qs.map((q) => (
+                              <span key={q} className="tag">
+                                {q}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+                {exts.length === 0 && <li className="muted">Henüz dahili yok.</li>}
+              </ul>
+            )}
+            <a className="btn-ghost-wide" href={`#/t/${prefix}/dahililer`}>
+              <Icon name="phone" size={16} /> Yeni dahili hat tanımla
+            </a>
+          </Panel>
+        )}
+          {t && lic !== undefined && (
+          <Panel title="Vozyy lisansı" icon="license" meta={lic ? <span className={`pill t-${lic.active ? "ok" : "bad"}`}><span className="lay-dot" />{lic.active ? "Etkin" : "Pasif"}</span> : null}>
             {!lic ? (
               <p className="muted">Lisans bulunamadı.</p>
             ) : (
-              <div className="lic">
+              <div className="lic lic-v">
                 <div className="lic-box">
                   <span className="lic-label">Dahili</span>
                   <span className="lic-value mono">
@@ -429,6 +439,7 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
             )}
           </Panel>
         )}
+        </div>
       </div>
     </div>
   );

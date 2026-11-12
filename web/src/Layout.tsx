@@ -7,7 +7,7 @@ import { Icon, type IconName } from "./Icons";
 import type { AppName, Me } from "./api";
 
 export type NavItem = { href: string; label: string; icon: IconName; active: boolean; badge?: string };
-export type NavSection = { title?: string; items: NavItem[] };
+export type NavSection = { title?: string; items: NavItem[]; bar?: boolean };
 export type Tone = "ok" | "warn" | "bad" | "idle" | "info";
 export type Chip = { label: string; value: string; tone?: Tone };
 export type LayoutContext = {
@@ -206,6 +206,9 @@ export function Layout({
   }, [drawer]);
 
   const hasNav = sections.some((s) => s.items.length > 0);
+  const barSections = sections.filter((s) => s.bar);
+  const tabSections = sections.filter((s) => !s.bar);
+  const hasTabs = tabSections.some((s) => s.items.length > 0);
 
   return (
     <div className={`lay ${drawer ? "lay-drawer-open" : ""}`}>
@@ -224,8 +227,18 @@ export function Layout({
             </button>
           )}
           <Brand app={app} />
-          <div className="lay-desktop">
+          <div className="lay-desktop lay-bar-left">
             <Apps me={me} app={app} />
+            {barSections.map((sec) => (
+              <nav key={sec.title} className="lay-scope" aria-label={sec.title}>
+                {sec.items.map((it) => (
+                  <a key={it.href} href={it.href} className={it.active ? "active" : ""} aria-current={it.active ? "page" : undefined}>
+                    <Icon name={it.icon} size={16} />
+                    {it.label}
+                  </a>
+                ))}
+              </nav>
+            ))}
           </div>
           <span className="lay-spacer" />
           {chips && chips.length > 0 && (
@@ -252,12 +265,12 @@ export function Layout({
           <UserMenu me={me} onLogout={onLogout} />
         </div>
 
-        {(hasNav || context) && (
+        {(hasTabs || context) && (
           <div className="lay-navrow lay-desktop-flex">
             {context && <TenantPill context={context} />}
-            {hasNav && (
+            {hasTabs && (
               <nav className="lay-tabs" aria-label="Sayfalar">
-                <NavLinks sections={sections} />
+                <NavLinks sections={tabSections} />
               </nav>
             )}
           </div>

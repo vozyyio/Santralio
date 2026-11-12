@@ -139,7 +139,7 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
   if (scoped && app !== "agent") {
     const items: NavItem[] = [{ href: "#/", label: "Müşteriler", icon: "building", active: !prefix && !isSystem }];
     if (me.role === "platform_admin" && app === "panel") items.push({ href: "#/sistem", label: "Sistem", icon: "server", active: isSystem });
-    sections.push({ title: me.role === "platform_admin" ? "Platform" : "Bayi", items });
+    sections.push({ title: me.role === "platform_admin" ? "Platform" : "Bayi", items, bar: true });
   }
   if (prefix && app !== "agent") {
     const list = app === "crm" ? crmTabs : panelTabs;

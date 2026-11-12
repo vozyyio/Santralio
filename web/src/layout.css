@@ -236,3 +236,59 @@ body.lay-lock { overflow: hidden; }
   .tbl.stack td:nth-child(6) { grid-column: 2; grid-row: 3; justify-self: end; }
   .tbl-wrap:has(.tbl.stack) { overflow-x: visible; }
 }
+
+/* ---------- Düzeltmeler (gerçek veriyle) ---------- */
+.lay-bar-left { display: flex; align-items: center; gap: 6px; }
+.lay-scope { display: inline-flex; gap: 2px; margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--line); }
+.lay-scope a { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border-radius: 9px; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+.lay-scope a:hover { background: var(--hover); color: var(--text-strong); }
+.lay-scope a.active { background: var(--nav-active); color: var(--nav-active-text); }
+.lay-tabs { flex-wrap: wrap; overflow: visible; row-gap: 0; }
+.lay-tabs a { height: 44px; padding: 0 10px; font-size: 0.85rem; }
+.lay-tenant-name { max-width: 200px; }
+
+/* Göstergeler: tek satır, sade */
+.kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpi { padding: 14px 16px; border-radius: 16px; gap: 4px; }
+.kpi-head { font-size: 0.8rem; }
+.kpi-value { font-family: inherit; font-variant-numeric: tabular-nums; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; }
+
+/* İki bağımsız sütun: kartlar arası boşluk oluşmaz */
+.ov-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 18px; align-items: start; }
+.ov-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.pnl-head { padding-bottom: 12px; margin-bottom: 8px; }
+.pnl-meta .mono { font-size: 0.72rem; }
+
+.empty { display: flex; align-items: center; gap: 12px; padding: 16px; margin-top: 4px; border-radius: 14px; background: var(--surface-2); border: 1px dashed var(--line); color: var(--muted); font-size: 0.9rem; }
+.empty svg { flex: none; color: var(--faint); }
+
+.agents li { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+.agent-queues { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.agent-queues .tag { font-size: 0.68rem; padding: 1px 6px; }
+.agent-main small { font-family: inherit; font-size: 0.78rem; }
+
+.lic-v { grid-template-columns: 1fr; }
+.lic-v .lic-row { padding-top: 10px; }
+.lic-label { font-family: inherit; letter-spacing: 0.02em; text-transform: none; font-size: 0.78rem; font-weight: 600; }
+
+.tbl th { font-family: inherit; font-size: 0.75rem; font-weight: 700; text-transform: none; }
+.bars { height: 160px; }
+
+@media (max-width: 1100px) {
+  .ov-cols { grid-template-columns: minmax(0, 1fr); }
+  .ov-col-side { order: -1; }
+}
+@media (max-width: 1100px) and (min-width: 700px) {
+  .ov-col-side { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+}
+@media (max-width: 560px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-value { font-size: 1.3rem; }
+}
+/* Orta genişlikte sekmeler tek satıra sığsın: ikonlar gizlenir, firma kartı daralır. */
+@media (max-width: 1440px) {
+  .lay-tabs a svg { display: none; }
+  .lay-tabs a { padding: 0 9px; }
+  .lay-tenant-name { max-width: 160px; }
+  .lay-tenant-line { display: none; }
+}
