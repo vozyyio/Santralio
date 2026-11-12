@@ -1,8 +1,8 @@
-// Panel iskeleti (Operasyon Konsolu tasarımı): sol menü + üst bar.
-// 1024px altında sol menü, hamburger ile açılan çekmeceye dönüşür.
-// Menü öğeleri ve üst bar bilgileri App.tsx'te kullanıcının yetkisine göre hesaplanır.
+// Panel iskeleti: üstte iki satır (marka + işlemler, altında sayfa menüsü), içerik ekranın tamamına yayılır.
+// 1024px altında sayfa menüsü soldan açılan çekmeceye taşınır.
+// Tema: açık (varsayılan) ya da yumuşak koyu; seçim tarayıcıda hatırlanır.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./Icons";
 import type { AppName, Me } from "./api";
 
@@ -21,9 +21,149 @@ const APP_LABEL: Record<AppName, string> = { panel: "Panel", crm: "CRM", agent: 
 const APP_SUB: Record<AppName, string> = { panel: "Yönetim paneli", crm: "Müşteri ilişkileri", agent: "Temsilci masası" };
 const SCOPE_LABEL: Record<string, string> = { platform_admin: "Platform yöneticisi", reseller_admin: "Bayi yöneticisi" };
 
+type Theme = "light" | "dark";
+function useTheme(): [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      return localStorage.getItem("santralio-theme") === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem("santralio-theme", theme);
+    } catch {
+      /* depolama kapalı olabilir */
+    }
+  }, [theme]);
+  return [theme, () => setTheme((t) => (t === "dark" ? "light" : "dark"))];
+}
+
 function initials(me: Me) {
   const parts = (me.name || me.email).trim().split(/[\s.@_-]+/).filter(Boolean);
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toLocaleUpperCase("tr-TR") || "?";
+}
+
+function Brand({ app }: { app: AppName }) {
+  return (
+    <a href="#/" className="lay-brand" aria-label="Santralio">
+      <span className="lay-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M6 10v4M10 7v10M14 4v16M18 8v8" stroke="url(#layg)" strokeWidth="2.4" strokeLinecap="round" />
+          <defs>
+            <linearGradient id="layg" x1="6" y1="4" x2="18" y2="20" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#38BDF8" />
+              <stop offset="1" stopColor="#2563EB" />
+            </linearGradient>
+          </defs>
+        </svg>
+      </span>
+      <span className="lay-brand-text">
+        <span className="lay-word">
+          Santral<b>io</b>
+        </span>
+        <span className="lay-sub">{APP_SUB[app]}</span>
+      </span>
+    </a>
+  );
+}
+
+function Apps({ me, app }: { me: Me; app: AppName }) {
+  if (me.apps.length < 2) return null;
+  return (
+    <nav className="lay-apps" aria-label="Ekranlar">
+      {me.apps.map((a) => (
+        <a key={a} href={me.origins[a] + "/"} className={a === app ? "active" : ""} aria-current={a === app ? "page" : undefined}>
+          {APP_LABEL[a]}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function TenantPill({ context }: { context: LayoutContext }) {
+  return (
+    <div className="lay-tenant">
+      {context.back && (
+        <a href={context.back.href} className="lay-back" title={context.back.label} aria-label={context.back.label}>
+          <Icon name="back" size={16} />
+        </a>
+      )}
+      <span className="lay-tenant-text">
+        <span className="lay-tenant-name" title={context.label}>
+          {context.label}
+          {context.code && <span className="lay-code">{context.code}</span>}
+        </span>
+        {context.line && (
+          <span className={`lay-tenant-line t-${context.line.tone}`}>
+            <span className="lay-dot" />
+            {context.line.text}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function NavLinks({ sections, vertical }: { sections: NavSection[]; vertical?: boolean }) {
+  return (
+    <>
+      {sections.map((s, i) => (
+        <div key={s.title ?? i} className="lay-group" role="group" aria-label={s.title}>
+          {vertical && s.title && <div className="lay-group-title">{s.title}</div>}
+          {s.items.map((it) => (
+            <a key={it.href} href={it.href} className={it.active ? "active" : ""} aria-current={it.active ? "page" : undefined}>
+              <Icon name={it.icon} size={17} />
+              <span>{it.label}</span>
+              {it.badge && <span className="lay-badge">{it.badge}</span>}
+            </a>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function UserMenu({ me, onLogout }: { me: Me; onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    addEventListener("mousedown", off);
+    addEventListener("keydown", key);
+    return () => {
+      removeEventListener("mousedown", off);
+      removeEventListener("keydown", key);
+    };
+  }, [open]);
+  const scoped = me.role !== "tenant_user";
+  return (
+    <div className="lay-user" ref={ref}>
+      <button type="button" className="lay-user-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="lay-avatar" aria-hidden="true">
+          {initials(me)}
+        </span>
+        <span className="lay-user-name">{me.name || me.email}</span>
+        <Icon name="chevron" size={16} />
+      </button>
+      {open && (
+        <div className="lay-user-menu" role="menu">
+          <div className="lay-user-info">
+            <strong>{me.name || me.email}</strong>
+            <small>{me.email}</small>
+            <small>{scoped ? SCOPE_LABEL[me.role] : (me.roleName ?? "")}</small>
+          </div>
+          <button type="button" role="menuitem" className="lay-menu-item" onClick={onLogout}>
+            <Icon name="logout" size={16} /> Çıkış yap
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Layout({
@@ -47,12 +187,12 @@ export function Layout({
   onLogout: () => void;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  const scoped = me.role !== "tenant_user";
+  const [drawer, setDrawer] = useState(false);
+  const [theme, toggleTheme] = useTheme();
 
   useEffect(() => {
-    const close = () => setOpen(false);
-    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const close = () => setDrawer(false);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setDrawer(false);
     addEventListener("hashchange", close);
     addEventListener("keydown", key);
     return () => {
@@ -61,126 +201,33 @@ export function Layout({
     };
   }, []);
   useEffect(() => {
-    document.body.classList.toggle("lay-lock", open);
+    document.body.classList.toggle("lay-lock", drawer);
     return () => document.body.classList.remove("lay-lock");
-  }, [open]);
+  }, [drawer]);
+
+  const hasNav = sections.some((s) => s.items.length > 0);
 
   return (
-    <div className={`lay ${open ? "lay-open" : ""}`}>
-      <aside className="lay-side" id="lay-side" aria-label="Menü">
-        <div className="lay-side-head">
-          <a href="#/" className="lay-brand" aria-label="Santralio">
-            <span className="lay-mark" aria-hidden="true">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path d="M6 10v4M10 7v10M14 4v16M18 8v8" stroke="url(#layg)" strokeWidth="2.4" strokeLinecap="round" />
-                <defs>
-                  <linearGradient id="layg" x1="6" y1="4" x2="18" y2="20" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#38BDF8" />
-                    <stop offset="1" stopColor="#2563EB" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </span>
-            <span className="lay-brand-text">
-              <span className="lay-word">
-                Santral<b>io</b>
-              </span>
-              <span className="lay-sub">{APP_SUB[app]}</span>
-            </span>
-          </a>
-          <button type="button" className="lay-icon-btn lay-only-mobile" aria-label="Menüyü kapat" onClick={() => setOpen(false)}>
-            <Icon name="close" />
-          </button>
-        </div>
-
-        {me.apps.length > 1 && (
-          <nav className="lay-apps" aria-label="Ekranlar">
-            {me.apps.map((a) => (
-              <a key={a} href={me.origins[a] + "/"} className={a === app ? "active" : ""} aria-current={a === app ? "page" : undefined}>
-                {APP_LABEL[a]}
-              </a>
-            ))}
-          </nav>
-        )}
-
-        {context && (
-          <div className="lay-tenant">
-            {context.back && (
-              <a href={context.back.href} className="lay-back">
-                <Icon name="back" size={14} />
-                {context.back.label}
-              </a>
-            )}
-            <div className="lay-tenant-top">
-              <span className="lay-tenant-label">Aktif firma</span>
-              {context.code && <span className="lay-code">{context.code}</span>}
-            </div>
-            <div className="lay-tenant-name" title={context.label}>
-              {context.label}
-            </div>
-            {context.line && (
-              <div className={`lay-tenant-line t-${context.line.tone}`}>
-                <span className="lay-dot" />
-                {context.line.text}
-              </div>
-            )}
+    <div className={`lay ${drawer ? "lay-drawer-open" : ""}`}>
+      <header className="lay-head">
+        <div className="lay-bar">
+          {hasNav && (
+            <button
+              type="button"
+              className="lay-icon-btn lay-mobile"
+              aria-label="Menüyü aç"
+              aria-controls="lay-drawer"
+              aria-expanded={drawer}
+              onClick={() => setDrawer(true)}
+            >
+              <Icon name="burger" />
+            </button>
+          )}
+          <Brand app={app} />
+          <div className="lay-desktop">
+            <Apps me={me} app={app} />
           </div>
-        )}
-
-        <nav className="lay-nav" aria-label="Sayfalar">
-          {sections.map((s, i) => (
-            <div key={s.title ?? i} className="lay-section">
-              {s.title && <div className="lay-section-title">{s.title}</div>}
-              {s.items.map((it) => (
-                <a key={it.href} href={it.href} className={it.active ? "active" : ""} aria-current={it.active ? "page" : undefined}>
-                  <Icon name={it.icon} size={18} />
-                  <span className="lay-nav-label">{it.label}</span>
-                  {it.badge && <span className="lay-badge">{it.badge}</span>}
-                </a>
-              ))}
-            </div>
-          ))}
-        </nav>
-
-        <div className="lay-user">
-          <span className="lay-avatar" aria-hidden="true">
-            {initials(me)}
-          </span>
-          <span className="lay-user-text">
-            <strong>{me.name || (scoped ? SCOPE_LABEL[me.role] : me.email)}</strong>
-            <small>{me.email}</small>
-          </span>
-          <button type="button" className="lay-icon-btn lay-icon-btn-plain" aria-label="Çıkış yap" title="Çıkış yap" onClick={onLogout}>
-            <Icon name="logout" size={18} />
-          </button>
-        </div>
-      </aside>
-
-      <button type="button" className="lay-scrim" aria-label="Menüyü kapat" tabIndex={open ? 0 : -1} onClick={() => setOpen(false)} />
-
-      <div className="lay-body">
-        <header className="lay-top">
-          <button
-            type="button"
-            className="lay-icon-btn lay-only-mobile"
-            aria-label="Menüyü aç"
-            aria-controls="lay-side"
-            aria-expanded={open}
-            onClick={() => setOpen(true)}
-          >
-            <Icon name="burger" />
-          </button>
-          <div className="lay-crumb">
-            <h1>{title}</h1>
-            {context && (
-              <>
-                <span className="lay-slash" aria-hidden="true">
-                  /
-                </span>
-                <span className="lay-crumb-code">{context.label}</span>
-              </>
-            )}
-          </div>
+          <span className="lay-spacer" />
           {chips && chips.length > 0 && (
             <div className="lay-chips">
               {chips.map((c) => (
@@ -192,10 +239,54 @@ export function Layout({
               ))}
             </div>
           )}
-          {action && <div className="lay-action">{action}</div>}
-        </header>
-        <main className="lay-main">{children}</main>
-      </div>
+          {action}
+          <button
+            type="button"
+            className="lay-icon-btn"
+            aria-label={theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç"}
+            title={theme === "dark" ? "Açık tema" : "Koyu tema"}
+            onClick={toggleTheme}
+          >
+            <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
+          </button>
+          <UserMenu me={me} onLogout={onLogout} />
+        </div>
+
+        {(hasNav || context) && (
+          <div className="lay-navrow lay-desktop-flex">
+            {context && <TenantPill context={context} />}
+            {hasNav && (
+              <nav className="lay-tabs" aria-label="Sayfalar">
+                <NavLinks sections={sections} />
+              </nav>
+            )}
+          </div>
+        )}
+      </header>
+
+      {/* Tablet/telefon çekmecesi */}
+      <aside className="lay-drawer" id="lay-drawer" aria-label="Menü" aria-hidden={!drawer}>
+        <div className="lay-drawer-head">
+          <Brand app={app} />
+          <button type="button" className="lay-icon-btn" aria-label="Menüyü kapat" onClick={() => setDrawer(false)}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <Apps me={me} app={app} />
+        {context && <TenantPill context={context} />}
+        <nav className="lay-vnav" aria-label="Sayfalar">
+          <NavLinks sections={sections} vertical />
+        </nav>
+      </aside>
+      <button type="button" className="lay-scrim" aria-label="Menüyü kapat" tabIndex={drawer ? 0 : -1} onClick={() => setDrawer(false)} />
+
+      <main className="lay-main">
+        <div className="lay-pagehead">
+          <h1>{title}</h1>
+          {context && <span className="lay-pagehead-sub">{context.label}</span>}
+        </div>
+        {children}
+      </main>
     </div>
   );
 }
