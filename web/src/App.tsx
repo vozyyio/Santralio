@@ -16,6 +16,7 @@ import { Login } from "./Login";
 import { Layout, type Chip, type LayoutContext, type NavItem, type NavSection, type Tone } from "./Layout";
 import { Icon } from "./Icons";
 import { Overview } from "./Overview";
+import { PaymentsPage } from "./Payments";
 import { operatorName, regLabel } from "./labels";
 import type { IconName } from "./Icons";
 import { PbxCard, PromptsTab } from "./Prompts";
@@ -82,6 +83,7 @@ const TAB_ICON: Record<string, IconName> = {
   gorusmeler: "history",
   raporlar: "chart",
   gunluk: "log",
+  odeme: "card",
 };
 
 const allowedTabs = (me: Me, list: [string, string, string[]][]) => list.filter(([, , perms]) => can(me, ...perms));
@@ -224,7 +226,7 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
           )}
         </div>
       ) : app === "agent" ? (
-        <AgentDesk />
+        <AgentDesk payPrefix={can(me, "payments.request") ? (me.tenant?.prefix ?? null) : null} />
       ) : isSystem ? (
         <SystemPage />
       ) : prefix ? (
@@ -232,6 +234,8 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
           <CrmPage me={me} prefix={prefix} tab={tab} id={m?.[3] ? Number(m[3]) : null} />
         ) : tab === "ozet" ? (
           <Overview me={me} prefix={prefix} info={info} />
+        ) : tab === "odeme" ? (
+          <PaymentsPage prefix={prefix} />
         ) : (
           <TenantPage me={me} prefix={prefix} tab={tab} />
         )
@@ -312,6 +316,7 @@ const PANEL_TABS: [string, string, string[]][] = [
   ["dahililer", "Dahililer", ["settings.manage"]],
   ["personel", "Personel", ["staff.manage"]],
   ["roller", "Roller", ["staff.manage"]],
+  ["odeme", "Ödeme", ["payments.manage"]],
 ];
 
 function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; tab: string }) {

@@ -13,6 +13,8 @@ export const PERMISSIONS = {
   "crm.use": "CRM: müşteri kartları ve notlar",
   "settings.manage": "Santral ayarları: numara, menü, anons, çalışma saati, kuyruk, dahili, kayıt",
   "staff.manage": "Personel ve roller",
+  "payments.request": "Arayandan ödeme isteme (bağlantı veya tuşlama)",
+  "payments.manage": "Ödeme ayarları: banka / ödeme kuruluşu, profiller, tüm ödemeler",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -25,14 +27,14 @@ export const DEFAULT_ROLES: { name: string; permissions: Permission[] }[] = [
   { name: "Müdür", permissions: ALL_PERMISSIONS },
   {
     name: "Süpervizör",
-    permissions: ["agent.desk", "agent.outbound", "calls.own", "calls.all", "recordings.listen", "reports.view", "crm.use"],
+    permissions: ["agent.desk", "agent.outbound", "calls.own", "calls.all", "recordings.listen", "reports.view", "crm.use", "payments.request"],
   },
-  { name: "Temsilci", permissions: ["agent.desk", "calls.own", "crm.use"] },
+  { name: "Temsilci", permissions: ["agent.desk", "calls.own", "crm.use", "payments.request"] },
 ];
 
 // Üç adres ve açılmaları için gereken yetkiler (herhangi biri yeterli).
 export const APPS = {
-  panel: ["settings.manage", "staff.manage"],
+  panel: ["settings.manage", "staff.manage", "payments.manage"],
   crm: ["calls.own", "calls.all", "reports.view", "audit.view", "crm.use"],
   agent: ["agent.desk"],
 } as const satisfies Record<string, readonly Permission[]>;
@@ -45,6 +47,7 @@ const MODULE_PERMISSIONS: Record<string, Permission[]> = {
   recording: ["recordings.listen"],
   reports: ["reports.view"],
   crm: ["crm.use"],
+  payments: ["payments.request", "payments.manage"],
 };
 
 // Vozyy lisanslı kiracıda modülü olmayan yetkiler düşer (manuel lisans: modules null, her şey açık).

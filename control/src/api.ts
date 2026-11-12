@@ -25,8 +25,10 @@ import {
   verifyPassword,
   type User,
 } from "./auth.ts";
-import { BASE_DOMAIN, masterKey, optionalCredential, PG_DATABASE, PG_HOST, SIP_HOST, SOUNDS_DIR } from "./config.ts";
+import { BASE_DOMAIN, CURRENT_KEY_ID, masterKey, optionalCredential, PG_DATABASE, PG_HOST, SIP_HOST, SOUNDS_DIR } from "./config.ts";
 import * as vozyy from "./vozyy.ts";
+import * as payments from "./payments/service.ts";
+import { publicCatalog } from "./payments/catalog.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
 import { listCalls, parseRange, summary, type CallRow } from "./reports.ts";
@@ -70,9 +72,13 @@ type Ctx = {
 class Raw {
   type: string;
   data: Buffer;
-  constructor(type: string, data: Buffer) {
+  status?: number;
+  headers?: Record<string, string>;
+  constructor(type: string, data: Buffer, status?: number, headers?: Record<string, string>) {
     this.type = type;
     this.data = data;
+    this.status = status;
+    this.headers = headers;
   }
 }
 type Handler = (ctx: Ctx) => Promise<unknown>;
@@ -856,6 +862,184 @@ route(
   true,
 );
 
+// --- Ödeme modülü ---
+// İşletme kendi bankasını / ödeme kuruluşunu bağlar. Kimlik bilgileri şifreli; yanıtlarda dönmez.
+const PAYMENTS_API_BASE = process.env.SANTRALIO_PUBLIC_API ?? `https://api.${BASE_DOMAIN}`;
+const payKeys = { key: masterKey, currentId: CURRENT_KEY_ID };
+const payDeps = (ctx: Ctx): payments.Deps => ({ db: ctx.db, keys: payKeys, fetch, apiBase: PAYMENTS_API_BASE, actor: ctx.user ? actor(ctx) : "payments" });
+const idParam = (v: string) => {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1) throw new UserError("geçersiz kimlik", 404);
+  return n;
+};
+
+route("GET", "/api/payments/catalog", async () => publicCatalog());
+
+route("GET", "/api/tenants/:prefix/payments/settings", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  const d = payDeps(ctx);
+  return { providers: await payments.listProviders(d, t.id), profiles: await payments.listProfiles(d, t.id), sms: await payments.getSms(d, t.id) };
+});
+route("POST", "/api/tenants/:prefix/payments/providers", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  const b = ctx.body ?? {};
+  return { id: await payments.saveProvider(payDeps(ctx), t.id, { provider: b.provider, label: b.label, mode: b.mode, credentials: b.credentials, enabled: b.enabled, isDefault: b.isDefault }) };
+});
+route("PUT", "/api/tenants/:prefix/payments/providers/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  const b = ctx.body ?? {};
+  return { id: await payments.saveProvider(payDeps(ctx), t.id, { id: idParam(ctx.params[1]), label: b.label, mode: b.mode, credentials: b.credentials, enabled: b.enabled, isDefault: b.isDefault }) };
+});
+route("POST", "/api/tenants/:prefix/payments/providers/:id/test", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  return payments.testProvider(payDeps(ctx), t.id, idParam(ctx.params[1]));
+});
+route("POST", "/api/tenants/:prefix/payments/providers/:id/moto", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  await payments.confirmMoto(payDeps(ctx), t.id, idParam(ctx.params[1]), ctx.body?.confirmed === true);
+  return { ok: true };
+});
+route("DELETE", "/api/tenants/:prefix/payments/providers/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  await payments.deleteProvider(payDeps(ctx), t.id, idParam(ctx.params[1]));
+  return { ok: true };
+});
+route("PUT", "/api/tenants/:prefix/payments/sms", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  await payments.saveSms(payDeps(ctx), t.id, { sender: ctx.body?.sender, credentials: ctx.body?.credentials });
+  return { ok: true };
+});
+route("PUT", "/api/tenants/:prefix/payments/profiles/:name", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  await payments.saveProfile(payDeps(ctx), t.id, { ...(ctx.body ?? {}), name: ctx.params[1] });
+  return { ok: true };
+});
+route("DELETE", "/api/tenants/:prefix/payments/profiles/:name", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
+  await payments.deleteProfile(payDeps(ctx), t.id, ctx.params[1]);
+  return { ok: true };
+});
+// Temsilci için: etkin profiller (yalnızca ödeme istemek için gerekenler).
+route("GET", "/api/tenants/:prefix/payments/profiles", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.request", "payments.manage");
+  return (await payments.listProfiles(payDeps(ctx), t.id))
+    .filter((p: any) => p.enabled)
+    .map((p: any) => ({ name: p.name, title: p.title, amountSource: p.amountSource, fixedAmount: p.fixedAmount, maxAmount: p.maxAmount, currency: p.currency, methods: p.methods }));
+});
+// Talepler: yönetici hepsini, temsilci yalnızca kendi oluşturduklarını görür.
+route("GET", "/api/tenants/:prefix/payments/requests", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.request", "payments.manage");
+  const url = new URL(ctx.req.url ?? "/", "http://x");
+  return payments.listRequests(payDeps(ctx), t.id, {
+    status: url.searchParams.get("status") ?? undefined,
+    callId: url.searchParams.get("call") ?? undefined,
+    user: has(ctx, "payments.manage") ? null : ctx.user!.email,
+    limit: Number(url.searchParams.get("limit") ?? 100),
+  });
+});
+route("POST", "/api/tenants/:prefix/payments/requests", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.request");
+  const b = ctx.body ?? {};
+  return payments.createRequest(payDeps(ctx), t, {
+    profile: typeof b.profile === "string" ? b.profile : undefined,
+    amount: b.amount,
+    description: typeof b.description === "string" ? b.description : undefined,
+    phone: typeof b.phone === "string" ? b.phone : null,
+    callId: typeof b.callId === "string" ? b.callId.slice(0, 64) : null,
+    contactId: Number.isInteger(b.contactId) ? b.contactId : null,
+    method: typeof b.method === "string" ? b.method : "link",
+    createdBy: "agent",
+    user: ctx.user!.email,
+    sendSms: b.sendSms !== false,
+    locale: b.locale === "en" ? "en" : "tr",
+  });
+});
+async function ownRequest(ctx: Ctx) {
+  const t = await tenantFor(ctx, ctx.params[0], "payments.request", "payments.manage");
+  const r = await payments.getRequest(payDeps(ctx), t.id, ctx.params[1]);
+  if (!has(ctx, "payments.manage") && r.createdByUser !== ctx.user!.email) throw new UserError("ödeme talebi bulunamadı", 404);
+  return { t, r };
+}
+route("GET", "/api/tenants/:prefix/payments/requests/:id", async (ctx) => (await ownRequest(ctx)).r);
+route("POST", "/api/tenants/:prefix/payments/requests/:id/cancel", async (ctx) => {
+  const { t } = await ownRequest(ctx);
+  await payments.cancelRequest(payDeps(ctx), t.id, ctx.params[1]);
+  return { ok: true };
+});
+
+// Sağlayıcı bildirimi (sunucudan sunucuya). Adresteki anahtar sağlayıcı bağlantısını bulur, imzayı adaptör doğrular.
+route(
+  "POST",
+  "/api/payments/callback/:key",
+  async (ctx) => {
+    const raw = ctx.body as Buffer;
+    if (raw.length > MAX_BODY) throw new UserError("istek çok büyük", 413);
+    const h = ctx.req.headers;
+    const headers = Object.fromEntries(Object.entries(h).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]));
+    const r = await payments.handleCallback(payDeps(ctx), ctx.params[0], { headers, rawBody: raw, contentType: String(h["content-type"] ?? "") });
+    return new Raw(r.type, Buffer.from(r.body), r.status);
+  },
+  false,
+  true,
+);
+
+// Test sağlayıcısının ödeme sayfası (yalnızca test modundaki "test" sağlayıcısı). Gerçek para hareketi yoktur.
+const TEST_PAGE_HEADERS = { "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'", "referrer-policy": "no-referrer" };
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+function testPage(title: string, inner: string) {
+  return new Raw(
+    "text/html; charset=utf-8",
+    Buffer.from(`<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
+<body style="font-family:system-ui,sans-serif;background:#f3f6fa;color:#0f172a;margin:0;display:grid;place-items:center;min-height:100vh">
+<main style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px;max-width:420px;width:calc(100% - 32px)">
+<p style="margin:0 0 6px;color:#b45309;font-weight:700">TEST ÖDEMESİ · gerçek para hareketi yok</p>${inner}</main></body></html>`),
+    200,
+    TEST_PAGE_HEADERS,
+  );
+}
+route(
+  "GET",
+  "/api/payments/test-page/:ref",
+  async (ctx) => {
+    const r = await payments.testPageInfo(payDeps(ctx), ctx.params[0]);
+    if (!r) return testPage("Bulunamadı", "<h1>Bağlantı bulunamadı</h1>");
+    const money = `${esc(r.amount)} ${esc(r.currency)}`;
+    if (r.status === "paid") return testPage("Ödendi", `<h1>Ödeme alındı</h1><p>${esc(r.tenant)} · ${money}</p>`);
+    return testPage(
+      "Test ödemesi",
+      `<h1 style="margin:0 0 8px">${esc(r.tenant)}</h1><p>${esc(r.description)}</p><p style="font-size:1.6rem;font-weight:800">${money}</p>
+<form method="post"><button name="outcome" value="paid" style="padding:12px 18px;border:0;border-radius:10px;background:#047857;color:#fff;font-weight:700">Ödendi olarak işaretle</button>
+<button name="outcome" value="failed" style="padding:12px 18px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;font-weight:700;margin-left:8px">Başarısız</button></form>`,
+    );
+  },
+  false,
+);
+route(
+  "POST",
+  "/api/payments/test-page/:ref",
+  async (ctx) => {
+    const outcome = new URLSearchParams((ctx.body as Buffer).toString("utf8")).get("outcome");
+    if (outcome !== "paid" && outcome !== "failed") throw new UserError("geçersiz seçim");
+    const res = await payments.testPageResult(payDeps(ctx), ctx.params[0], outcome);
+    return testPage("Sonuç", `<h1>${outcome === "paid" ? "Ödeme alındı" : "Ödeme başarısız"}</h1><p>${esc(res)}</p>`);
+  },
+  false,
+  true,
+);
+
+// Bildirim göndermeyen sağlayıcılar için durum sorgusu ve süresi dolanların kapatılması: dakikada bir.
+setInterval(async () => {
+  const db = await pool.connect().catch(() => null);
+  if (!db) return;
+  try {
+    await payments.poll({ db, keys: payKeys, fetch, apiBase: PAYMENTS_API_BASE, actor: "payments" });
+  } catch (err) {
+    console.error(new Date().toISOString(), "ödeme durum sorgusu:", err);
+  } finally {
+    db.release();
+  }
+}, 60_000).unref();
+
 // Davet: ilk yönetici şifresini belirler (bağlantı: panel/#/davet/<token>; token adreste değil gövdede gider).
 route(
   "POST",
@@ -1186,7 +1370,7 @@ route("PUT", "/api/tenants/:prefix/entry-points/:address", async (ctx) => {
 
 function send(res: ServerResponse, status: number, body: unknown) {
   if (body instanceof Raw) {
-    res.writeHead(status, { "content-type": body.type, "cache-control": "no-store", "x-content-type-options": "nosniff" });
+    res.writeHead(body.status ?? status, { "content-type": body.type, "cache-control": "no-store", "x-content-type-options": "nosniff", ...body.headers });
     return res.end(body.data);
   }
   const data = JSON.stringify(body);

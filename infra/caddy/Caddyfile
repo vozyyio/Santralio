@@ -130,7 +130,7 @@ agent.@SANTRALIO_BASE_DOMAIN@ {
 	}
 }
 
-# Dış servislerin çağırdığı API: şimdilik yalnızca Vozyy lisans olayları (POST /api/vozyy/events). Gerisi 404.
+# Dış servislerin çağırdığı API: Vozyy lisans olayları, ödeme sağlayıcısı bildirimleri ve test ödeme sayfası. Gerisi 404.
 api.@SANTRALIO_BASE_DOMAIN@ {
 	import cloudflare
 
@@ -149,6 +149,32 @@ api.@SANTRALIO_BASE_DOMAIN@ {
 		handle @vozyy_events {
 			request_body {
 				max_size 64KB
+			}
+			reverse_proxy 127.0.0.1:8090 {
+				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@
+			}
+		}
+		# Ödeme sağlayıcılarının sunucudan bildirimi (imza uygulamada doğrulanır).
+		@payment_callback {
+			method POST
+			path_regexp ^/api/payments/callback/[a-z0-9]{32}$
+		}
+		handle @payment_callback {
+			request_body {
+				max_size 64KB
+			}
+			reverse_proxy 127.0.0.1:8090 {
+				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@
+			}
+		}
+		# Santralio test sağlayıcısının sayfası (yalnızca test modu; gerçek para hareketi yok).
+		@payment_test_page {
+			method GET POST
+			path_regexp ^/api/payments/test-page/pay_[a-z0-9]{20}$
+		}
+		handle @payment_test_page {
+			request_body {
+				max_size 4KB
 			}
 			reverse_proxy 127.0.0.1:8090 {
 				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@

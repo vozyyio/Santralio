@@ -3,6 +3,7 @@
 // Kuyruktan gelen arama tarayıcıda çalar; aç, sessize al, kapat. Müsait/molada durumu kuyruğa yansır.
 
 import { useEffect, useRef, useState } from "react";
+import { PaymentRequestBox } from "./Payments";
 import { Invitation, Inviter, Registerer, RegistererState, SessionState, UserAgent, Web, type Session } from "sip.js";
 import { api, type Agent } from "./api";
 import { AiSummary } from "./Ai";
@@ -73,7 +74,7 @@ function duration(since: number | null, now: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function AgentDesk() {
+export function AgentDesk({ payPrefix = null }: { payPrefix?: string | null } = {}) {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
@@ -528,6 +529,7 @@ export function AgentDesk() {
             )}
           </div>
           {held && !consultInfo && <p className="muted small">Arayan beklemede; bekleme müziği dinliyor.</p>}
+          {phase === "talking" && payPrefix && !consultInfo && <PaymentRequestBox prefix={payPrefix} phone={call.from} callId={call.callid} />}
           {transferOpen === "blind" && directory && (
             <div className="transfer">
               <p className="muted small">Doğrudan aktar (arayan seçilen yere geçer, sizin bağlantınız kapanır):</p>

@@ -43,6 +43,76 @@ export type TenantRow = {
   max_extensions: number | null;
   max_channels: number | null;
 };
+
+// --- Ödeme modülü ---
+export type PayField = { key: string; label: string; secret: boolean; hint?: string };
+export type PayCatalogEntry = {
+  id: string;
+  name: string;
+  kind: "psp" | "bank" | "international" | "test";
+  status: "available" | "planned";
+  banks?: string[];
+  fields: PayField[];
+  features: { link: boolean; providerSms: boolean; secureDtmf: boolean; installments: boolean };
+  docs?: string;
+};
+export type PayProvider = {
+  id: number;
+  provider: string;
+  name: string;
+  label: string;
+  mode: "test" | "live";
+  enabled: boolean;
+  isDefault: boolean;
+  fields: Record<string, string | boolean>;
+  motoConfirmed: boolean;
+  lastTest: { at: string; ok: boolean; error: string | null } | null;
+};
+export type PayProfile = {
+  id?: number;
+  name: string;
+  title: string;
+  providerId: number | null;
+  amountSource: "fixed" | "agent" | "lookup";
+  fixedAmount: string | null;
+  maxAmount: string;
+  currency: string;
+  lookupUrl: string | null;
+  methods: "link" | "dtmf" | "both";
+  maxInstallment: number;
+  expiresMinutes: number;
+  askText: string;
+  smsText: string;
+  successText: string;
+  enabled: boolean;
+};
+export type PaySms = { sender: "netgsm" | "provider" | "none"; fields: Record<string, string | boolean> };
+export type PayRequest = {
+  id: string;
+  status: "created" | "sent" | "paid" | "failed" | "expired" | "cancelled";
+  method: "link" | "dtmf";
+  amount: string;
+  currency: string;
+  description: string;
+  phone: string | null;
+  callId: string | null;
+  linkUrl: string | null;
+  smsStatus: "sent" | "failed" | "skipped" | null;
+  cardLast4: string | null;
+  paidAmount: string | null;
+  error: string | null;
+  createdBy: string;
+  createdByUser: string | null;
+  expiresAt: string;
+  paidAt: string | null;
+  createdAt: string;
+  provider: string;
+  providerLabel: string;
+  mode: "test" | "live";
+  profile: string | null;
+};
+export type PayProfileLite = Pick<PayProfile, "name" | "title" | "amountSource" | "fixedAmount" | "maxAmount" | "currency" | "methods">;
+
 export type Hours = { weekdays: string; opens: string; closes: string };
 export type VozyyLicense = {
   licenseId: string;
@@ -288,5 +358,23 @@ export const api = {
   inviteCheck: (token: string) => call<{ email: string; name: string; company: string }>("POST", "/api/invite/check", { token }),
   inviteAccept: (token: string, password: string) => call<{ ok: true; email: string }>("POST", "/api/invite/accept", { token, password }),
   directory: () => call<{ queues: { name: string; number: string | null }[]; extensions: { number: string; name: string }[] }>("GET", "/api/agent/directory"),
+  payCatalog: () => call<PayCatalogEntry[]>("GET", "/api/payments/catalog"),
+  paySettings: (p: string) => call<{ providers: PayProvider[]; profiles: PayProfile[]; sms: PaySms }>("GET", `${t(p)}/payments/settings`),
+  payAddProvider: (p: string, b: { provider: string; label: string; mode: string; credentials: Record<string, string>; isDefault?: boolean }) =>
+    call<{ id: number }>("POST", `${t(p)}/payments/providers`, b),
+  payUpdateProvider: (p: string, id: number, b: Partial<{ label: string; mode: string; credentials: Record<string, string>; enabled: boolean; isDefault: boolean }>) =>
+    call<{ id: number }>("PUT", `${t(p)}/payments/providers/${id}`, b),
+  payTestProvider: (p: string, id: number) => call<{ ok: boolean; error: string | null }>("POST", `${t(p)}/payments/providers/${id}/test`, {}),
+  payDeleteProvider: (p: string, id: number) => call<{ ok: true }>("DELETE", `${t(p)}/payments/providers/${id}`),
+  paySaveSms: (p: string, b: { sender: string; credentials?: Record<string, string> }) => call<{ ok: true }>("PUT", `${t(p)}/payments/sms`, b),
+  paySaveProfile: (p: string, name: string, b: Partial<PayProfile>) => call<{ ok: true }>("PUT", `${t(p)}/payments/profiles/${seg(name)}`, b),
+  payDisableProfile: (p: string, name: string) => call<{ ok: true }>("DELETE", `${t(p)}/payments/profiles/${seg(name)}`),
+  payProfiles: (p: string) => call<PayProfileLite[]>("GET", `${t(p)}/payments/profiles`),
+  payRequests: (p: string, q: { status?: string; call?: string; limit?: number } = {}) =>
+    call<PayRequest[]>("GET", `${t(p)}/payments/requests?${new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}`),
+  payCreate: (p: string, b: { profile?: string; amount?: string; description?: string; phone?: string; callId?: string | null; sendSms?: boolean }) =>
+    call<PayRequest>("POST", `${t(p)}/payments/requests`, b),
+  payRequest: (p: string, id: string) => call<PayRequest>("GET", `${t(p)}/payments/requests/${seg(id)}`),
+  payCancel: (p: string, id: string) => call<{ ok: true }>("POST", `${t(p)}/payments/requests/${seg(id)}/cancel`, {}),
   setPause: (paused: boolean, reason?: string) => call<{ paused: boolean }>("PUT", "/api/agent/pause", { paused, reason: reason ?? null }),
 };
