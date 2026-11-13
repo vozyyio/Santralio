@@ -113,6 +113,40 @@ export type PayRequest = {
 };
 export type PayProfileLite = Pick<PayProfile, "name" | "title" | "amountSource" | "fixedAmount" | "maxAmount" | "currency" | "methods">;
 
+
+// --- Kaçan çağrıya otomatik geri arama ---
+export type CallbackSettings = {
+  enabled: boolean;
+  aiFlow: string;
+  delayS: number;
+  maxAttempts: number;
+  retryMinutes: number;
+  cooldownHours: number;
+  maxAgeMinutes: number;
+  maxConcurrent: number;
+  windowStart: string;
+  windowEnd: string;
+  weekdays: number[];
+  timezone: string;
+  international: boolean;
+  greetingTr: string;
+  greetingEn: string;
+};
+export type CallbackJob = {
+  id: number;
+  phone: string;
+  reason: "abandoned" | "timeout" | "no_agent";
+  status: "pending" | "dialing" | "answered" | "no_answer" | "resolved" | "skipped" | "cancelled" | "failed";
+  attempts: number;
+  note: string | null;
+  missedAt: string;
+  nextAt: string;
+  lastAttemptAt: string | null;
+  aiSummary: string | null;
+  aiRoute: string | null;
+};
+export type CallbackOptout = { phone: string; reason: string; createdBy: string; createdAt: string };
+
 export type Hours = { weekdays: string; opens: string; closes: string };
 export type VozyyLicense = {
   licenseId: string;
@@ -376,5 +410,13 @@ export const api = {
     call<PayRequest>("POST", `${t(p)}/payments/requests`, b),
   payRequest: (p: string, id: string) => call<PayRequest>("GET", `${t(p)}/payments/requests/${seg(id)}`),
   payCancel: (p: string, id: string) => call<{ ok: true }>("POST", `${t(p)}/payments/requests/${seg(id)}/cancel`, {}),
+  cbSettings: (p: string) =>
+    call<{ settings: CallbackSettings; flows: { name: string; enabled: boolean }[]; defaults: { greetingTr: string; greetingEn: string } }>("GET", `${t(p)}/callbacks/settings`),
+  cbSave: (p: string, b: CallbackSettings) => call<CallbackSettings>("PUT", `${t(p)}/callbacks/settings`, b),
+  cbJobs: (p: string, limit = 50) => call<CallbackJob[]>("GET", `${t(p)}/callbacks?limit=${limit}`),
+  cbCancel: (p: string, id: number) => call<{ ok: true }>("POST", `${t(p)}/callbacks/${id}/cancel`, {}),
+  cbOptout: (p: string) => call<CallbackOptout[]>("GET", `${t(p)}/callbacks/optout`),
+  cbOptoutAdd: (p: string, phone: string, reason: string) => call<{ ok: true }>("POST", `${t(p)}/callbacks/optout`, { phone, reason }),
+  cbOptoutRemove: (p: string, phone: string) => call<{ ok: true }>("DELETE", `${t(p)}/callbacks/optout/${seg(phone)}`),
   setPause: (paused: boolean, reason?: string) => call<{ paused: boolean }>("PUT", "/api/agent/pause", { paused, reason: reason ?? null }),
 };

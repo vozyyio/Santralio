@@ -52,6 +52,8 @@ export type TenantModel = {
   pbxOpen?: boolean;
   // Yapay zekâ karşılaması: kiracıda açık mı (platform) ve akışlar (aktarılabilecek hedefler, varsayılan).
   ai?: { enabled: boolean; flows: { name: string; enabled: boolean; routes: string[]; defaultTarget: string | null }[] };
+  // Kaçan çağrıya otomatik geri arama (callbacks.ts). Açıksa tN-callback context'i üretilir.
+  callback?: { flow: string } | null;
 };
 
 // Yapay zekâ karşılama servisi (santralio-ai), AudioSocket ile.
@@ -438,7 +440,7 @@ exten => s,1,Set(TODAY=${v(`STRFTIME(${v("EPOCH")},${sc.timezone},%F)`)})
  same => n,Set(AIUUID=${v("SHELL(cat /proc/sys/kernel/random/uuid)")})
  same => n,Set(AIUUID=${v("AIUUID:0:36")})
  same => n,Set(CHANNEL(hangup_handler_push)=santralio-lib,ai-cleanup,1(${v("AIUUID")}))
- same => n,Set(DB(santralio_ai/${v("AIUUID")})=${p}|${f.name}|${v("UNIQUEID")}|${v("FILTER(0-9,${SANTRALIO_DID})")}|${v("FILTER(0-9+,${CALLERID(num)})")})
+ same => n,Set(DB(santralio_ai/${v("AIUUID")})=${p}|${f.name}|${v("UNIQUEID")}|${v("FILTER(0-9,${SANTRALIO_DID})")}|${v("FILTER(0-9+,${CALLERID(num)})")}|${v("FILTER(a-z0-9:,${SANTRALIO_AI_KIND})")})
  same => n,Set(__SANTRALIO_AI=${v("AIUUID")})
  same => n,AudioSocket(${v("AIUUID")},${AI_SERVICE})
  same => n,Set(ROUTE=${v(`DB(santralio_ai/${v("AIUUID")}/route)`)})
@@ -564,7 +566,30 @@ ${recordingSteps(t, p)} same => n,Set(CHANNEL(hangup_handler_push)=santralio-lib
   }
 
   if (outboundOn(t)) out.push(renderOutbound(t, p));
+  if (t.callback && t.trunk?.enabled && t.ai?.enabled && t.ai.flows.some((f) => f.name === t.callback!.flow && f.enabled)) out.push(renderCallback(t, p));
   return out.join("");
+}
+
+// Kaçan çağrıya geri arama: kontrol servisi AMI Originate ile kiracının hattından arar; karşı taraf açınca buraya girilir.
+// CB değişkeni "<iş no>_<numara rakamları>" biçimindedir. Arayan numarası yapay zekâya bu numara olarak geçer;
+// SANTRALIO_AI_KIND, yapay zekâ servisine bunun bir geri arama olduğunu söyler (karşılama ve talimat ona göre).
+function renderCallback(t: TenantModel, p: string): string {
+  const flow = t.callback!.flow;
+  assertId(flow, "yapay zekâ akışı");
+  return `
+[${p}-callback]
+exten => s,1,NoOp(Santralio ${p}: otomatik geri arama ${v("CB")})
+ same => n,Set(CBJOB=${v("FILTER(0-9,${CUT(CB,_,1)})")})
+ same => n,Set(CBNUM=${v("FILTER(0-9,${CUT(CB,_,2)})")})
+ same => n,GotoIf($["${v("CBJOB")}" = "" | "${v("CBNUM")}" = ""]?bad)
+ same => n,Set(TENANT=${p})
+ same => n,Gosub(santralio-lib,limit,1(${t.maxChannels}))
+ same => n,Set(CALLERID(num)=+${v("CBNUM")})
+ same => n,Set(__SANTRALIO_AI_KIND=callback:${v("CBJOB")})
+ same => n,Set(SANTRALIO_DID=)
+ same => n,Goto(${p}-ai-${flow},s,1)
+ same => n(bad),Hangup(21)
+`;
 }
 
 function renderQueues(t: TenantModel, p: string): string {

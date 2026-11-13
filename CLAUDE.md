@@ -84,7 +84,7 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 - Başvuru ve ödeme santralio.site'de; müşteri vozyy.com'a gitmez. `PushEnabled` ancak anahtar parmak izleri eşleşip uçtan uca test geçince açılır.
 - Kiracı öneki `t` + sayı (ör. `t12`); müşterinin istediği kısa ad ayrı `slug` alanındadır.
 
-## 8. Durum (son güncelleme: 2026-11-12)
+## 8. Durum (son güncelleme: 2026-11-13)
 
 | Alan | Durum |
 | --- | --- |
@@ -93,6 +93,7 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 | Vozyy lisans olayları ucu | Yayında; push kapalı, uçtan uca test bekliyor |
 | Panel yeni tasarım (Operasyon konsolu, üst menü, açık tema) | Var |
 | Ödeme modülü: PayTR, iyzico, test sağlayıcı, Netgsm SMS, profiller, panel, temsilci "Ödeme iste" | Var; gerçek sağlayıcı hesaplarıyla test edilmedi |
+| Kaçan çağrıya otomatik yapay zekâ geri araması (`control/src/callbacks.ts`, Panel → Kaçan çağrılar) | Var; dialplan Asterisk 20'de doğrulandı, gerçek hatla test edilmedi |
 | Tanıtım sitesi | Bakımda; KVKK ve koşullar taslak (hukuk kontrolü bekliyor) |
 
 ## 9. Yol haritası (öncelik sırası)
@@ -100,8 +101,10 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 1. **Canlı durum ucu:** bekleyen çağrı, aktif görüşme, temsilci durumu (AMI/ARI, olay akışı). Gerçek santralde test edilir.
 2. **Ödeme: sesli menü ve yapay zekâ adımı.** Arayana "SMS ile bağlantı 1, tuşlama 2" sorusu; yapay zekânın sesli onayla bağlantı göndermesi. Akışta yeni hedef türü `payment:<profil>`.
 3. **Görüşme sonrası yapay zekâ analizi:** özet, konu, hava, takip işi, "yapay zekâ çözdü mü".
-4. **Arayanı tanıma** (CRM eşleşmesi, kaçıncı arama) ve **kaçan çağrı otomasyonu** ("sıranız gelince sizi arayalım", geri arama).
+4. **Arayanı tanıma** (CRM eşleşmesi, kaçıncı arama) ve **"sıranız gelince sizi arayalım"** (kuyrukta beklemek yerine geri aranma). Kaçan çağrıya otomatik geri arama tamamlandı.
 5. Randevu/rezervasyonu konuşmadan oluşturma (takvim, otel sistemi), otomatik hatırlatma araması.
+   - Gelmeme riskine göre kapora isteme (ödeme modülüyle). Risk puanı somut geçmişten (önceki gelmeme, ilk kez mi, ne kadar önceden); ses tonu yalnızca destekleyici sinyal (KVKK: profilleme, aydınlatma metninde yer almalı).
+   - Çok dilli sağlık/turizm yönlendirmesi: kiracı bazlı terim sözlüğü (STT kelime listesi), niyete göre kuyruk. Sağlık soruları özel nitelikli veri: önce açık rıza, "değerlendirme" değil "bilgi toplama".
 6. Webhook ve açık API, TV ekranı, anlık uyarılar, haftalık yapay zekâ raporu, KVKK maskeleme.
 7. Bayiler için beyaz etiket, kurulum sihirbazı, mobil uygulama altyapısı.
 8. Kanallar: WhatsApp araması, web sitesi arama butonu.

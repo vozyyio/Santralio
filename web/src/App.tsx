@@ -17,6 +17,7 @@ import { Layout, type Chip, type LayoutContext, type NavItem, type NavSection, t
 import { Icon } from "./Icons";
 import { Overview } from "./Overview";
 import { PaymentsPage } from "./Payments";
+import { CallbacksPage } from "./Callbacks";
 import { operatorName, regLabel } from "./labels";
 import type { IconName } from "./Icons";
 import { PbxCard, PromptsTab } from "./Prompts";
@@ -84,6 +85,7 @@ const TAB_ICON: Record<string, IconName> = {
   raporlar: "chart",
   gunluk: "log",
   odeme: "card",
+  kacan: "callback",
 };
 
 const allowedTabs = (me: Me, list: [string, string, string[]][]) => list.filter(([, , perms]) => can(me, ...perms));
@@ -236,6 +238,8 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
           <Overview me={me} prefix={prefix} info={info} />
         ) : tab === "odeme" ? (
           <PaymentsPage prefix={prefix} />
+        ) : tab === "kacan" ? (
+          <CallbacksPage prefix={prefix} />
         ) : (
           <TenantPage me={me} prefix={prefix} tab={tab} />
         )
@@ -316,6 +320,7 @@ const PANEL_TABS: [string, string, string[]][] = [
   ["dahililer", "Dahililer", ["settings.manage"]],
   ["personel", "Personel", ["staff.manage"]],
   ["roller", "Roller", ["staff.manage"]],
+  ["kacan", "Kaçan çağrılar", ["settings.manage"]],
   ["odeme", "Ödeme", ["payments.manage"]],
 ];
 

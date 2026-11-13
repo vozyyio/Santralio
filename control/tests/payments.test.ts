@@ -231,7 +231,7 @@ describe("Ödeme: uçtan uca", { skip: !TEST_DB && "SANTRALIO_TEST_DB tanımlı 
     assert.equal(r.status, "paid");
     assert.equal(r.paidAmount, "1500.00");
     assert.equal((await svc.handleCallback(deps(), k, body)).body, "OK"); // tekrar: yeniden işlenmez
-    assert.equal(Number((await db.query("SELECT count(*) FROM payment_events WHERE dedupe_key = 'OK1'")).rows[0].count), 1);
+    assert.equal(Number((await db.query("SELECT count(*) FROM payment_events WHERE dedupe_key = 'OK1' AND provider_id = $1", [providerId])).rows[0].count), 1);
     await assert.rejects(svc.cancelRequest(deps(), tenant.id, ref), /bekleyen/);
   });
 

@@ -15,6 +15,7 @@ import { FakeModel, FakeStt, PiperTts } from "./local.ts";
 import type { FlowContext, LanguageModel, Route, SpeechToText, TextToSpeech } from "./providers.ts";
 import { DEFAULT_LANG, greetingLanguage, lang, LANGUAGES } from "./languages.ts";
 import { CallSession, type Result } from "./session.ts";
+import { CALLBACK_INSTRUCTIONS, getSettings as callbackSettings, greetingFor, markAnswered } from "../callbacks.ts";
 
 const PORT = Number(process.env.SANTRALIO_AI_PORT ?? 9092);
 const REGION = process.env.SANTRALIO_AZURE_SPEECH_REGION ?? "westeurope";
@@ -55,8 +56,8 @@ async function context(uuid: string) {
   const out = await amiCommand(`database get santralio_ai ${uuid}`);
   const value = out.find((l) => l.startsWith("Value: "))?.slice(7).trim();
   if (!value) return null;
-  const [prefix, flow, callid, did, caller] = value.split("|");
-  return { prefix, flow, callid, did, caller };
+  const [prefix, flow, callid, did, caller, kind] = value.split("|");
+  return { prefix, flow, callid, did, caller, kind: kind ?? "" };
 }
 
 async function finish(uuid: string, target: string) {
@@ -148,11 +149,19 @@ async function handle(sock: Socket) {
     }
     // Karşılama, arayanın numarasının ülkesine göre seçilen dilde; sonra arayan hangi dilde konuşursa o dilde.
     const first = greetingLanguage(ctx.caller ?? "", languages);
-    const greeting =
+    // Otomatik geri arama: karşılama "az önce bizi aramışsınız…", talimatın önüne geri arama kuralları eklenir.
+    const callbackJob = /^callback:(\d{1,18})$/.exec(ctx.kind)?.[1];
+    let greeting =
       (flow.greetings as Record<string, string>)[first]?.trim() || (first === DEFAULT_LANG ? flow.greeting_text : lang(first).greeting(t.name));
+    let instructions: string = flow.instructions;
+    if (callbackJob) {
+      greeting = greetingFor(await callbackSettings(db, t.id), first, t.name);
+      instructions = `${CALLBACK_INSTRUCTIONS}\n\n${flow.instructions}`;
+      await markAnswered(db, t.id, Number(callbackJob), sessionId);
+    }
     session = new CallSession({ stt, tts, llm, send, voice: flow.voice, languages, language: first });
     for (const f of pending.splice(0)) session.audio(f);
-    const fc: FlowContext = { company: t.name, instructions: flow.instructions, routes, defaultTarget: flow.default_target, model: flow.model, languages };
+    const fc: FlowContext = { company: t.name, instructions, routes, defaultTarget: flow.default_target, model: flow.model, languages };
     const result = await session.run(fc, greeting, flow.max_turns);
     // Model listede olmayan bir hedef seçerse varsayılan kullanılır.
     const target = result.target === "hangup" ? "hangup" : routes.some((r) => r.target === result.target) ? result.target! : "default";

@@ -28,6 +28,7 @@ import {
 import { BASE_DOMAIN, CURRENT_KEY_ID, masterKey, optionalCredential, PG_DATABASE, PG_HOST, SIP_HOST, SOUNDS_DIR } from "./config.ts";
 import * as vozyy from "./vozyy.ts";
 import * as payments from "./payments/service.ts";
+import * as callbacks from "./callbacks.ts";
 import { publicCatalog } from "./payments/catalog.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
@@ -1039,6 +1040,116 @@ setInterval(async () => {
     db.release();
   }
 }, 60_000).unref();
+
+// --- Kaçan çağrıya otomatik geri arama ---
+route("GET", "/api/tenants/:prefix/callbacks/settings", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const flows = (await ctx.db.query("SELECT name, enabled FROM ai_flows WHERE tenant_id = $1 ORDER BY name", [t.id])).rows;
+  return { settings: await callbacks.getSettings(ctx.db, t.id), flows, defaults: { greetingTr: callbacks.DEFAULT_GREETING_TR, greetingEn: callbacks.DEFAULT_GREETING_EN } };
+});
+route("PUT", "/api/tenants/:prefix/callbacks/settings", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  const s = await callbacks.saveSettings(
+    ctx.db,
+    t.id,
+    {
+      enabled: b.enabled,
+      aiFlow: b.aiFlow,
+      delayS: b.delayS,
+      maxAttempts: b.maxAttempts,
+      retryMinutes: b.retryMinutes,
+      cooldownHours: b.cooldownHours,
+      maxAgeMinutes: b.maxAgeMinutes,
+      maxConcurrent: b.maxConcurrent,
+      windowStart: b.windowStart,
+      windowEnd: b.windowEnd,
+      weekdays: b.weekdays,
+      international: b.international,
+      greetingTr: b.greetingTr,
+      greetingEn: b.greetingEn,
+    },
+    actor(ctx),
+  );
+  applyChanges(ctx.db);
+  return s;
+});
+route("GET", "/api/tenants/:prefix/callbacks", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "calls.all");
+  return callbacks.listJobs(ctx.db, t.id, Number(new URL(ctx.req.url ?? "/", "http://x").searchParams.get("limit") ?? 100));
+});
+route("POST", "/api/tenants/:prefix/callbacks/:id/cancel", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "calls.all");
+  const id = Number(ctx.params[1]);
+  if (!Number.isInteger(id) || id < 1) throw new UserError("geçersiz kimlik", 404);
+  await callbacks.cancelJob(ctx.db, t.id, id, actor(ctx));
+  return { ok: true };
+});
+route("GET", "/api/tenants/:prefix/callbacks/optout", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "calls.all");
+  return callbacks.listOptout(ctx.db, t.id);
+});
+route("POST", "/api/tenants/:prefix/callbacks/optout", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "calls.all");
+  await callbacks.addOptout(ctx.db, t.id, str(ctx.body?.phone, "telefon"), String(ctx.body?.reason ?? ""), actor(ctx));
+  return { ok: true };
+});
+route("DELETE", "/api/tenants/:prefix/callbacks/optout/:phone", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  await callbacks.removeOptout(ctx.db, t.id, decodeURIComponent(ctx.params[1]), actor(ctx));
+  return { ok: true };
+});
+
+// Asterisk üzerinden geri arama: AMI Originate (asenkron) ve kiracının açık kanal sayısı.
+const amiDialer: callbacks.Dialer = {
+  async originate(o) {
+    const ami = await Ami.open();
+    try {
+      const r = await ami.action({
+        Action: "Originate",
+        Channel: `PJSIP/${o.dial}@${o.prefix}_trunk`,
+        Context: `${o.prefix}-callback`,
+        Exten: "s",
+        Priority: "1",
+        Timeout: String(o.timeoutS * 1000),
+        CallerID: `<${o.callerId}>`,
+        Variable: `CB=${o.jobId}_${o.e164.replace(/\D/g, "")}`,
+        Async: "true",
+      });
+      if (r.Response !== "Success") throw new Error(r.Message ?? "Originate reddedildi");
+    } finally {
+      await ami.close();
+    }
+  },
+  async activeChannels(prefix) {
+    const ami = await Ami.open();
+    try {
+      const lines = await ami.command("group show channels");
+      return lines.filter((l) => {
+        const c = l.trim().split(/\s+/);
+        return c[1] === prefix && c[2] === "santralio-tenant";
+      }).length;
+    } finally {
+      await ami.close();
+    }
+  },
+};
+if (process.env.SANTRALIO_CALLBACKS !== "off") {
+  let running = false;
+  setInterval(async () => {
+    if (running) return;
+    running = true;
+    const db = await pool.connect().catch(() => null);
+    try {
+      if (db) await callbacks.tick(db, amiDialer);
+    } catch (err) {
+      console.error(new Date().toISOString(), "geri arama zamanlayıcısı:", err);
+    } finally {
+      db?.release();
+      running = false;
+    }
+  }, 15_000).unref();
+}
 
 // Davet: ilk yönetici şifresini belirler (bağlantı: panel/#/davet/<token>; token adreste değil gövdede gider).
 route(

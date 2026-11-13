@@ -73,6 +73,7 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
     )
   ).rows;
   const aiFlows = (await db.query("SELECT name, enabled, routes, default_target FROM ai_flows WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows;
+  const cb = (await db.query("SELECT enabled, ai_flow FROM callback_settings WHERE tenant_id = $1", [tenantId])).rows[0];
   const entries = (
     await db.query("SELECT * FROM entry_points WHERE tenant_id = $1 AND channel = 'voice' ORDER BY address", [tenantId])
   ).rows;
@@ -131,6 +132,8 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
     recording: { enabled: t.recording_enabled && hasModule(t.modules, "recording") },
     outbound: pol,
     pbxOpen: t.pbx_open,
+    // Kaçan çağrıya geri arama: yapay zekâ ve dış arama modülleri gerekir.
+    callback: cb?.enabled && hasModule(t.modules, "ai") && hasModule(t.modules, "outbound") ? { flow: cb.ai_flow } : null,
     ai: {
       enabled: t.ai_enabled && hasModule(t.modules, "ai"),
       flows: aiFlows.map((f) => ({
