@@ -179,6 +179,36 @@ export type AiFlow = {
   model: string;
   languages: string[];
   greetings: Record<string, string>;
+  recognizeCallers: boolean;
+};
+export type CallerHistory = { previousCalls: number; lastCallAt: string | null; lastSummary: string | null };
+export type LookupResult = { phone: string | null; contact: Contact | null; notes: Note[]; history?: CallerHistory };
+export type WebhookEvent = { type: string; label: string; group: string };
+export type Webhook = {
+  id: number;
+  url: string;
+  description: string;
+  events: string[];
+  enabled: boolean;
+  failStreak: number;
+  disabledReason: string | null;
+  createdAt: string;
+  pending: number;
+  failed7d: number;
+  lastDeliveredAt: string | null;
+};
+export type WebhookDelivery = {
+  id: number;
+  eventId: string;
+  type: string;
+  status: "pending" | "delivered" | "failed";
+  attempts: number;
+  lastCode: number | null;
+  lastError: string | null;
+  payload: unknown;
+  createdAt: string;
+  nextAt: string;
+  deliveredAt: string | null;
 };
 export type AiLanguage = { code: string; label: string; flag: string; defaultGreeting: string };
 export type AiInfo = {
@@ -375,7 +405,8 @@ export const api = {
   contact: (p: string, id: number) => call<ContactDetail>("GET", `${t(p)}/contacts/${id}`),
   addContact: (p: string, body: object) => call<{ id: number }>("POST", `${t(p)}/contacts`, body),
   saveContact: (p: string, id: number, body: object) => call("PUT", `${t(p)}/contacts/${id}`, body),
-  lookup: (p: string, phone: string) => call<{ phone: string | null; contact: Contact | null; notes: Note[] }>("GET", `${t(p)}/lookup?phone=${encodeURIComponent(phone)}`),
+  lookup: (p: string, phone: string, callid?: string | null) =>
+    call<LookupResult>("GET", `${t(p)}/lookup?phone=${encodeURIComponent(phone)}${callid ? `&callid=${encodeURIComponent(callid)}` : ""}`),
   addNote: (p: string, body: object) => call<{ id: number }>("POST", `${t(p)}/notes`, body),
   followUps: (p: string) => call<any[]>("GET", `${t(p)}/follow-ups`),
   dispositions: (p: string, all = false) => call<Disposition[]>("GET", `${t(p)}/dispositions${all ? "?all=1" : ""}`),
@@ -410,6 +441,14 @@ export const api = {
     call<PayRequest>("POST", `${t(p)}/payments/requests`, b),
   payRequest: (p: string, id: string) => call<PayRequest>("GET", `${t(p)}/payments/requests/${seg(id)}`),
   payCancel: (p: string, id: string) => call<{ ok: true }>("POST", `${t(p)}/payments/requests/${seg(id)}/cancel`, {}),
+  whList: (p: string) => call<{ webhooks: Webhook[]; events: WebhookEvent[] }>("GET", `${t(p)}/webhooks`),
+  whAdd: (p: string, b: { url: string; events: string[]; description: string }) => call<{ id: number; secret: string }>("POST", `${t(p)}/webhooks`, b),
+  whUpdate: (p: string, id: number, b: Partial<{ url: string; events: string[]; description: string; enabled: boolean }>) => call<{ ok: true }>("PUT", `${t(p)}/webhooks/${id}`, b),
+  whDelete: (p: string, id: number) => call<{ ok: true }>("DELETE", `${t(p)}/webhooks/${id}`),
+  whRotate: (p: string, id: number) => call<{ secret: string }>("POST", `${t(p)}/webhooks/${id}/rotate`, {}),
+  whTest: (p: string, id: number) => call<{ eventId: string }>("POST", `${t(p)}/webhooks/${id}/test`, {}),
+  whDeliveries: (p: string, id: number) => call<WebhookDelivery[]>("GET", `${t(p)}/webhooks/${id}/deliveries`),
+  whRetry: (p: string, id: number) => call<{ ok: true }>("POST", `${t(p)}/webhooks/deliveries/${id}/retry`, {}),
   cbSettings: (p: string) =>
     call<{ settings: CallbackSettings; flows: { name: string; enabled: boolean }[]; defaults: { greetingTr: string; greetingEn: string } }>("GET", `${t(p)}/callbacks/settings`),
   cbSave: (p: string, b: CallbackSettings) => call<CallbackSettings>("PUT", `${t(p)}/callbacks/settings`, b),

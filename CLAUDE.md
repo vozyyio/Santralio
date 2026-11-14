@@ -55,7 +55,8 @@ docs/               mimari ve modül belgeleri
 ```bash
 # Kontrol servisi
 cd control && npm ci && npm run check && npm test
-SANTRALIO_TEST_DB=santralio_test SANTRALIO_PG_DATABASE=santralio_test node --test tests/vozyy.test.ts tests/payments.test.ts
+SANTRALIO_TEST_DB=santralio_test SANTRALIO_PG_DATABASE=santralio_test node --test tests/vozyy.test.ts tests/payments.test.ts tests/callbacks.test.ts tests/webhooks.test.ts
+# Test veritabanı ilk kez: postgres'te test kullanıcısı ve `asterisk` rolü (createuser asterisk) olmalı
 
 # Panel ve site
 cd web && npm ci && npm run build
@@ -73,7 +74,7 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 2. **Tutar sunucuda belirlenir.** İstemciden gelen tutara güvenilmez; yapay zekâ ve IVR tutar belirleyemez.
 3. **"Ödendi" yalnızca doğrulanmış bildirim** (imza/hash) ya da sağlayıcıya sunucudan yapılan durum sorgusuyla yazılır. Aynı bildirim iki kez işlenmez.
 4. **Kimlik bilgileri şifreli** (AES-256-GCM, systemd credential anahtarı); API yanıtında asla dönmez.
-5. **Dış adrese istek** (işletme sistemi sorgusu vb.) yalnızca genel https adrese; iç ağ/özel IP engellenir (SSRF).
+5. **Dış adrese istek** (işletme sistemi sorgusu, webhook) yalnızca genel https adrese; iç ağ/özel IP engellenir (SSRF). Ortak kod `control/src/netguard.ts`: kayıtta DNS denetimi, gönderimde bağlantının kendi DNS çözümlemesinde tekrar denetim, yönlendirme izlenmez.
 6. **Kiracı izolasyonu:** her sorgu `tenant_id` ile; yetki `tenantFor(ctx, prefix, izin)` ile.
 7. **KVKK:** arayan verilerinin veri sorumlusu kiracı firmadır, Santralio veri işleyendir. Yurt dışı servisler (Azure, Anthropic, Cloudflare) aydınlatma metninde listelenir.
 
@@ -84,7 +85,7 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 - Başvuru ve ödeme santralio.site'de; müşteri vozyy.com'a gitmez. `PushEnabled` ancak anahtar parmak izleri eşleşip uçtan uca test geçince açılır.
 - Kiracı öneki `t` + sayı (ör. `t12`); müşterinin istediği kısa ad ayrı `slug` alanındadır.
 
-## 8. Durum (son güncelleme: 2026-11-13)
+## 8. Durum (son güncelleme: 2026-11-14)
 
 | Alan | Durum |
 | --- | --- |
@@ -94,6 +95,8 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 | Panel yeni tasarım (Operasyon konsolu, üst menü, açık tema) | Var |
 | Ödeme modülü: PayTR, iyzico, test sağlayıcı, Netgsm SMS, profiller, panel, temsilci "Ödeme iste" | Var; gerçek sağlayıcı hesaplarıyla test edilmedi |
 | Kaçan çağrıya otomatik yapay zekâ geri araması (`control/src/callbacks.ts`, Panel → Kaçan çağrılar) | Var; dialplan Asterisk 20'de doğrulandı, gerçek hatla test edilmedi |
+| Webhook (`control/src/webhooks.ts`, Panel → Entegrasyonlar): 11 olay, HMAC imza, outbox + yeniden deneme, otomatik kapanma | Var; birim ve veritabanı testleri geçti |
+| Arayanı tanıma (`crm.callerHistory`): yapay zekâ talimatına kart/kaçıncı arama/son özet; karşılamada `{ad}`; temsilci ekranında "N. araması" | Var; yapay zekâ akışında açılıp kapanır (varsayılan açık) |
 | Tanıtım sitesi | Bakımda; KVKK ve koşullar taslak (hukuk kontrolü bekliyor) |
 
 ## 9. Yol haritası (öncelik sırası)
@@ -101,11 +104,11 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 1. **Canlı durum ucu:** bekleyen çağrı, aktif görüşme, temsilci durumu (AMI/ARI, olay akışı). Gerçek santralde test edilir.
 2. **Ödeme: sesli menü ve yapay zekâ adımı.** Arayana "SMS ile bağlantı 1, tuşlama 2" sorusu; yapay zekânın sesli onayla bağlantı göndermesi. Akışta yeni hedef türü `payment:<profil>`.
 3. **Görüşme sonrası yapay zekâ analizi:** özet, konu, hava, takip işi, "yapay zekâ çözdü mü".
-4. **Arayanı tanıma** (CRM eşleşmesi, kaçıncı arama) ve **"sıranız gelince sizi arayalım"** (kuyrukta beklemek yerine geri aranma). Kaçan çağrıya otomatik geri arama tamamlandı.
+4. **"Sıranız gelince sizi arayalım"** (kuyrukta beklemek yerine geri aranma). Kaçan çağrıya geri arama ve arayanı tanıma tamamlandı.
 5. Randevu/rezervasyonu konuşmadan oluşturma (takvim, otel sistemi), otomatik hatırlatma araması.
    - Gelmeme riskine göre kapora isteme (ödeme modülüyle). Risk puanı somut geçmişten (önceki gelmeme, ilk kez mi, ne kadar önceden); ses tonu yalnızca destekleyici sinyal (KVKK: profilleme, aydınlatma metninde yer almalı).
    - Çok dilli sağlık/turizm yönlendirmesi: kiracı bazlı terim sözlüğü (STT kelime listesi), niyete göre kuyruk. Sağlık soruları özel nitelikli veri: önce açık rıza, "değerlendirme" değil "bilgi toplama".
-6. Webhook ve açık API, TV ekranı, anlık uyarılar, haftalık yapay zekâ raporu, KVKK maskeleme.
+6. Açık API (kiracı API anahtarı), TV ekranı, anlık uyarılar, haftalık yapay zekâ raporu, KVKK maskeleme.
 7. Bayiler için beyaz etiket, kurulum sihirbazı, mobil uygulama altyapısı.
 8. Kanallar: WhatsApp araması, web sitesi arama butonu.
 

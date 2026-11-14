@@ -15,6 +15,8 @@ import { FakeModel, FakeStt, PiperTts } from "./local.ts";
 import type { FlowContext, LanguageModel, Route, SpeechToText, TextToSpeech } from "./providers.ts";
 import { DEFAULT_LANG, greetingLanguage, lang, LANGUAGES } from "./languages.ts";
 import { CallSession, type Result } from "./session.ts";
+import { callerBrief, callerHistory, fillName } from "../crm.ts";
+import { emit } from "../webhooks.ts";
 import { CALLBACK_INSTRUCTIONS, getSettings as callbackSettings, greetingFor, markAnswered } from "../callbacks.ts";
 
 const PORT = Number(process.env.SANTRALIO_AI_PORT ?? 9092);
@@ -116,7 +118,7 @@ async function handle(sock: Socket) {
     const ctx = await context(id);
     if (!ctx) throw new Error("çağrı bilgisi yok");
     db = await pool.connect();
-    const t = (await db.query("SELECT id, name, ai_enabled FROM tenants WHERE prefix = $1", [ctx.prefix])).rows[0];
+    const t = (await db.query("SELECT id, prefix, name, status, reseller_id, ai_enabled FROM tenants WHERE prefix = $1", [ctx.prefix])).rows[0];
     const flow = t ? (await db.query("SELECT * FROM ai_flows WHERE tenant_id = $1 AND name = $2", [t.id, ctx.flow])).rows[0] : null;
     sessionId = t
       ? (
@@ -159,6 +161,18 @@ async function handle(sock: Socket) {
       instructions = `${CALLBACK_INSTRUCTIONS}\n\n${flow.instructions}`;
       await markAnswered(db, t.id, Number(callbackJob), sessionId);
     }
+    // Arayanı tanıma: kart, önceki aramalar, son özet/not. Hata görüşmeyi durdurmaz.
+    let callerName: string | null = null;
+    if (flow.recognize_callers) {
+      const h = await callerHistory(db, t, ctx.caller ?? "", ctx.callid).catch((e) => {
+        log(`arayan bilgisi alınamadı: ${e instanceof Error ? e.message : e}`);
+        return null;
+      });
+      const brief = h && callerBrief(h);
+      if (brief) instructions = `${brief}\n\n${instructions}`;
+      callerName = h?.contact?.name ?? null;
+    }
+    greeting = fillName(greeting, callerName);
     session = new CallSession({ stt, tts, llm, send, voice: flow.voice, languages, language: first });
     for (const f of pending.splice(0)) session.audio(f);
     const fc: FlowContext = { company: t.name, instructions, routes, defaultTarget: flow.default_target, model: flow.model, languages };
@@ -166,6 +180,20 @@ async function handle(sock: Socket) {
     // Model listede olmayan bir hedef seçerse varsayılan kullanılır.
     const target = result.target === "hangup" ? "hangup" : routes.some((r) => r.target === result.target) ? result.target! : "default";
     await save(db, sessionId, result, target, tts, stt);
+    if (sessionId) {
+      await emit(db, t.id, "ai.session.ended", {
+        session_id: sessionId,
+        call_id: ctx.callid || null,
+        flow: ctx.flow,
+        caller: ctx.caller || null,
+        did: ctx.did || null,
+        kind: callbackJob ? "callback" : "inbound",
+        end_reason: result.reason,
+        route_target: target,
+        language: result.language,
+        summary: result.summary ?? null,
+      }).catch((e) => log(`webhook olayı yazılamadı: ${e instanceof Error ? e.message : e}`));
+    }
     if (result.reason !== "hangup") await finish(id, target);
     log(`${ctx.prefix}/${ctx.flow} ${ctx.callid}: ${result.reason} -> ${target}${result.error ? ` (${result.error})` : ""}`);
   } catch (e) {

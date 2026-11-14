@@ -29,6 +29,7 @@ import { BASE_DOMAIN, CURRENT_KEY_ID, masterKey, optionalCredential, PG_DATABASE
 import * as vozyy from "./vozyy.ts";
 import * as payments from "./payments/service.ts";
 import * as callbacks from "./callbacks.ts";
+import * as webhooks from "./webhooks.ts";
 import { publicCatalog } from "./payments/catalog.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
@@ -563,7 +564,7 @@ route("GET", "/api/tenants/:prefix/ai", async (ctx) => {
   const flows = (
     await ctx.db.query(
       `SELECT name, enabled, greeting_text AS "greetingText", instructions, routes, default_target AS "defaultTarget",
-              max_turns AS "maxTurns", voice, model, languages, greetings FROM ai_flows WHERE tenant_id = $1 ORDER BY name`,
+              max_turns AS "maxTurns", voice, model, languages, greetings, recognize_callers AS "recognizeCallers" FROM ai_flows WHERE tenant_id = $1 ORDER BY name`,
       [t.id],
     )
   ).rows;
@@ -613,6 +614,7 @@ route("PUT", "/api/tenants/:prefix/ai/flows/:name", async (ctx) => {
       model: str(b.model, "model"),
       languages: b.languages ?? ["tr-TR"],
       greetings: b.greetings ?? {},
+      recognizeCallers: b.recognizeCallers,
     },
     actor(ctx),
   );
@@ -1151,6 +1153,75 @@ if (process.env.SANTRALIO_CALLBACKS !== "off") {
   }, 15_000).unref();
 }
 
+// --- Webhook: kiracının kendi sistemlerine imzalı olay bildirimi ---
+const hookDeps = (ctx: Ctx): webhooks.Deps => ({ db: ctx.db, keys: payKeys, actor: actor(ctx) });
+
+route("GET", "/api/tenants/:prefix/webhooks", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return { webhooks: await webhooks.listWebhooks(ctx.db, t.id), events: webhooks.EVENTS };
+});
+
+route("POST", "/api/tenants/:prefix/webhooks", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  return webhooks.createWebhook(hookDeps(ctx), t.id, { url: b.url, events: b.events, description: b.description });
+});
+
+route("PUT", "/api/tenants/:prefix/webhooks/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  await webhooks.updateWebhook(hookDeps(ctx), t.id, idParam(ctx.params[1]), { url: b.url, events: b.events, description: b.description, enabled: b.enabled });
+  return { ok: true };
+});
+
+route("DELETE", "/api/tenants/:prefix/webhooks/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  await webhooks.deleteWebhook(hookDeps(ctx), t.id, idParam(ctx.params[1]));
+  return { ok: true };
+});
+
+route("POST", "/api/tenants/:prefix/webhooks/:id/rotate", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return webhooks.rotateSecret(hookDeps(ctx), t.id, idParam(ctx.params[1]));
+});
+
+route("POST", "/api/tenants/:prefix/webhooks/:id/test", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return webhooks.sendTest(hookDeps(ctx), t.id, idParam(ctx.params[1]));
+});
+
+route("GET", "/api/tenants/:prefix/webhooks/:id/deliveries", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return webhooks.listDeliveries(ctx.db, t.id, idParam(ctx.params[1]));
+});
+
+route("POST", "/api/tenants/:prefix/webhooks/deliveries/:id/retry", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  await webhooks.retryDelivery(hookDeps(ctx), t.id, idParam(ctx.params[1]));
+  return { ok: true };
+});
+
+// Gönderici ve görüşme olayları: 10 saniyede bir (SANTRALIO_WEBHOOKS=off ile kapatılır).
+if (process.env.SANTRALIO_WEBHOOKS !== "off") {
+  let running = false;
+  setInterval(async () => {
+    if (running) return;
+    running = true;
+    const db = await pool.connect().catch(() => null);
+    try {
+      if (db) {
+        await webhooks.scanCalls(db);
+        await webhooks.deliver({ db, keys: payKeys });
+      }
+    } catch (err) {
+      console.error(new Date().toISOString(), "webhook gönderici:", err);
+    } finally {
+      db?.release();
+      running = false;
+    }
+  }, 10_000).unref();
+}
+
 // Davet: ilk yönetici şifresini belirler (bağlantı: panel/#/davet/<token>; token adreste değil gövdede gider).
 route(
   "POST",
@@ -1282,7 +1353,9 @@ route("GET", "/api/tenants/:prefix/lookup", async (ctx) => {
     : r.phone
       ? await crm.interactionsOf(ctx.db, t, { phone: r.phone }, 5)
       : [];
-  return { ...r, notes };
+  const callid = query(ctx).get("callid");
+  const h = await crm.callerHistory(ctx.db, t, query(ctx).get("phone") ?? "", callid && /^[0-9A-Za-z.:_-]{1,64}$/.test(callid) ? callid : null);
+  return { ...r, notes, history: { previousCalls: h.previousCalls, lastCallAt: h.lastCallAt, lastSummary: h.lastSummary } };
 });
 
 route("POST", "/api/tenants/:prefix/notes", async (ctx) => {

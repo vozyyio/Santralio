@@ -15,6 +15,7 @@ import { listCalls, type CallRow } from "./reports.ts";
 import { audit, type Db } from "./db.ts";
 import { UserError } from "./ops.ts";
 import { hasModule } from "./permissions.ts";
+import { emit } from "./webhooks.ts";
 
 export type Settings = {
   enabled: boolean;
@@ -295,11 +296,13 @@ export async function tick(db: Db, dialer: Dialer, now = new Date()): Promise<{ 
       await db.query(
         `UPDATE callback_jobs SET status = CASE WHEN attempts >= $2 THEN 'no_answer' ELSE 'pending' END,
                 next_at = $3::timestamptz + make_interval(mins => $4), updated_at = now()
-          WHERE tenant_id = $1 AND status = 'dialing' AND last_attempt_at < $3::timestamptz - make_interval(secs => $5) RETURNING id`,
+          WHERE tenant_id = $1 AND status = 'dialing' AND last_attempt_at < $3::timestamptz - make_interval(secs => $5) RETURNING id, status, phone, attempts, source_callid`,
         [t.id, s.maxAttempts, now, s.retryMinutes, RING_S + 60],
       )
     ).rows;
-    void stale;
+    for (const j of stale.filter((j) => j.status === "no_answer")) {
+      await emit(db, t.id, "callback.failed", { job_id: j.id, phone: j.phone, attempts: j.attempts, reason: "no_answer", missed_call_id: j.source_callid });
+    }
     await db.query(
       `UPDATE callback_jobs SET status = 'skipped', note = 'süre geçti', updated_at = now()
         WHERE tenant_id = $1 AND status = 'pending' AND missed_at < $2::timestamptz - make_interval(mins => $3)`,
@@ -330,6 +333,7 @@ export async function tick(db: Db, dialer: Dialer, now = new Date()): Promise<{ 
         dialed++;
       } catch (e) {
         await db.query("UPDATE callback_jobs SET status = 'failed', note = $2, updated_at = now() WHERE id = $1", [j.id, `arama başlatılamadı: ${e instanceof Error ? e.message : e}`]);
+        await emit(db, t.id, "callback.failed", { job_id: j.id, phone: j.phone, reason: "originate_failed" });
       }
     }
   }
@@ -338,7 +342,12 @@ export async function tick(db: Db, dialer: Dialer, now = new Date()): Promise<{ 
 
 // Yapay zekâ servisi geri arama açıldığında çağırır.
 export async function markAnswered(db: Db, tenantId: number, jobId: number, aiSessionId: number | null) {
-  await db.query("UPDATE callback_jobs SET status = 'answered', ai_session_id = $3, note = NULL, updated_at = now() WHERE id = $1 AND tenant_id = $2", [jobId, tenantId, aiSessionId]);
+  const r = await db.query(
+    "UPDATE callback_jobs SET status = 'answered', ai_session_id = $3, note = NULL, updated_at = now() WHERE id = $1 AND tenant_id = $2 RETURNING phone, attempts, source_callid",
+    [jobId, tenantId, aiSessionId],
+  );
+  const j = r.rows[0];
+  if (j) await emit(db, tenantId, "callback.answered", { job_id: jobId, phone: j.phone, attempts: j.attempts, ai_session_id: aiSessionId, missed_call_id: j.source_callid });
 }
 
 // --- Panel ---

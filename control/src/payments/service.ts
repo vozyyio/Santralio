@@ -5,11 +5,11 @@
 // - Kimlik bilgileri şifreli saklanır, API yanıtlarında hiçbir zaman dönmez.
 // - Kart bilgisi Santralio'ya gelmez (tuşlama yalnızca sağlayıcının güvenli tuşlama hizmetiyle; henüz yok).
 
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { open, randomToken, seal } from "../crypto.ts";
 import { audit, type Db } from "../db.ts";
 import { UserError } from "../ops.ts";
+import { assertPublicHttps as assertPublic, privateAddress } from "../netguard.ts";
+import { emit } from "../webhooks.ts";
 import { catalogEntry } from "./catalog.ts";
 import { netgsmSend, smsText, validateNetgsm } from "./sms.ts";
 import { minor, parseAmount, ProviderError, type CallbackInput, type Currency, type Fetch, type Mode, type ProviderStatus, type Reply } from "./types.ts";
@@ -289,28 +289,8 @@ export async function deleteProfile(d: Deps, tenantId: number, name: string) {
 
 // --- İşletme sisteminden tutar sorgusu (lookup) ---
 
-function privateAddress(ip: string): boolean {
-  if (isIP(ip) === 6) {
-    const v = ip.toLowerCase();
-    return v === "::1" || v.startsWith("fc") || v.startsWith("fd") || v.startsWith("fe80") || v === "::" || v.startsWith("::ffff:");
-  }
-  const [a, b] = ip.split(".").map(Number);
-  return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
-}
-
-export async function assertPublicHttps(url: string | null, resolve = lookup): Promise<URL> {
-  let u: URL;
-  try {
-    u = new URL(String(url));
-  } catch {
-    bad("sorgu adresi geçersiz");
-  }
-  if (u.protocol !== "https:" || u.username || u.password || (u.port && u.port !== "443")) bad("sorgu adresi https olmalı, kullanıcı/port içermemeli");
-  const host = u.hostname.replace(/^\[|\]$/g, "");
-  if (isIP(host) || host === "localhost" || host.endsWith(".local") || !host.includes(".")) bad("sorgu adresi genel bir alan adı olmalı");
-  const addrs = await resolve(host, { all: true }).catch(() => []);
-  if (!addrs.length || addrs.some((a) => privateAddress(a.address))) bad("sorgu adresi iç ağa çözülüyor ya da çözülemiyor");
-  return u;
+export async function assertPublicHttps(url: string | null, resolve?: Parameters<typeof assertPublic>[1]): Promise<URL> {
+  return assertPublic(url, resolve, "sorgu adresi");
 }
 
 async function lookupAmount(d: Deps, url: string, q: { phone: string | null; callId: string | null; reference: string }) {
@@ -528,6 +508,7 @@ export async function cancelRequest(d: Deps, tenantId: number, reference: string
   if (!row) throw new UserError("ödeme talebi bulunamadı", 404);
   if (!["created", "sent"].includes(row.status)) bad("yalnızca bekleyen talepler iptal edilebilir");
   await d.db.query("UPDATE payment_requests SET status = 'cancelled', updated_at = now() WHERE id = $1", [row.id]);
+  await emit(d.db, tenantId, "payment.cancelled", payEvent(row));
   await closeLink(d, row.provider_id, row.provider_ref);
   await audit(d.db, "payments.request.cancel", tenantId, { reference }, d.actor);
 }
@@ -537,6 +518,21 @@ async function closeLink(d: Deps, providerId: number, ref: string | null) {
   const p: ProviderRow = (await d.db.query("SELECT * FROM payment_providers WHERE id = $1", [providerId])).rows[0];
   const impl = p && catalogEntry(p.provider)?.impl;
   await impl?.cancelLink?.(creds(p, d.keys), p.mode, ref, d.fetch).catch(() => {});
+}
+
+// Webhook gövdesi (kart bilgisi yok; yalnızca son 4 hane sağlayıcıdan geldiyse).
+function payEvent(r: any, extra: Record<string, unknown> = {}) {
+  return {
+    reference: r.public_id,
+    amount: String(r.amount),
+    currency: r.currency,
+    description: r.description,
+    method: r.method,
+    phone: r.phone ?? null,
+    call_id: r.call_id ?? null,
+    created_by: r.created_by,
+    ...extra,
+  };
 }
 
 // --- Durum güncelleme (tek kapı) ---
@@ -551,6 +547,7 @@ async function applyStatus(d: Deps, requestId: number, st: ProviderStatus, sourc
     if (paid && minor(paid) < minor(String(r.amount))) {
       await d.db.query("UPDATE payment_requests SET status = 'failed', error = $2, paid_amount = $3, updated_at = now() WHERE id = $1", [requestId, "ödenen tutar talep edilenden az", paid]);
       await audit(d.db, "payments.request.amount_mismatch", r.tenant_id, { reference: r.public_id, paid, source }, "payments");
+      await emit(d.db, r.tenant_id, "payment.failed", payEvent(r, { paid_amount: paid, reason: "amount_mismatch" }));
       return "tutar uyuşmuyor";
     }
     // Süresi dolmuş/iptal edilmiş olsa bile para alındıysa kayıt "ödendi" olur (iade kararı işletmenin).
@@ -559,6 +556,7 @@ async function applyStatus(d: Deps, requestId: number, st: ProviderStatus, sourc
       [requestId, paid ?? r.amount, st.last4 ?? null],
     );
     await audit(d.db, "payments.request.paid", r.tenant_id, { reference: r.public_id, source }, "payments");
+    await emit(d.db, r.tenant_id, "payment.paid", payEvent(r, { paid_amount: String(paid ?? r.amount), card_last4: st.last4 ?? null, late: ["expired", "cancelled"].includes(r.status) }));
     return "ödendi";
   }
   if (st.state === "failed" && ["created", "sent"].includes(r.status)) {
@@ -625,10 +623,13 @@ export async function poll(d: Deps): Promise<{ checked: number; paid: number; ex
   let paid = 0;
   const expired = (
     await d.db.query(
-      "UPDATE payment_requests SET status = 'expired', updated_at = now() WHERE status IN ('created','sent') AND expires_at < now() - interval '2 minutes' RETURNING id, provider_id, provider_ref",
+      "UPDATE payment_requests SET status = 'expired', updated_at = now() WHERE status IN ('created','sent') AND expires_at < now() - interval '2 minutes' RETURNING *",
     )
   ).rows;
-  for (const e of expired) await closeLink(d, e.provider_id, e.provider_ref);
+  for (const e of expired) {
+    await emit(d.db, e.tenant_id, "payment.expired", payEvent(e));
+    await closeLink(d, e.provider_id, e.provider_ref);
+  }
   const open = (
     await d.db.query(
       `SELECT r.id AS request_id, r.provider_ref, p.* FROM payment_requests r JOIN payment_providers p ON p.id = r.provider_id

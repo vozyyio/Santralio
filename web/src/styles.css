@@ -164,6 +164,8 @@ button.x { padding: 0 6px; border: none; font-size: 1rem; line-height: 1; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 14px; margin-bottom: 8px; }
 .form-grid .actions, .form-grid .error { grid-column: 1 / -1; }
 .caller-panel h4 { margin-top: 12px; }
+.caller-history { margin-top: 8px; }
+.caller-history p { margin: 6px 0 0; }
 
 .transfer.consult { border-top: 2px solid var(--accent); }
 
@@ -209,3 +211,23 @@ button.ghost:hover:not(:disabled) { background: var(--hover); filter: none; }
 .tabs { display: none; }
 .transcript, .tag, tr.link:hover td { background: var(--surface-2); }
 
+
+/* Entegrasyonlar (webhook) */
+.subcard { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 12px 0 16px; background: var(--surface-2); }
+.subcard h3 { margin-top: 0; }
+.event-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 16px; }
+.event-groups fieldset { border: 1px solid var(--line-soft); border-radius: 10px; padding: 6px 12px 8px; margin: 0; }
+.event-groups legend { font-size: 0.8rem; color: var(--muted); font-weight: 600; padding: 0 4px; }
+.event-groups label.check { margin: 6px 0; align-items: flex-start; font-size: 0.9rem; }
+.event-groups label.check input { margin-top: 3px; }
+.payload { background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 0.78rem; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; margin: 6px 0; }
+.wrap { overflow-wrap: anywhere; word-break: break-word; }
+.wrap-actions { flex-wrap: wrap; gap: 4px; }
+button.ghost.danger { background: transparent; color: var(--bad); border-color: var(--line); }
+.notice code { background: var(--surface); padding: 4px 8px; border-radius: 6px; }
+.wrap-actions button { padding: 5px 10px; font-size: 0.85rem; }
+.payload { font-variant-ligatures: none; }
+.hook-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.hook-list li { border-top: 1px solid var(--line); padding: 12px 0; display: grid; gap: 6px; }
+.hook-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.hook-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; }

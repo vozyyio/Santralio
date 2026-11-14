@@ -18,6 +18,7 @@ import { Icon } from "./Icons";
 import { Overview } from "./Overview";
 import { PaymentsPage } from "./Payments";
 import { CallbacksPage } from "./Callbacks";
+import { WebhooksPage } from "./Webhooks";
 import { operatorName, regLabel } from "./labels";
 import type { IconName } from "./Icons";
 import { PbxCard, PromptsTab } from "./Prompts";
@@ -86,6 +87,7 @@ const TAB_ICON: Record<string, IconName> = {
   gunluk: "log",
   odeme: "card",
   kacan: "callback",
+  entegrasyon: "plug",
 };
 
 const allowedTabs = (me: Me, list: [string, string, string[]][]) => list.filter(([, , perms]) => can(me, ...perms));
@@ -240,6 +242,8 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
           <PaymentsPage prefix={prefix} />
         ) : tab === "kacan" ? (
           <CallbacksPage prefix={prefix} />
+        ) : tab === "entegrasyon" ? (
+          <WebhooksPage prefix={prefix} />
         ) : (
           <TenantPage me={me} prefix={prefix} tab={tab} />
         )
@@ -322,6 +326,7 @@ const PANEL_TABS: [string, string, string[]][] = [
   ["roller", "Roller", ["staff.manage"]],
   ["kacan", "Kaçan çağrılar", ["settings.manage"]],
   ["odeme", "Ödeme", ["payments.manage"]],
+  ["entegrasyon", "Entegrasyonlar", ["settings.manage"]],
 ];
 
 function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; tab: string }) {

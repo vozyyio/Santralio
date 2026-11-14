@@ -20,6 +20,7 @@ const NEW_FLOW: AiFlow = {
   model: "claude-haiku-5-5",
   languages: ["tr-TR"],
   greetings: {},
+  recognizeCallers: true,
 };
 
 // Dil kodu -> bayrak ve ad (görüşme listesi ve temsilci özeti için; sunucudaki katalogla aynı).
@@ -139,7 +140,17 @@ function FlowEditor({ t, flow, info, onSaved, isNew }: { t: Tenant; flow: AiFlow
       <label>
         Karşılama (arayana ilk okunan cümle)
         <textarea rows={2} value={f.greetingText} onChange={(e) => set({ greetingText: e.target.value })} maxLength={500} />
+        <span className="muted small">
+          <span className="mono">{"{ad}"}</span> yazarsanız kayıtlı müşterinin adıyla okunur (ör. “Merhaba {"{ad}"}, …”); kart yoksa kendiliğinden çıkarılır.
+        </span>
       </label>
+      <label className="check">
+        <input type="checkbox" checked={f.recognizeCallers !== false} onChange={(e) => set({ recognizeCallers: e.target.checked })} />
+        Arayanı tanı: müşteri kartı, son 12 aydaki aramaları, önceki yapay zekâ özeti ve son temsilci notu asistana verilir
+      </label>
+      <p className="muted small">
+        Asistan bu bilgileri arayana okumaz ve doğrulamaz (numara taklit edilebilir); yalnızca daha iyi yardım etmek ve doğru yere aktarmak için kullanır.
+      </p>
       <label>
         Asistanın bilmesi gerekenler (şirket, hizmetler, sık sorular, çalışma şekli; arayana okunmaz)
         <textarea rows={6} value={f.instructions} onChange={(e) => set({ instructions: e.target.value })} maxLength={8000} />

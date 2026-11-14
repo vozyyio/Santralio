@@ -2,7 +2,7 @@
 // temsilci ekranındaki kart ve not paneli, panelde sonuç kodları.
 
 import { useEffect, useState } from "react";
-import { api, type CallRow, type Contact, type ContactDetail, type Disposition, type Note } from "./api";
+import { api, type CallerHistory, type CallRow, type Contact, type ContactDetail, type Disposition, type LookupResult, type Note } from "./api";
 import { mmss, queueLabel } from "./Reports";
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -317,10 +317,10 @@ export function NoteForm({ prefix, context, onSaved }: { prefix: string; context
 // --- Temsilci ekranındaki müşteri paneli ---
 
 export function CallerPanel({ prefix, phone, callid, direction }: { prefix: string; phone: string; callid: string | null; direction: "in" | "out" }) {
-  const [data, setData] = useState<{ phone: string | null; contact: Contact | null; notes: Note[] } | null>(null);
+  const [data, setData] = useState<LookupResult | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-  const load = () => api.lookup(prefix, phone).then(setData).catch((e) => setError(msg(e)));
+  const load = () => api.lookup(prefix, phone, callid).then(setData).catch((e) => setError(msg(e)));
   useEffect(() => {
     setData(null);
     setCreating(false);
@@ -362,6 +362,7 @@ export function CallerPanel({ prefix, phone, callid, direction }: { prefix: stri
           </button>
         </div>
       )}
+      <CallerHistoryLine h={data.history} />
       {data.notes.length > 0 && (
         <>
           <h4>Son notlar</h4>
@@ -370,6 +371,27 @@ export function CallerPanel({ prefix, phone, callid, direction }: { prefix: stri
       )}
       <h4>Bu görüşmenin notu</h4>
       <NoteForm prefix={prefix} context={{ contactId: c?.id ?? null, phone: data.phone, callid, direction }} onSaved={load} />
+    </div>
+  );
+}
+
+// Arayanı tanıma: kaçıncı araması, son arama zamanı, son yapay zekâ özeti.
+function CallerHistoryLine({ h }: { h?: CallerHistory }) {
+  if (!h) return null;
+  return (
+    <div className="caller-history">
+      {h.previousCalls === 0 ? (
+        <span className="badge">İlk araması</span>
+      ) : (
+        <span className="badge">
+          {h.previousCalls + 1}. araması · son: {h.lastCallAt}
+        </span>
+      )}
+      {h.lastSummary && (
+        <p className="small">
+          <span className="muted">Önceki yapay zekâ özeti:</span> {h.lastSummary}
+        </p>
+      )}
     </div>
   );
 }

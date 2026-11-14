@@ -32,6 +32,7 @@ export type FlowInput = {
   model: string;
   languages: string[];
   greetings: Record<string, string>;
+  recognizeCallers?: boolean;
 };
 
 export async function saveFlow(db: Db, t: Tenant, name: string, f: FlowInput, actor?: string) {
@@ -53,6 +54,7 @@ export async function saveFlow(db: Db, t: Tenant, name: string, f: FlowInput, ac
     if (f.defaultTarget.startsWith("ai:")) throw new UserError("varsayılan hedef bir yapay zekâ akışı olamaz");
     await assertTarget(db, t, f.defaultTarget);
   }
+  if (f.recognizeCallers !== undefined && typeof f.recognizeCallers !== "boolean") throw new UserError("recognizeCallers true/false olmalı");
   if (!Number.isInteger(f.maxTurns) || f.maxTurns < 1 || f.maxTurns > 10) throw new UserError("tur sınırı 1–10 olmalı");
   if (!aiVoices().some((v) => v.id === f.voice)) throw new UserError("ses bulunamadı");
   if (!AI_MODELS.some((m) => m.id === f.model)) throw new UserError("model bulunamadı");
@@ -66,13 +68,13 @@ export async function saveFlow(db: Db, t: Tenant, name: string, f: FlowInput, ac
     if (languages.includes(code) && text.trim()) greetings[code] = text.trim();
   }
   await db.query(
-    `INSERT INTO ai_flows (tenant_id, name, enabled, greeting_text, instructions, routes, default_target, max_turns, voice, model, languages, greetings)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `INSERT INTO ai_flows (tenant_id, name, enabled, greeting_text, instructions, routes, default_target, max_turns, voice, model, languages, greetings, recognize_callers)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (tenant_id, name) DO UPDATE SET enabled = $3, greeting_text = $4, instructions = $5, routes = $6,
-       default_target = $7, max_turns = $8, voice = $9, model = $10, languages = $11, greetings = $12, updated_at = now()`,
+       default_target = $7, max_turns = $8, voice = $9, model = $10, languages = $11, greetings = $12, recognize_callers = $13, updated_at = now()`,
     [
       t.id, name, f.enabled, f.greetingText.trim(), f.instructions ?? "", JSON.stringify(f.routes), f.defaultTarget, f.maxTurns, f.voice, f.model,
-      languages, JSON.stringify(greetings),
+      languages, JSON.stringify(greetings), f.recognizeCallers !== false,
     ],
   );
   await audit(db, "ai.flow", t.id, { name, enabled: f.enabled, routes: f.routes.map((r) => r.target), model: f.model, voice: f.voice, languages }, actor);
