@@ -110,6 +110,8 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
       strategy: q.strategy,
       ringS: q.ring_s,
       maxWaitS: q.max_wait_s,
+      // "Sıranız gelince sizi arayalım": yalnızca kiracının açık bir hattı varsa (geri arama o hattan yapılır).
+      callback: q.cb_enabled ? { offerAfterS: q.cb_offer_after_s } : null,
       members: members.filter((m) => m.queue_id === q.id).map((m) => ({ number: m.number, penalty: m.penalty })),
     })),
     menus: menus.map((m) => ({
@@ -206,8 +208,14 @@ export async function tenantPrompts(db: Db, tenantId: number): Promise<{ name: s
     out.push({ name: `menu-${m.name}`, label: `Menü ${m.name}: karşılama`, text: m.prompt_text });
     out.push({ name: `menu-${m.name}-invalid`, label: `Menü ${m.name}: geçersiz tuş`, text: m.invalid_text });
   }
-  for (const q of (await db.query("SELECT name, unavailable_text FROM queues WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows) {
+  for (const q of (await db.query("SELECT * FROM queues WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows) {
     out.push({ name: `queue-${q.name}-unavailable`, label: `Kuyruk ${q.name}: müsait temsilci yok`, text: q.unavailable_text });
+    if (q.cb_enabled) {
+      out.push({ name: `queue-${q.name}-cboffer`, label: `Kuyruk ${q.name}: geri arama teklifi`, text: q.cb_offer_text });
+      out.push({ name: `queue-${q.name}-cbconfirm`, label: `Kuyruk ${q.name}: geri arama alındı`, text: q.cb_confirm_text });
+      out.push({ name: `queue-${q.name}-cbconnect`, label: `Kuyruk ${q.name}: geri arama açıldı`, text: q.cb_connect_text });
+      out.push({ name: `queue-${q.name}-cbnonum`, label: `Kuyruk ${q.name}: numara görünmüyor`, text: q.cb_nonum_text });
+    }
   }
   for (const x of (await db.query("SELECT name, closed_text FROM schedules WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows) {
     out.push({ name: `schedule-${x.name}-closed`, label: `Çalışma saati ${x.name}: mesai dışı`, text: x.closed_text });

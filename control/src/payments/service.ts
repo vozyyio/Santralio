@@ -8,14 +8,15 @@
 import { open, randomToken, seal } from "../crypto.ts";
 import { audit, type Db } from "../db.ts";
 import { UserError } from "../ops.ts";
-import { assertPublicHttps as assertPublic, privateAddress } from "../netguard.ts";
+import { assertPublicHttps as assertPublic, postJson, privateAddress } from "../netguard.ts";
 import { emit } from "../webhooks.ts";
 import { catalogEntry } from "./catalog.ts";
 import { netgsmSend, smsText, validateNetgsm } from "./sms.ts";
 import { minor, parseAmount, ProviderError, type CallbackInput, type Currency, type Fetch, type Mode, type ProviderStatus, type Reply } from "./types.ts";
 
 export type Keys = { key: (id: string) => Buffer; currentId: string };
-export type Deps = { db: Db; keys: Keys; fetch: Fetch; apiBase: string; actor: string };
+// lookupPost: işletme sistemine tutar sorgusu. Varsayılan netguard.postJson (bağlantı anında da iç ağ denetimi, yönlendirme yok).
+export type Deps = { db: Db; keys: Keys; fetch: Fetch; apiBase: string; actor: string; lookupPost?: typeof postJson; resolve?: Parameters<typeof assertPublic>[1] };
 
 const aadProvider = (tenantId: number, callbackKey: string) => `payment_providers:${tenantId}:${callbackKey}`;
 const aadSms = (tenantId: number) => `payment_sms:${tenantId}`;
@@ -294,18 +295,16 @@ export async function assertPublicHttps(url: string | null, resolve?: Parameters
 }
 
 async function lookupAmount(d: Deps, url: string, q: { phone: string | null; callId: string | null; reference: string }) {
-  const u = await assertPublicHttps(url);
-  const res = await d
-    .fetch(u, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ phone: q.phone, call_id: q.callId, reference: q.reference }),
-      redirect: "error",
-      signal: AbortSignal.timeout(8_000),
-    })
-    .catch(() => null);
-  if (!res || !res.ok) bad("işletme sisteminden tutar alınamadı");
-  const body: any = await res.json().catch(() => null);
+  const u = await assertPublicHttps(url, d.resolve);
+  const post = d.lookupPost ?? postJson;
+  const res = await post(u.toString(), JSON.stringify({ phone: q.phone, call_id: q.callId, reference: q.reference }), {}, 8_000).catch(() => null);
+  if (!res || res.status < 200 || res.status > 299) bad("işletme sisteminden tutar alınamadı");
+  let body: any = null;
+  try {
+    body = JSON.parse(res.body);
+  } catch {
+    body = null;
+  }
   const amount = parseAmount(body?.amount);
   if (!amount) bad("işletme sistemi geçerli bir tutar dönmedi");
   const description = typeof body?.description === "string" ? body.description.trim().slice(0, 200) : null;

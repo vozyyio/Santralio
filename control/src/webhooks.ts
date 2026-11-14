@@ -20,7 +20,11 @@ import { UserError } from "./ops.ts";
 export const EVENTS: { type: string; label: string; group: string }[] = [
   { type: "call.missed", label: "Kaçan çağrı (kapattı, süre doldu, temsilci yok)", group: "Görüşmeler" },
   { type: "call.completed", label: "Cevaplanan görüşme bitti", group: "Görüşmeler" },
+  { type: "queue_callback.requested", label: "Kuyrukta geri arama istendi", group: "Görüşmeler" },
+  { type: "queue_callback.connected", label: "Kuyruk geri araması açıldı, temsilciye aktarıldı", group: "Görüşmeler" },
+  { type: "queue_callback.failed", label: "Kuyruk geri aramasında ulaşılamadı / süresi doldu", group: "Görüşmeler" },
   { type: "ai.session.ended", label: "Yapay zekâ görüşmesi bitti (özetiyle)", group: "Yapay zekâ" },
+  { type: "call.analyzed", label: "Görüşme analizi hazır (özet, konu, sonuç, takip)", group: "Yapay zekâ" },
   { type: "callback.answered", label: "Otomatik geri arama açıldı", group: "Yapay zekâ" },
   { type: "callback.failed", label: "Otomatik geri aramada ulaşılamadı", group: "Yapay zekâ" },
   { type: "payment.paid", label: "Ödeme alındı", group: "Ödeme" },

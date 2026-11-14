@@ -289,4 +289,28 @@ describe("Ödeme: uçtan uca", { skip: !TEST_DB && "SANTRALIO_TEST_DB tanımlı 
     // Canlı/başka sağlayıcının talebi test sayfasından ödenemez.
     assert.equal(await svc.testPageInfo(deps(), ref), null);
   });
+  it("tutar işletme sisteminden: korumalı POST, iç ağa çözülürse istek gitmez", async () => {
+    await db.query(
+      `INSERT INTO payment_profiles (tenant_id, name, title, amount_source, lookup_url, max_amount)
+       VALUES ($1, 'borc', 'Borç ödemesi', 'lookup', 'https://isletme.ornek.com/borc', 5000) ON CONFLICT DO NOTHING`,
+      [tenant.id],
+    );
+    const posted: { url: string; body: string }[] = [];
+    const lookupPost = async (url: string, body: string) => {
+      posted.push({ url, body });
+      return { status: 200, body: JSON.stringify({ amount: "245.50", description: "Kasım faturası" }) };
+    };
+    const pub = async () => [{ address: "93.184.216.34", family: 4 }];
+    const r = await svc.createRequest({ ...deps(), lookupPost, resolve: pub as any }, tenant, { profile: "borc", phone: "05321234567", createdBy: "ai", sendSms: false });
+    assert.equal(r.amount, "245.50");
+    assert.equal(posted[0].url, "https://isletme.ornek.com/borc");
+    assert.equal(JSON.parse(posted[0].body).phone, "+905321234567");
+    const priv = async () => [{ address: "10.1.2.3", family: 4 }];
+    posted.length = 0;
+    await assert.rejects(svc.createRequest({ ...deps(), lookupPost, resolve: priv as any }, tenant, { profile: "borc", createdBy: "ai", sendSms: false }), /iç ağ/);
+    assert.equal(posted.length, 0);
+    const over = async () => ({ status: 200, body: JSON.stringify({ amount: "9000" }) });
+    await assert.rejects(svc.createRequest({ ...deps(), lookupPost: over, resolve: pub as any }, tenant, { profile: "borc", createdBy: "ai", sendSms: false }), /üst sınır/);
+  });
+
 });

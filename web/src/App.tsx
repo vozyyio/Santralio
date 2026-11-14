@@ -19,6 +19,8 @@ import { Overview } from "./Overview";
 import { PaymentsPage } from "./Payments";
 import { CallbacksPage } from "./Callbacks";
 import { WebhooksPage } from "./Webhooks";
+import { QueueCallbackBox, QueueCallbackJobs } from "./QueueCallback";
+import { AnalysisReport, AnalysisSettingsCard } from "./Analysis";
 import { operatorName, regLabel } from "./labels";
 import type { IconName } from "./Icons";
 import { PbxCard, PromptsTab } from "./Prompts";
@@ -348,11 +350,13 @@ function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; ta
       {tab === "genel" && <General t={t} reload={reload} />}
       {tab === "anonslar" && <PromptsTab t={t} reload={reload} />}
       {tab === "yapayzeka" && <AiTab t={t} reload={reload} />}
+      {tab === "yapayzeka" && <AnalysisSettingsCard prefix={t.prefix} />}
       {tab === "menuler" && t.menus.map((m) => <MenuEditor key={m.name} t={t} menu={m} reload={reload} />)}
       {tab === "menuler" && t.menus.length === 0 && <p className="muted">Bu müşteride henüz menü yok.</p>}
       {tab === "saatler" && t.schedules.map((s) => <ScheduleEditor key={s.name} t={t} sc={s} reload={reload} />)}
       {tab === "saatler" && t.schedules.length === 0 && <p className="muted">Bu müşteride henüz çalışma saati tanımı yok.</p>}
       {tab === "kuyruklar" && t.queues.map((q) => <QueueEditor key={q.name} t={t} q={q} reload={reload} />)}
+      {tab === "kuyruklar" && <QueueCallbackJobs prefix={t.prefix} />}
       {tab === "dahililer" && <Extensions t={t} reload={reload} />}
       {tab === "personel" && <Staff t={t} me={me} reload={reload} />}
       {tab === "roller" && <Roles prefix={t.prefix} me={me} />}
@@ -379,6 +383,7 @@ function CrmPage({ me, prefix, tab: requested, id }: { me: Me; prefix: string; t
       {tab === "geriarama" && <FollowUps prefix={prefix} />}
       {tab === "gorusmeler" && <Calls prefix={prefix} own={!can(me, "calls.all")} />}
       {tab === "raporlar" && <Reports prefix={prefix} />}
+      {tab === "yapayzeka" && <AnalysisReport prefix={prefix} />}
       {tab === "yapayzeka" && <AiSessions prefix={prefix} />}
       {tab === "gunluk" && <Audit prefix={prefix} />}
       {tabs.length === 0 && <p className="muted">Rolünüzde CRM'de açık bir sekme yok.</p>}
@@ -793,6 +798,7 @@ function QueueEditor({ t, q, reload }: { t: Tenant; q: Tenant["queues"][number];
         </button>
         {save.view}
       </div>
+      <QueueCallbackBox prefix={t.prefix} queue={q.name} hasTrunk={!!t.trunk?.enabled} onSaved={reload} />
     </div>
   );
 }

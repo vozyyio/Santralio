@@ -17,6 +17,8 @@ import { DEFAULT_LANG, greetingLanguage, lang, LANGUAGES } from "./languages.ts"
 import { CallSession, type Result } from "./session.ts";
 import { callerBrief, callerHistory, fillName } from "../crm.ts";
 import { emit } from "../webhooks.ts";
+import { runPending } from "../analysis.ts";
+import { ClaudeAnalyzer } from "./analyzer.ts";
 import { CALLBACK_INSTRUCTIONS, getSettings as callbackSettings, greetingFor, markAnswered } from "../callbacks.ts";
 
 const PORT = Number(process.env.SANTRALIO_AI_PORT ?? 9092);
@@ -233,6 +235,28 @@ writeFileSync(
   process.env.SANTRALIO_AI_STATUS ?? "/var/lib/santralio/ai/status.json",
   JSON.stringify({ fake: FAKE, azure: !!AZURE_KEY, anthropic: !!ANTHROPIC_KEY, region: REGION, at: new Date().toISOString() }),
 );
+
+// Görüşme sonrası analiz: kiracı açtıysa, 30 saniyede bir en fazla 5 oturum. Anahtar yoksa ya da test kipinde çalışmaz.
+if (ANTHROPIC_KEY && !FAKE && process.env.SANTRALIO_ANALYSIS !== "off") {
+  const analyzer = new ClaudeAnalyzer(ANTHROPIC_KEY);
+  let running = false;
+  setInterval(async () => {
+    if (running) return;
+    running = true;
+    const db = await pool.connect().catch(() => null);
+    try {
+      if (db) {
+        const r = await runPending(db, analyzer);
+        if (r.done || r.failed) log(`görüşme analizi: ${r.done} tamam, ${r.failed} hata`);
+      }
+    } catch (e) {
+      log("görüşme analizi:", e);
+    } finally {
+      db?.release();
+      running = false;
+    }
+  }, 30_000).unref();
+}
 
 const server = createServer((sock) => void handle(sock).catch((e) => log("bağlantı hatası", e)));
 server.listen(PORT, "127.0.0.1", () =>

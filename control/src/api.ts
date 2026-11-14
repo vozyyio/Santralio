@@ -30,6 +30,8 @@ import * as vozyy from "./vozyy.ts";
 import * as payments from "./payments/service.ts";
 import * as callbacks from "./callbacks.ts";
 import * as webhooks from "./webhooks.ts";
+import * as queuecb from "./queuecb.ts";
+import * as analysis from "./analysis.ts";
 import { publicCatalog } from "./payments/catalog.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
@@ -39,7 +41,7 @@ import { AI_MODELS, aiLanguages, aiVoices, saveFlow } from "./aiops.ts";
 import { tx, type Db } from "./db.ts";
 import * as ops from "./ops.ts";
 import { dialPatterns, TEMPLATES, type Policy } from "./outbound.ts";
-import { ALL_PERMISSIONS, PERMISSIONS, type Permission } from "./permissions.ts";
+import { ALL_PERMISSIONS, hasModule, PERMISSIONS, type Permission } from "./permissions.ts";
 import { UserError, type Tenant } from "./ops.ts";
 
 const PORT = Number(process.env.SANTRALIO_API_PORT ?? 8090);
@@ -1151,6 +1153,116 @@ if (process.env.SANTRALIO_CALLBACKS !== "off") {
       running = false;
     }
   }, 15_000).unref();
+}
+
+// --- Görüşme sonrası yapay zekâ analizi ---
+const analysisTenant = async (ctx: Ctx, perm: Permission) => {
+  const t = await tenantFor(ctx, ctx.params[0], perm);
+  const mods = (await ctx.db.query("SELECT CASE WHEN source = 'vozyy' THEN modules END AS modules FROM licenses WHERE tenant_id = $1", [t.id])).rows[0]?.modules ?? null;
+  if (!hasModule(mods, "ai")) throw new UserError("yapay zekâ modülü lisansta yok", 403);
+  return t;
+};
+
+route("GET", "/api/tenants/:prefix/analysis/settings", async (ctx) => {
+  const t = await analysisTenant(ctx, "settings.manage");
+  return { settings: await analysis.getSettings(ctx.db, t.id), models: analysis.ANALYSIS_MODELS };
+});
+
+route("PUT", "/api/tenants/:prefix/analysis/settings", async (ctx) => {
+  const t = await analysisTenant(ctx, "settings.manage");
+  const b = ctx.body ?? {};
+  return analysis.saveSettings(ctx.db, t.id, { enabled: b.enabled, model: b.model, topics: b.topics }, actor(ctx));
+});
+
+route("GET", "/api/tenants/:prefix/analysis", async (ctx) => {
+  const t = await analysisTenant(ctx, "reports.view");
+  const qs = query(ctx);
+  const days = Number(qs.get("days") ?? 30);
+  return {
+    overview: await analysis.overview(ctx.db, t.id, Number.isFinite(days) ? days : 30),
+    items: await analysis.list(ctx.db, t.id, { outcome: qs.get("outcome"), sentiment: qs.get("sentiment"), followUp: qs.get("followUp") === "1" }),
+  };
+});
+
+// --- "Sıranız gelince sizi arayalım" ---
+route("GET", "/api/tenants/:prefix/queues/:name/callback", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return queuecb.getSettings(ctx.db, t.id, ctx.params[1]);
+});
+
+route("PUT", "/api/tenants/:prefix/queues/:name/callback", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  const r = await queuecb.saveSettings(
+    ctx.db,
+    t.id,
+    ctx.params[1],
+    { enabled: b.enabled, offerAfterS: b.offerAfterS, expireMin: b.expireMin, offerText: b.offerText, confirmText: b.confirmText, connectText: b.connectText, nonumText: b.nonumText },
+    actor(ctx),
+  );
+  applyChanges(ctx.db);
+  return r;
+});
+
+route("GET", "/api/tenants/:prefix/queue-callbacks", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return queuecb.listJobs(ctx.db, t.id);
+});
+
+route("POST", "/api/tenants/:prefix/queue-callbacks/:id/cancel", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  await queuecb.cancelJob(ctx.db, t.id, idParam(ctx.params[1]), actor(ctx));
+  return { ok: true };
+});
+
+const qDialer: queuecb.QDialer = {
+  async originate(o) {
+    const ami = await Ami.open();
+    try {
+      const r = await ami.action({
+        Action: "Originate",
+        Channel: `PJSIP/${o.dial}@${o.prefix}_trunk`,
+        Context: `${o.prefix}-qcb-out`,
+        Exten: `q${o.queue}`,
+        Priority: "1",
+        Timeout: String(o.timeoutS * 1000),
+        CallerID: `<${o.callerId}>`,
+        Variable: `QCB=${o.jobId}_${o.e164.replace(/\D/g, "")}`,
+        Async: "true",
+      });
+      if (r.Response !== "Success") throw new Error(r.Message ?? "Originate reddedildi");
+    } finally {
+      await ami.close();
+    }
+  },
+  activeChannels: (prefix) => amiDialer.activeChannels(prefix),
+  async queueState(prefix, queue) {
+    const ami = await Ami.open();
+    try {
+      return queuecb.parseQueueShow(await ami.command(`queue show ${prefix}_${queue}`));
+    } finally {
+      await ami.close();
+    }
+  },
+};
+if (process.env.SANTRALIO_CALLBACKS !== "off") {
+  let running = false;
+  setInterval(async () => {
+    if (running) return;
+    running = true;
+    const db = await pool.connect().catch(() => null);
+    try {
+      if (db) {
+        await queuecb.scan(db);
+        await queuecb.tick(db, qDialer);
+      }
+    } catch (err) {
+      console.error(new Date().toISOString(), "kuyruk geri arama zamanlayıcısı:", err);
+    } finally {
+      db?.release();
+      running = false;
+    }
+  }, 5_000).unref();
 }
 
 // --- Webhook: kiracının kendi sistemlerine imzalı olay bildirimi ---

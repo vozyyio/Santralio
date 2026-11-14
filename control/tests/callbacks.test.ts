@@ -229,8 +229,11 @@ describe("Geri arama: uçtan uca", { skip: !TEST_DB && "SANTRALIO_TEST_DB tanım
     assert.equal(dialed.filter((d) => d.dial === "05551112233").length, 0);
   });
 
+  // Ayarların saat dilimi İstanbul: UTC günü gece yarısına yakın farklı olabilir.
+  const istanbulWeekday = () =>
+    ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Istanbul", weekday: "short" }).format(new Date())) + 1;
   it("saat aralığı dışında aranmaz", async () => {
-    await cb.saveSettings(db, tenant.id, { ...BASE, weekdays: [((new Date().getUTCDay() + 6) % 7) + 1 === 7 ? 1 : 7] }, "test");
+    await cb.saveSettings(db, tenant.id, { ...BASE, weekdays: [istanbulWeekday() === 7 ? 1 : 7] }, "test");
     const c = await missed("05661112233", 3);
     await cb.tick(db, dialer, new Date(Date.now() + 30_000));
     assert.equal((await job(c)).status, "pending");

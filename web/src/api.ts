@@ -210,6 +210,53 @@ export type WebhookDelivery = {
   nextAt: string;
   deliveredAt: string | null;
 };
+export type QueueCallbackSettings = {
+  enabled: boolean;
+  offerAfterS: number;
+  expireMin: number;
+  offerText: string;
+  confirmText: string;
+  connectText: string;
+  nonumText: string;
+};
+export type QueueCallbackJob = {
+  id: number;
+  queue: string;
+  phone: string;
+  status: "waiting" | "dialing" | "connected" | "no_answer" | "expired" | "cancelled" | "failed";
+  attempts: number;
+  note: string | null;
+  requestedAt: string;
+  connectedAt: string | null;
+  waitS: number | null;
+};
+export type AnalysisSettings = { enabled: boolean; model: string; topics: string[] };
+export type AnalysisOverview = {
+  days: number;
+  total: number;
+  aiResolved: number;
+  transferred: number;
+  unresolved: number;
+  positive: number;
+  negative: number;
+  followUps: number;
+  inputTokens: number;
+  outputTokens: number;
+  failed: number;
+  topics: { topic: string; n: number; ai_resolved: number; negative: number }[];
+};
+export type AnalysisItem = {
+  id: number;
+  callId: string | null;
+  caller: string | null;
+  flow: string;
+  summary: string;
+  topic: string;
+  sentiment: "positive" | "neutral" | "negative";
+  outcome: "ai_resolved" | "transferred" | "unresolved" | "unknown";
+  followUp: string | null;
+  startedAt: string;
+};
 export type AiLanguage = { code: string; label: string; flag: string; defaultGreeting: string };
 export type AiInfo = {
   enabled: boolean;
@@ -278,7 +325,7 @@ export type SystemStatus = {
   users: number;
   recentProblems: string[];
 };
-export type Outcome = "answered" | "abandoned" | "timeout" | "no_agent" | "open";
+export type Outcome = "answered" | "callback_requested" | "abandoned" | "timeout" | "no_agent" | "open";
 export type Contact = { id: number; name: string; company: string; email: string; tags: string[]; phones: string[] };
 export type Note = { id: number; callid: string | null; direction: "in" | "out" | null; phone: string | null; note: string; user: string; disposition: string | null; at: string; followUpAt: string | null };
 export type ContactDetail = Contact & { notes: Note[]; calls: CallRow[] };
@@ -301,6 +348,7 @@ export type Totals = {
   offered: number;
   answered: number;
   abandoned: number;
+  callbackRequested?: number;
   timeout: number;
   noAgent: number;
   answerRate: number | null;
@@ -359,6 +407,17 @@ export const api = {
   saveSchedule: (p: string, name: string, body: object) => call("PUT", `${t(p)}/schedules/${seg(name)}`, body),
   addHoliday: (p: string, name: string, day: string, note: string) =>
     call("POST", `${t(p)}/schedules/${seg(name)}/holidays`, { day, note: note || null }),
+  anSettings: (p: string) => call<{ settings: AnalysisSettings; models: { id: string; label: string }[] }>("GET", `${t(p)}/analysis/settings`),
+  anSave: (p: string, b: AnalysisSettings) => call<AnalysisSettings>("PUT", `${t(p)}/analysis/settings`, b),
+  anReport: (p: string, q: { days: number; outcome?: string; sentiment?: string; followUp?: boolean }) =>
+    call<{ overview: AnalysisOverview; items: AnalysisItem[] }>(
+      "GET",
+      `${t(p)}/analysis?days=${q.days}${q.outcome ? `&outcome=${q.outcome}` : ""}${q.sentiment ? `&sentiment=${q.sentiment}` : ""}${q.followUp ? "&followUp=1" : ""}`,
+    ),
+  qcbGet: (p: string, queue: string) => call<QueueCallbackSettings>("GET", `${t(p)}/queues/${seg(queue)}/callback`),
+  qcbSave: (p: string, queue: string, b: QueueCallbackSettings) => call<QueueCallbackSettings>("PUT", `${t(p)}/queues/${seg(queue)}/callback`, b),
+  qcbJobs: (p: string) => call<QueueCallbackJob[]>("GET", `${t(p)}/queue-callbacks`),
+  qcbCancel: (p: string, id: number) => call<{ ok: true }>("POST", `${t(p)}/queue-callbacks/${id}/cancel`, {}),
   saveUnavailable: (p: string, queue: string, text: string) => call("PUT", `${t(p)}/queues/${seg(queue)}/unavailable-text`, { text }),
   setFlow: (p: string, address: string, flow: string) => call("PUT", `${t(p)}/entry-points/${seg(address)}`, { flow }),
   addExtension: (p: string, number: string, name: string) => call<{ number: string; sip: Sip }>("POST", `${t(p)}/extensions`, { number, name }),

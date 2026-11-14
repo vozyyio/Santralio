@@ -22,6 +22,7 @@ const num = (n: number) => n.toLocaleString("tr-TR");
 
 const OUTCOME: Record<Outcome, [string, boolean]> = {
   answered: ["Cevaplandı", true],
+  callback_requested: ["Geri arama istedi", true],
   abandoned: ["Arayan kapattı", false],
   timeout: ["Bekleme süresi doldu", false],
   no_agent: ["Müsait temsilci yok", false],
@@ -168,7 +169,7 @@ export function Reports({ prefix }: { prefix: string }) {
             <Tile
               label="Kaçan"
               value={num(missed)}
-              note={`${s.totals.abandoned} kapattı · ${s.totals.timeout} süre doldu · ${s.totals.noAgent} temsilci yok`}
+              note={`${s.totals.abandoned} kapattı · ${s.totals.timeout} süre doldu · ${s.totals.noAgent} temsilci yok${s.totals.callbackRequested ? ` · ${s.totals.callbackRequested} geri arama istedi` : ""}`}
             />
             <Tile label="Hizmet seviyesi" value={pct(s.totals.serviceLevel)} note={`${s.slaSeconds} sn içinde cevaplanan`} />
             <Tile label="Ortalama bekleme" value={mmss(s.totals.avgWaitS)} note={`en uzun ${mmss(s.totals.maxWaitS)}`} />

@@ -28,6 +28,7 @@ export type TenantModel = {
     strategy: string;
     ringS: number;
     maxWaitS: number;
+    callback?: { offerAfterS: number } | null;
     members: { number: string; penalty: number }[];
   }[];
   menus: {
@@ -491,8 +492,8 @@ exten => i,1,Playback(${promptPath(p, `menu-${m.name}-invalid`)})
 [${p}-queue-${q.name}]
 exten => s,1,Answer()
  same => n,Wait(0.5)
- same => n,Set(CHANNEL(musicclass)=${p})
  same => n,ExecIf($[${v(`STAT(e,${welcome}.wav)`)}]?Playback(${welcome}))
+ same => n(join),Set(CHANNEL(musicclass)=${p})
  same => n,Set(__SANTRALIO_QUEUE=${q.name})
  same => n,Set(__SANTRALIO_QLOG=${p}_${q.name})
  same => n,Set(__SANTRALIO_CALLID=${v("UNIQUEID")})
@@ -505,6 +506,44 @@ ${recordingSteps(t, p)} same => n,Queue(${p}_${q.name},t,,,${q.maxWaitS},,${t.re
  same => n,Playback(${promptPath(p, `queue-${q.name}-unavailable`)})
  same => n,Hangup(16)
 `);
+  }
+
+  // "Sıranız gelince sizi arayalım": kuyrukta 1'e basan buraya düşer (queues.conf context=).
+  // Numara görünüyorsa talep queue_log'a yazılır ve kapatılır; görünmüyorsa kuyruğa geri alınır.
+  // Geri arama açılınca tN-qcb-out,q<kuyruk> üzerinden öncelikli olarak aynı kuyruğa girilir.
+  const cbQueues = qcbQueues(t);
+  for (const q of cbQueues) {
+    out.push(`
+[${p}-qcb-${q.name}]
+exten => 1,1,Set(QCBD=${v("FILTER(0-9,${CALLERID(num)})")})
+ same => n,GotoIf($[${v("LEN(${QCBD})")} < 10]?nonum)
+ same => n,QueueLog(${p}_${q.name},${v("UNIQUEID")},NONE,SANTRALIO_QCB_REQUEST,${v("QCBD")})
+ same => n,Playback(${promptPath(p, `queue-${q.name}-cbconfirm`)})
+ same => n,Hangup(16)
+ same => n(nonum),Playback(${promptPath(p, `queue-${q.name}-cbnonum`)})
+ same => n,Goto(${p}-queue-${q.name},s,join)
+`);
+  }
+  if (cbQueues.length) {
+    out.push(`
+[${p}-qcb-out]
+`);
+    for (const q of cbQueues) {
+      out.push(`exten => q${q.name},1,NoOp(Santralio ${p}: kuyruk geri araması ${v("QCB")})
+ same => n,Set(QCBJOB=${v("FILTER(0-9,${CUT(QCB,_,1)})")})
+ same => n,Set(QCBNUM=${v("FILTER(0-9,${CUT(QCB,_,2)})")})
+ same => n,GotoIf($["${v("QCBJOB")}" = "" | "${v("QCBNUM")}" = ""]?bad)
+ same => n,Set(TENANT=${p})
+ same => n,Gosub(santralio-lib,limit,1(${t.maxChannels}))
+ same => n,QueueLog(${p}_${q.name},${v("UNIQUEID")},NONE,SANTRALIO_QCB_ANSWERED,${v("QCBJOB")})
+ same => n,Set(CALLERID(num)=+${v("QCBNUM")})
+ same => n,Set(SANTRALIO_DID=)
+ same => n,Playback(${promptPath(p, `queue-${q.name}-cbconnect`)})
+ same => n,Set(QUEUE_PRIO=10)
+ same => n,Goto(${p}-queue-${q.name},s,join)
+ same => n(bad),Hangup(21)
+`);
+    }
   }
 
   // Menüden ya da numaradan doğrudan bir dahiliyi çaldırmak (ext:<numara>). Raporlara "ext-<numara>"
@@ -592,10 +631,16 @@ exten => s,1,NoOp(Santralio ${p}: otomatik geri arama ${v("CB")})
 `;
 }
 
+// Geri arama teklifi yapılacak kuyruklar: ayar açık ve kiracının açık bir hattı var.
+function qcbQueues(t: TenantModel) {
+  return t.trunk?.enabled ? t.queues.filter((q) => q.callback) : [];
+}
+
 function renderQueues(t: TenantModel, p: string): string {
   const out = [header(t, "kuyruklar")];
   const enabled = new Set(t.extensions.filter((e) => e.enabled).map((e) => e.number));
   const pausedSet = new Set(t.extensions.filter((e) => e.paused).map((e) => e.number));
+  const cb = new Set(qcbQueues(t).map((q) => q.name));
   for (const q of t.queues) {
     out.push(`
 [${p}_${q.name}]
@@ -608,7 +653,9 @@ musicclass=${p}
 joinempty=unavailable,invalid
 leavewhenempty=unavailable,invalid
 announce-frequency=0
-periodic-announce-frequency=0
+${cb.has(q.name) ? `context=${p}-qcb-${q.name}
+periodic-announce=${promptPath(p, `queue-${q.name}-cboffer`)}
+periodic-announce-frequency=${q.callback!.offerAfterS}` : "periodic-announce-frequency=0"}
 `);
     // Üye bir Local kanalıdır: dahilinin iki cihazını birlikte çaldırır ({p}-agent).
     // Meşgul/müsait durumu iki cihazı birlikte izleyen hint'ten okunur ({p}-hints).

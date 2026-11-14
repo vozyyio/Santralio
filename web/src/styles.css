@@ -231,3 +231,20 @@ button.ghost.danger { background: transparent; color: var(--bad); border-color: 
 .hook-list li { border-top: 1px solid var(--line); padding: 12px 0; display: grid; gap: 6px; }
 .hook-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .hook-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+
+/* Görüşme analizi */
+.an-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0 14px; }
+.an-kpi { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-weight: 400; }
+.an-kpi strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.an-kpi span { font-size: 0.82rem; color: var(--muted); }
+.an-kpi.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.an-topics { list-style: none; padding: 0; margin: 6px 0 12px; display: grid; gap: 6px; }
+.an-topics li { position: relative; display: flex; justify-content: space-between; gap: 10px; padding: 6px 10px; border-radius: 8px; overflow: hidden; }
+.an-bar { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 12%, transparent); z-index: 0; }
+.an-topic, .an-topics .small { position: relative; z-index: 1; }
+.an-follow { color: var(--text); }
+.hook-head .badge { white-space: nowrap; flex-shrink: 0; }
+.an-topics li { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .an-topics li { flex-direction: column; gap: 0; }
+}

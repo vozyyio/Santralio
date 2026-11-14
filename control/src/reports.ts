@@ -42,6 +42,7 @@ SELECT e.callid,
        COALESCE(c.hold, ab.wait, tmo.wait, x.wait, 0) AS wait_s,
        COALESCE(done.talk, x.talk, 0) AS talk_s,
        CASE WHEN c.agent IS NOT NULL OR x.status = 'ANSWER' THEN 'answered'
+            WHEN qcb.callid IS NOT NULL THEN 'callback_requested'
             WHEN ab.callid IS NOT NULL OR x.status = 'CANCEL' THEN 'abandoned'
             WHEN tmo.callid IS NOT NULL THEN 'timeout'
             WHEN na.callid IS NOT NULL OR x.status IN ('NOANSWER', 'BUSY', 'CHANUNAVAIL', 'CONGESTION') THEN 'no_agent'
@@ -53,6 +54,7 @@ SELECT e.callid,
   LEFT JOIN LATERAL (SELECT callid, data3::int AS wait FROM ev WHERE callid = e.callid AND queuename = e.queuename AND event = 'ABANDON' LIMIT 1) ab ON true
   LEFT JOIN LATERAL (SELECT callid, data3::int AS wait FROM ev WHERE callid = e.callid AND queuename = e.queuename AND event = 'EXITWITHTIMEOUT' LIMIT 1) tmo ON true
   LEFT JOIN LATERAL (SELECT callid FROM ev WHERE callid = e.callid AND queuename = e.queuename AND event = 'SANTRALIO_NOAGENT' LIMIT 1) na ON true
+  LEFT JOIN LATERAL (SELECT callid FROM ev WHERE callid = e.callid AND queuename = e.queuename AND event = 'SANTRALIO_QCB_REQUEST' LIMIT 1) qcb ON true
   LEFT JOIN LATERAL (SELECT data1 AS file FROM ev WHERE callid = e.callid AND event = 'SANTRALIO_RECORDING' LIMIT 1) rec ON true
   -- Doğrudan dahili araması (ext:<numara>): durum | toplam süre | konuşma süresi
   LEFT JOIN LATERAL (SELECT agent, data1 AS status, GREATEST(COALESCE(NULLIF(data2, '')::int, 0) - COALESCE(NULLIF(data3, '')::int, 0), 0) AS wait,
@@ -70,7 +72,7 @@ export type CallRow = {
   agent: string | null;
   wait_s: number;
   talk_s: number;
-  outcome: "answered" | "abandoned" | "timeout" | "no_agent" | "open";
+  outcome: "answered" | "callback_requested" | "abandoned" | "timeout" | "no_agent" | "open";
   recording: string | null;
 };
 
@@ -91,6 +93,7 @@ const summarize = (rows: CallRow[]) => {
     offered: rows.length,
     answered: answered.length,
     abandoned: rows.filter((c) => c.outcome === "abandoned").length,
+    callbackRequested: rows.filter((c) => c.outcome === "callback_requested").length,
     timeout: rows.filter((c) => c.outcome === "timeout").length,
     noAgent: rows.filter((c) => c.outcome === "no_agent").length,
     answerRate: rows.length ? answered.length / rows.length : null,

@@ -107,6 +107,8 @@ describe("Webhook ve arayanı tanıma: uçtan uca", { skip: !TEST_DB && "SANTRAL
     const a = await ops.createTenant(db, "Webhook " + randomBytes(2).toString("hex"), reseller);
     other = await ops.createTenant(db, "Diğer " + randomBytes(2).toString("hex"), reseller);
     tenant = (await db.query("SELECT id, prefix, name, status, reseller_id FROM tenants WHERE id = $1", [a.id])).rows[0];
+    // Gönderici bütün kiracılarda çalışır: önceki çalıştırmalardan kalan uçlar karışmasın.
+    await db.query("UPDATE webhooks SET enabled = false");
   });
   after(async () => void (await db?.end()));
 

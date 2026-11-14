@@ -55,7 +55,7 @@ docs/               mimari ve modül belgeleri
 ```bash
 # Kontrol servisi
 cd control && npm ci && npm run check && npm test
-SANTRALIO_TEST_DB=santralio_test SANTRALIO_PG_DATABASE=santralio_test node --test tests/vozyy.test.ts tests/payments.test.ts tests/callbacks.test.ts tests/webhooks.test.ts
+SANTRALIO_TEST_DB=santralio_test SANTRALIO_PG_DATABASE=santralio_test node --test tests/*.test.ts
 # Test veritabanı ilk kez: postgres'te test kullanıcısı ve `asterisk` rolü (createuser asterisk) olmalı
 
 # Panel ve site
@@ -85,7 +85,7 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 - Başvuru ve ödeme santralio.site'de; müşteri vozyy.com'a gitmez. `PushEnabled` ancak anahtar parmak izleri eşleşip uçtan uca test geçince açılır.
 - Kiracı öneki `t` + sayı (ör. `t12`); müşterinin istediği kısa ad ayrı `slug` alanındadır.
 
-## 8. Durum (son güncelleme: 2026-11-14)
+## 8. Durum (son güncelleme: 2026-11-15)
 
 | Alan | Durum |
 | --- | --- |
@@ -97,14 +97,16 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 | Kaçan çağrıya otomatik yapay zekâ geri araması (`control/src/callbacks.ts`, Panel → Kaçan çağrılar) | Var; dialplan Asterisk 20'de doğrulandı, gerçek hatla test edilmedi |
 | Webhook (`control/src/webhooks.ts`, Panel → Entegrasyonlar): 11 olay, HMAC imza, outbox + yeniden deneme, otomatik kapanma | Var; birim ve veritabanı testleri geçti |
 | Arayanı tanıma (`crm.callerHistory`): yapay zekâ talimatına kart/kaçıncı arama/son özet; karşılamada `{ad}`; temsilci ekranında "N. araması" | Var; yapay zekâ akışında açılıp kapanır (varsayılan açık) |
+| "Sıranız gelince sizi arayalım" (`control/src/queuecb.ts`, Panel → Kuyruklar) | Var; dialplan Asterisk 20.6'da Local kanalla çalıştırıldı, gerçek hatla test edilmedi |
+| Görüşme sonrası yapay zekâ analizi (`control/src/analysis.ts`, `ai/analyzer.ts`; Panel → Yapay zekâ, CRM → Yapay zekâ) | Var; varsayılan kapalı, gerçek API ile test edilmedi |
 | Tanıtım sitesi | Bakımda; KVKK ve koşullar taslak (hukuk kontrolü bekliyor) |
 
 ## 9. Yol haritası (öncelik sırası)
 
 1. **Canlı durum ucu:** bekleyen çağrı, aktif görüşme, temsilci durumu (AMI/ARI, olay akışı). Gerçek santralde test edilir.
 2. **Ödeme: sesli menü ve yapay zekâ adımı.** Arayana "SMS ile bağlantı 1, tuşlama 2" sorusu; yapay zekânın sesli onayla bağlantı göndermesi. Akışta yeni hedef türü `payment:<profil>`.
-3. **Görüşme sonrası yapay zekâ analizi:** özet, konu, hava, takip işi, "yapay zekâ çözdü mü".
-4. **"Sıranız gelince sizi arayalım"** (kuyrukta beklemek yerine geri aranma). Kaçan çağrıya geri arama ve arayanı tanıma tamamlandı.
+3. **Haftalık yapay zekâ raporu** (analizlerden; Fable 5.2 seçeneğiyle) ve kurulum sihirbazında işletme belgelerinden akış talimatı üretme.
+4. Temsilci görüşmelerinin (kayıt) yazıya dökülüp analiz edilmesi (Azure toplu yazıya dökme). Kuyrukta geri aranma, kaçan çağrıya geri arama, arayanı tanıma ve yapay zekâ görüşme analizi tamamlandı.
 5. Randevu/rezervasyonu konuşmadan oluşturma (takvim, otel sistemi), otomatik hatırlatma araması.
    - Gelmeme riskine göre kapora isteme (ödeme modülüyle). Risk puanı somut geçmişten (önceki gelmeme, ilk kez mi, ne kadar önceden); ses tonu yalnızca destekleyici sinyal (KVKK: profilleme, aydınlatma metninde yer almalı).
    - Çok dilli sağlık/turizm yönlendirmesi: kiracı bazlı terim sözlüğü (STT kelime listesi), niyete göre kuyruk. Sağlık soruları özel nitelikli veri: önce açık rıza, "değerlendirme" değil "bilgi toplama".

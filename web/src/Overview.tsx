@@ -29,6 +29,7 @@ function dur(s: number) {
 const OUTCOME: Record<Outcome, [string, "ok" | "warn" | "bad" | "info"]> = {
   answered: ["Cevaplandı", "ok"],
   open: ["Sürüyor", "info"],
+  callback_requested: ["Geri arama istedi", "info"],
   abandoned: ["Arayan kapattı", "bad"],
   timeout: ["Süre doldu", "warn"],
   no_agent: ["Temsilci yok", "warn"],
