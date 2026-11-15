@@ -53,6 +53,8 @@ new_cred() {
 }
 new_cred santralio-master-key-k1 "$(head -c 32 /dev/urandom | base64 -w0)"
 new_cred santralio-ami-secret "$(head -c 24 /dev/urandom | base64 -w0 | tr -d '/+=')"
+# API ile yapay zekâ servisi arasındaki iç uç anahtarı (rezervasyon işlemleri; dışarıya açık değil)
+new_cred santralio-internal-key "$(head -c 32 /dev/urandom | base64 -w0 | tr -d '/+=')"
 
 # 4. AMI kullanıcısı: şifre credential'dan okunur, Asterisk'in okuyacağı dosyaya yazılır.
 AMI_SECRET="$(systemd-creds decrypt --name=santralio-ami-secret "$CREDS/santralio-ami-secret" -)"

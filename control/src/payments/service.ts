@@ -321,7 +321,9 @@ export type CreateInput = {
   callId?: string | null;
   contactId?: number | null;
   method?: string;
-  createdBy: "agent" | "ai" | "ivr" | "api";
+  createdBy: "agent" | "ai" | "ivr" | "api" | "booking";
+  // Yalnızca createdBy "booking" ve profilsiz: tutar ve para birimi rezervasyon bağlantısından (sunucu tarafı) gelir.
+  currency?: string;
   user?: string | null;
   sendSms?: boolean;
   locale?: "tr" | "en";
@@ -386,7 +388,8 @@ export async function createRequest(d: Deps, tenant: { id: number; name: string 
   if (!profile && minor(amount) > minor("50000.00")) bad("profil olmadan en fazla 50.000 istenebilir");
   if (!description) description = profile?.title ?? "";
   if (description.length < 4 || description.length > 200) bad("açıklama 4-200 karakter olmalı");
-  const currency: Currency = (profile?.currency ?? "TRY") as Currency;
+  const currency: Currency = (profile?.currency ?? (input.createdBy === "booking" && input.currency ? input.currency : "TRY")) as Currency;
+  if (!["TRY", "EUR", "USD", "GBP"].includes(currency)) bad("para birimi desteklenmiyor");
   const expiresAt = new Date(Date.now() + (profile?.expires_minutes ?? 60) * 60_000);
 
   const id = (

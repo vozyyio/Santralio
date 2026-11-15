@@ -117,7 +117,7 @@ export function WebhooksPage({ prefix }: { prefix: string }) {
   );
 }
 
-function SecretBox({ value, onClose }: { value: string; onClose: () => void }) {
+export function SecretBox({ value, onClose }: { value: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="notice">

@@ -33,6 +33,8 @@
 	# route içindekiler yazıldığı sırayla çalışır: önce Cloudflare dışı bağlantı reddedilir.
 	route {
 		respond @not_cloudflare "Yalnızca @SANTRALIO_BASE_DOMAIN@ adresleri üzerinden erişilebilir." 403
+		# İç uçlar (yalnızca sunucudaki servisler arası) dışarıya hiç açılmaz.
+		respond /api/internal/* 404
 
 		handle /api/* {
 			reverse_proxy 127.0.0.1:8090 {

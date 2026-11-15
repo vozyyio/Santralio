@@ -34,6 +34,9 @@ import * as queuecb from "./queuecb.ts";
 import * as analysis from "./analysis.ts";
 import * as payIvr from "./payments/ivr.ts";
 import * as live from "./live.ts";
+import * as booking from "./booking.ts";
+import { directExec } from "./bookingexec.ts";
+import { timingSafeEqual } from "node:crypto";
 import { publicCatalog } from "./payments/catalog.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
@@ -572,7 +575,7 @@ route("GET", "/api/tenants/:prefix/ai", async (ctx) => {
   const flows = (
     await ctx.db.query(
       `SELECT name, enabled, greeting_text AS "greetingText", instructions, routes, default_target AS "defaultTarget",
-              max_turns AS "maxTurns", voice, model, languages, greetings, recognize_callers AS "recognizeCallers" FROM ai_flows WHERE tenant_id = $1 ORDER BY name`,
+              max_turns AS "maxTurns", voice, model, languages, greetings, recognize_callers AS "recognizeCallers", booking FROM ai_flows WHERE tenant_id = $1 ORDER BY name`,
       [t.id],
     )
   ).rows;
@@ -623,6 +626,7 @@ route("PUT", "/api/tenants/:prefix/ai/flows/:name", async (ctx) => {
       languages: b.languages ?? ["tr-TR"],
       greetings: b.greetings ?? {},
       recognizeCallers: b.recognizeCallers,
+      booking: b.booking,
     },
     actor(ctx),
   );
@@ -1645,6 +1649,78 @@ route("PUT", "/api/tenants/:prefix/live/settings", async (ctx) => {
   const b = ctx.body ?? {};
   return live.saveSettings(ctx.db, t.id, { waitAlertS: b.waitAlertS, waitingAlertN: b.waitingAlertN }, actor(ctx));
 });
+
+// --- Rezervasyon (yapay zekâ ile telefon ve web sohbetinden) ---
+const bookingDeps = (ctx: Ctx): booking.Deps => ({ db: ctx.db, keys: payKeys, actor: ctx.user ? actor(ctx) : "ai" });
+
+route("GET", "/api/tenants/:prefix/booking/settings", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return booking.getSettings(ctx.db, t.id);
+});
+route("PUT", "/api/tenants/:prefix/booking/settings", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  return booking.saveSettings(bookingDeps(ctx), t.id, { mode: b.mode, apiUrl: b.apiUrl, services: b.services });
+});
+route("POST", "/api/tenants/:prefix/booking/rotate", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return booking.rotateSecret(bookingDeps(ctx), t.id);
+});
+route("POST", "/api/tenants/:prefix/booking/test", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return booking.testConnection(bookingDeps(ctx), t.id);
+});
+// Panelden deneme: arama yapmadan fiyat sorgusu (asistanın göreceği yanıt).
+route("POST", "/api/tenants/:prefix/booking/quote", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  return booking.quote(bookingDeps(ctx), t.id, { service: str(b.service, "hizmet"), fields: b.fields ?? {} }, { phone: null });
+});
+route("GET", "/api/tenants/:prefix/bookings", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "bookings.manage");
+  const url = new URL(ctx.req.url ?? "/", "http://x");
+  return booking.list(ctx.db, t.id, url.searchParams.get("status"), Number(url.searchParams.get("limit") ?? 100));
+});
+route("POST", "/api/tenants/:prefix/bookings/:id/:status", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "bookings.manage");
+  const status = ctx.params[2];
+  if (status !== "confirm" && status !== "cancel") throw new UserError("bulunamadı", 404);
+  await booking.setStatus(bookingDeps(ctx), t.id, idParam(ctx.params[1]), status === "confirm" ? "confirmed" : "cancelled", optStr(ctx.body?.note, "not") ?? undefined);
+  return { ok: true };
+});
+
+// Yapay zekâ servisinin (santralio-ai) iç ucu. Caddy bu yolu dışarıya açmaz; ayrıca ortak iç anahtar ister ve
+// vekil üzerinden gelen (X-Forwarded-For taşıyan) isteği reddeder. Yapay zekâ servisi ana anahtarı taşımaz.
+function internalOnly(ctx: Ctx) {
+  const key = optionalCredential("santralio-internal-key");
+  const got = Buffer.from(String(ctx.req.headers["x-internal-key"] ?? ""));
+  const remote = ctx.req.socket.remoteAddress ?? "";
+  const local = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  if (!key || !local || ctx.req.headers["x-forwarded-for"] || got.length !== Buffer.byteLength(key) || !timingSafeEqual(got, Buffer.from(key)))
+    throw new UserError("bulunamadı", 404);
+}
+route(
+  "POST",
+  "/api/internal/booking",
+  async (ctx) => {
+    internalOnly(ctx);
+    const b = ctx.body ?? {};
+    const t = await ops.tenantByPrefix(ctx.db, str(b.prefix, "önek")).catch(() => null);
+    if (!t) throw new UserError("bulunamadı", 404);
+    const c = b.ctx ?? {};
+    const exec = directExec({ booking: bookingDeps(ctx), pay: payDeps(ctx) }, t, {
+      source: "phone",
+      phone: typeof c.phone === "string" ? payments.normalizePhone(c.phone) : null,
+      callId: typeof c.callId === "string" ? c.callId.slice(0, 64) : null,
+      aiSessionId: Number.isInteger(c.aiSessionId) ? c.aiSessionId : null,
+    });
+    if (b.action === "lookup") return exec.lookup();
+    if (b.action === "quote") return exec.quote(booking.toRequest(b.request));
+    if (b.action === "create") return exec.create(booking.toRequest(b.request));
+    throw new UserError("geçersiz işlem");
+  },
+  false,
+);
 
 route("GET", "/api/tenants/:prefix/status", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "settings.manage");

@@ -32,6 +32,9 @@ export const EVENTS: { type: string; label: string; group: string }[] = [
   { type: "payment.failed", label: "Ödeme başarısız (eksik tutar)", group: "Ödeme" },
   { type: "payment.expired", label: "Ödeme bağlantısının süresi doldu", group: "Ödeme" },
   { type: "payment.cancelled", label: "Ödeme talebi iptal edildi", group: "Ödeme" },
+  { type: "booking.created", label: "Yeni rezervasyon (telefon, sohbet)", group: "Rezervasyon" },
+  { type: "booking.confirmed", label: "Rezervasyon onaylandı", group: "Rezervasyon" },
+  { type: "booking.cancelled", label: "Rezervasyon iptal edildi", group: "Rezervasyon" },
   { type: "contact.created", label: "Yeni müşteri kartı", group: "CRM" },
   { type: "note.saved", label: "Görüşme notu kaydedildi", group: "CRM" },
 ];

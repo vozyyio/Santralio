@@ -18,10 +18,17 @@ export interface TextToSpeech {
 }
 
 export type Route = { target: string; description: string };
-export type Turn = { role: "caller" | "assistant"; text: string; language?: string };
+// "tool": sistemin (rezervasyon bağlantısının) sonucu; modele etiketli ve arayanın sözlerinden ayrı verilir.
+export type Turn = { role: "caller" | "assistant" | "tool"; text: string; language?: string };
+
+export type BookingField = { key: string; label: string; type: string; required: boolean; choices?: string[] };
+export type BookingService = { key: string; label: string; description: string; fields: BookingField[]; payment: "none" | "optional" | "required" };
+export type BookingRequest = { service: string; fields: Record<string, string>; payNow: boolean; customerName: string | null };
 
 export type Decision = {
-  action: "say" | "transfer" | "end";
+  // quote: müsaitlik ve fiyat sor; book: arayan onayladı, rezervasyonu oluştur; lookup: arayanın rezervasyonlarını getir.
+  action: "say" | "transfer" | "end" | "quote" | "book" | "lookup";
+  booking?: BookingRequest | null;
   say: string; // arayana söylenecek (aktarma ve kapatmada kısa bir cümle)
   target: string | null; // yalnızca "transfer" için; routes içinden
   summary: string | null; // temsilciye bırakılacak özet (aktarmada; her zaman Türkçe)
@@ -37,6 +44,9 @@ export type FlowContext = {
   defaultTarget: string | null;
   model: string;
   languages: string[]; // arayanın konuşabileceği diller (ilk: ana dil)
+  // Rezervasyon açıksa hizmetler ve sistem sonuçlarını arayanın sözlerinden ayıran tek kullanımlık etiket.
+  booking?: { services: BookingService[]; nonce: string; today: string } | null;
+  channel?: "phone" | "chat";
 };
 
 export interface LanguageModel {

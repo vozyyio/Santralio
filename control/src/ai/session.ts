@@ -4,6 +4,7 @@
 
 import { FRAME_BYTES, FRAME_MS } from "./audiosocket.ts";
 import { lang, voiceFor } from "./languages.ts";
+import { respond, type ToolExec, type ToolState } from "./assistant.ts";
 import type { FlowContext, LanguageModel, SpeechToText, TextToSpeech, Turn } from "./providers.ts";
 
 export type Result = {
@@ -118,7 +119,7 @@ export class CallSession {
     return null;
   }
 
-  async run(flow: FlowContext, greeting: string, maxTurns: number): Promise<Result> {
+  async run(flow: FlowContext, greeting: string, maxTurns: number, tools: { exec: ToolExec; state: ToolState } | null = null): Promise<Result> {
     let inputTokens = 0;
     let outputTokens = 0;
     const done = (r: Omit<Result, "history" | "language" | "inputTokens" | "outputTokens">): Result => ({
@@ -154,7 +155,11 @@ export class CallSession {
         silent = 0;
         if (heard.language) this.language = heard.language;
         this.history.push({ role: "caller", text: heard.text, language: heard.language });
-        const d = await this.llm.decide(flow, this.history);
+        // Rezervasyon işlemleri (fiyat, oluşturma) arada kısa bir cümleyle yapılır; arayan beklerken sessizlik olmaz.
+        const d = await respond(this.llm, flow, this.history, tools, async (text, language) => {
+          if (this.languages.includes(language)) this.language = language;
+          await this.speak(text);
+        });
         inputTokens += d.inputTokens;
         outputTokens += d.outputTokens;
         // Model arayanın diline geçtiyse (ya da dil tanıma yanıldıysa) ses modelin yanıt diline uyar.
@@ -163,7 +168,8 @@ export class CallSession {
           await this.speak(d.say);
           continue;
         }
-        await this.speak(d.say);
+        if (d.say.trim()) await this.speak(d.say);
+        else if (d.action === "transfer") await say("transfer");
         if (d.action === "end") return done({ target: "hangup", summary: d.summary, reason: "end" });
         return done({ target: d.target, summary: d.summary, reason: "transfer" });
       }

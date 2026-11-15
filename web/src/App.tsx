@@ -20,6 +20,7 @@ import { PaymentsPage } from "./Payments";
 import { CallbacksPage } from "./Callbacks";
 import { WebhooksPage } from "./Webhooks";
 import { LivePage, LiveTv } from "./Live";
+import { BookingSettingsPage, BookingsPage } from "./Booking";
 import { QueueCallbackBox, QueueCallbackJobs } from "./QueueCallback";
 import { AnalysisReport, AnalysisSettingsCard, WeeklyReportCard } from "./Analysis";
 import { operatorName, regLabel } from "./labels";
@@ -92,6 +93,8 @@ const TAB_ICON: Record<string, IconName> = {
   odeme: "card",
   kacan: "callback",
   entegrasyon: "plug",
+  rezervasyon: "calendar",
+  rezervasyonlar: "calendar",
 };
 
 const allowedTabs = (me: Me, list: [string, string, string[]][]) => list.filter(([, , perms]) => can(me, ...perms));
@@ -254,6 +257,8 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
           <CallbacksPage prefix={prefix} />
         ) : tab === "entegrasyon" ? (
           <WebhooksPage prefix={prefix} />
+        ) : tab === "rezervasyon" ? (
+          <BookingSettingsPage prefix={prefix} />
         ) : (
           <TenantPage me={me} prefix={prefix} tab={tab} />
         )
@@ -336,6 +341,7 @@ const PANEL_TABS: [string, string, string[]][] = [
   ["personel", "Personel", ["staff.manage"]],
   ["roller", "Roller", ["staff.manage"]],
   ["kacan", "Kaçan çağrılar", ["settings.manage"]],
+  ["rezervasyon", "Rezervasyon", ["settings.manage"]],
   ["odeme", "Ödeme", ["payments.manage"]],
   ["entegrasyon", "Entegrasyonlar", ["settings.manage"]],
 ];
@@ -376,6 +382,7 @@ function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; ta
 // CRM sekmeleri ve gereken yetki.
 const CRM_TABS: [string, string, string[]][] = [
   ["musteriler", "Müşteriler", ["crm.use"]],
+  ["rezervasyonlar", "Rezervasyonlar", ["bookings.manage"]],
   ["geriarama", "Geri aramalar", ["crm.use"]],
   ["gorusmeler", "Görüşmeler", ["calls.all", "calls.own"]],
   ["raporlar", "Raporlar", ["reports.view"]],
@@ -389,6 +396,7 @@ function CrmPage({ me, prefix, tab: requested, id }: { me: Me; prefix: string; t
   return (
     <>
       {tab === "musteriler" && <Contacts prefix={prefix} contactId={id} />}
+      {tab === "rezervasyonlar" && <BookingsPage prefix={prefix} />}
       {tab === "geriarama" && <FollowUps prefix={prefix} />}
       {tab === "gorusmeler" && <Calls prefix={prefix} own={!can(me, "calls.all")} />}
       {tab === "raporlar" && <Reports prefix={prefix} />}

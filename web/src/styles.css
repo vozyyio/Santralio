@@ -329,3 +329,34 @@ a.button { display: inline-flex; align-items: center; text-decoration: none; pad
 .tv .live-dot { width: 14px; height: 14px; }
 .tv .live-kpis.big .live-kpi strong small { font-size: 1.6rem; }
 .tv .live-kpis.big .live-kpi { padding: 18px 20px; }
+
+/* Rezervasyon */
+.mode-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 12px 0 14px; }
+.mode-option { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.mode-option input { width: auto; flex: none; margin: 3px 0 0; }
+.mode-option strong { color: var(--text); }
+.mode-option > span { display: grid; gap: 3px; }
+.mode-option.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+.service-box { border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-top: 12px; }
+.service-box h4 { margin: 6px 0 8px; }
+.svc-head { align-items: center; }
+.svc-head select { width: auto; margin: 0; }
+.form-grid .span2 { grid-column: span 2; }
+.field-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.field-list li { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.2fr) auto auto; gap: 8px; align-items: center; }
+.field-list li label.check { margin: 0; white-space: nowrap; }
+.field-list li .choices { grid-column: 1 / -1; }
+.field-list button { padding: 6px 12px; }
+.empty-state { text-align: center; padding: 22px 12px; border: 1px dashed var(--line); border-radius: 10px; margin-top: 10px; }
+.empty-state p { margin: 4px 0; }
+.ok-text { color: var(--ok); }
+.badge.warn { color: var(--warn); background: var(--warn-bg); }
+.booking-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.booking-list li { border-top: 1px solid var(--line); padding: 12px 0; display: grid; gap: 6px; }
+.booking-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.booking-fields, .booking-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+@media (max-width: 720px) {
+  .form-grid .span2 { grid-column: auto; }
+  .field-list li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .field-list li > input:first-child { grid-column: 1 / -1; }
+}

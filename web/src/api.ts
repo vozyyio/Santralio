@@ -180,6 +180,7 @@ export type AiFlow = {
   languages: string[];
   greetings: Record<string, string>;
   recognizeCallers: boolean;
+  booking?: boolean;
 };
 export type CallerHistory = { previousCalls: number; lastCallAt: string | null; lastSummary: string | null };
 export type LookupResult = { phone: string | null; contact: Contact | null; notes: Note[]; history?: CallerHistory };
@@ -265,6 +266,39 @@ export type AnalysisItem = {
   followUp: string | null;
   startedAt: string;
 };
+// --- Rezervasyon ---
+export type BookingFieldType = "text" | "date" | "time" | "datetime" | "number" | "phone" | "choice";
+export type BookingField = { key: string; label: string; type: BookingFieldType; required: boolean; choices?: string[] };
+export type BookingService = {
+  key: string;
+  label: string;
+  description: string;
+  fields: BookingField[];
+  price: string | null;
+  currency: string;
+  payment: "none" | "optional" | "required";
+};
+export type BookingSettings = { mode: "off" | "builtin" | "api"; apiUrl: string | null; services: BookingService[]; hasSecret: boolean; secret?: string | null };
+export type BookingRow = {
+  id: number;
+  reference: string;
+  externalRef: string | null;
+  source: "phone" | "chat" | "panel" | "api";
+  service: string;
+  serviceLabel: string;
+  fields: Record<string, string>;
+  customerName: string | null;
+  phone: string | null;
+  amount: string | null;
+  currency: string | null;
+  status: "pending" | "confirmed" | "cancelled";
+  paymentRef: string | null;
+  note: string | null;
+  createdAt: string;
+  labels?: Record<string, string>;
+};
+export type BookingQuote = { available: boolean; price: { amount: string; currency: string } | null; message: string | null };
+
 export type LiveSettings = { waitAlertS: number; waitingAlertN: number };
 export type Live = {
   at: string;
@@ -446,6 +480,13 @@ export const api = {
       "GET",
       `${t(p)}/analysis?days=${q.days}${q.outcome ? `&outcome=${q.outcome}` : ""}${q.sentiment ? `&sentiment=${q.sentiment}` : ""}${q.followUp ? "&followUp=1" : ""}`,
     ),
+  bookingSettings: (p: string) => call<BookingSettings>("GET", `${t(p)}/booking/settings`),
+  bookingSave: (p: string, b: Partial<Pick<BookingSettings, "mode" | "apiUrl" | "services">>) => call<BookingSettings>("PUT", `${t(p)}/booking/settings`, b),
+  bookingRotate: (p: string) => call<{ secret: string }>("POST", `${t(p)}/booking/rotate`, {}),
+  bookingTest: (p: string) => call<{ ok: boolean }>("POST", `${t(p)}/booking/test`, {}),
+  bookingQuote: (p: string, b: { service: string; fields: Record<string, string> }) => call<BookingQuote>("POST", `${t(p)}/booking/quote`, b),
+  bookings: (p: string, status = "") => call<BookingRow[]>("GET", `${t(p)}/bookings${status ? `?status=${status}` : ""}`),
+  bookingSet: (p: string, id: number, action: "confirm" | "cancel", note?: string) => call<{ ok: true }>("POST", `${t(p)}/bookings/${id}/${action}`, { note }),
   live: (p: string) => call<Live>("GET", `${t(p)}/live`),
   liveSettings: (p: string) => call<LiveSettings>("GET", `${t(p)}/live/settings`),
   liveSave: (p: string, b: LiveSettings) => call<LiveSettings>("PUT", `${t(p)}/live/settings`, b),

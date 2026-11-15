@@ -33,6 +33,7 @@ export type FlowInput = {
   languages: string[];
   greetings: Record<string, string>;
   recognizeCallers?: boolean;
+  booking?: boolean;
 };
 
 export async function saveFlow(db: Db, t: Tenant, name: string, f: FlowInput, actor?: string) {
@@ -55,7 +56,10 @@ export async function saveFlow(db: Db, t: Tenant, name: string, f: FlowInput, ac
     await assertTarget(db, t, f.defaultTarget);
   }
   if (f.recognizeCallers !== undefined && typeof f.recognizeCallers !== "boolean") throw new UserError("recognizeCallers true/false olmalı");
-  if (!Number.isInteger(f.maxTurns) || f.maxTurns < 1 || f.maxTurns > 10) throw new UserError("tur sınırı 1–10 olmalı");
+  if (f.booking !== undefined && typeof f.booking !== "boolean") throw new UserError("booking true/false olmalı");
+  // Rezervasyon görüşmesi uzun sürer (hizmet, tarih, kişi, ad, onay): bu akışlarda sınır 30 tur.
+  const maxTurns = f.booking ? 30 : 10;
+  if (!Number.isInteger(f.maxTurns) || f.maxTurns < 1 || f.maxTurns > maxTurns) throw new UserError(`tur sınırı 1–${maxTurns} olmalı`);
   if (!aiVoices().some((v) => v.id === f.voice)) throw new UserError("ses bulunamadı");
   if (!AI_MODELS.some((m) => m.id === f.model)) throw new UserError("model bulunamadı");
   if (!Array.isArray(f.languages) || !f.languages.every(isLang)) throw new UserError("bilinmeyen dil");
@@ -68,14 +72,14 @@ export async function saveFlow(db: Db, t: Tenant, name: string, f: FlowInput, ac
     if (languages.includes(code) && text.trim()) greetings[code] = text.trim();
   }
   await db.query(
-    `INSERT INTO ai_flows (tenant_id, name, enabled, greeting_text, instructions, routes, default_target, max_turns, voice, model, languages, greetings, recognize_callers)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `INSERT INTO ai_flows (tenant_id, name, enabled, greeting_text, instructions, routes, default_target, max_turns, voice, model, languages, greetings, recognize_callers, booking)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (tenant_id, name) DO UPDATE SET enabled = $3, greeting_text = $4, instructions = $5, routes = $6,
-       default_target = $7, max_turns = $8, voice = $9, model = $10, languages = $11, greetings = $12, recognize_callers = $13, updated_at = now()`,
+       default_target = $7, max_turns = $8, voice = $9, model = $10, languages = $11, greetings = $12, recognize_callers = $13, booking = $14, updated_at = now()`,
     [
       t.id, name, f.enabled, f.greetingText.trim(), f.instructions ?? "", JSON.stringify(f.routes), f.defaultTarget, f.maxTurns, f.voice, f.model,
-      languages, JSON.stringify(greetings), f.recognizeCallers !== false,
+      languages, JSON.stringify(greetings), f.recognizeCallers !== false, f.booking === true,
     ],
   );
-  await audit(db, "ai.flow", t.id, { name, enabled: f.enabled, routes: f.routes.map((r) => r.target), model: f.model, voice: f.voice, languages }, actor);
+  await audit(db, "ai.flow", t.id, { name, enabled: f.enabled, booking: f.booking === true, routes: f.routes.map((r) => r.target), model: f.model, voice: f.voice, languages }, actor);
 }

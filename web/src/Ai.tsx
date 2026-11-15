@@ -21,6 +21,7 @@ const NEW_FLOW: AiFlow = {
   languages: ["tr-TR"],
   greetings: {},
   recognizeCallers: true,
+  booking: false,
 };
 
 // Dil kodu -> bayrak ve ad (görüşme listesi ve temsilci özeti için; sunucudaki katalogla aynı).
@@ -153,6 +154,14 @@ function FlowEditor({ t, flow, info, onSaved, isNew }: { t: Tenant; flow: AiFlow
       <p className="muted small">
         Asistan bu bilgileri arayana okumaz ve doğrulamaz (numara taklit edilebilir); yalnızca daha iyi yardım etmek ve doğru yere aktarmak için kullanır.
       </p>
+      <label className="check">
+        <input type="checkbox" checked={!!f.booking} onChange={(e) => set({ booking: e.target.checked, maxTurns: e.target.checked ? Math.max(f.maxTurns, 16) : Math.min(f.maxTurns, 10) })} />
+        Rezervasyon alsın: hizmet ve bilgileri sorar, fiyat ve müsaitliği rezervasyon bağlantısından öğrenir, onayla rezervasyonu oluşturur
+      </label>
+      <p className="muted small">
+        Hizmetler ve bağlantı “Rezervasyon” sekmesinde tanımlanır. Asistan fiyatı kendisi söylemez; ödeme gerekiyorsa bağlantı arayanın cep telefonuna
+        kısa mesajla gider. Rezervasyon görüşmeleri uzun sürdüğü için tur sınırı 30'a kadar çıkabilir.
+      </p>
       <label>
         Asistanın bilmesi gerekenler (şirket, hizmetler, sık sorular, çalışma şekli; arayana okunmaz)
         <textarea rows={6} value={f.instructions} onChange={(e) => set({ instructions: e.target.value })} maxLength={8000} />
@@ -237,7 +246,7 @@ function FlowEditor({ t, flow, info, onSaved, isNew }: { t: Tenant; flow: AiFlow
         </label>
         <label className="inline">
           En fazla tur
-          <input type="number" min={1} max={10} value={f.maxTurns} onChange={(e) => set({ maxTurns: Number(e.target.value) })} />
+          <input type="number" min={1} max={f.booking ? 30 : 10} value={f.maxTurns} onChange={(e) => set({ maxTurns: Number(e.target.value) })} />
         </label>
         <label className="inline">
           Ses

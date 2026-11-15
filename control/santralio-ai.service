@@ -12,6 +12,7 @@ User=santralio-ctl
 Group=santralio-ctl
 UMask=0027
 LoadCredentialEncrypted=santralio-ami-secret
+LoadCredentialEncrypted=santralio-internal-key
 ImportCredential=santralio-azure-speech-key
 ImportCredential=santralio-anthropic-api-key
 WorkingDirectory=/opt/santralio/control

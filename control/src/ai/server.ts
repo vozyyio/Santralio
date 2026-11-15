@@ -19,6 +19,10 @@ import { callerBrief, callerHistory, fillName } from "../crm.ts";
 import { emit } from "../webhooks.ts";
 import { runPending, runWeekly } from "../analysis.ts";
 import { ClaudeAnalyzer } from "./analyzer.ts";
+import { httpExec } from "./bookingclient.ts";
+import { newState } from "./assistant.ts";
+import type { BookingService } from "./providers.ts";
+import { randomBytes } from "node:crypto";
 import { CALLBACK_INSTRUCTIONS, getSettings as callbackSettings, greetingFor, markAnswered } from "../callbacks.ts";
 
 const PORT = Number(process.env.SANTRALIO_AI_PORT ?? 9092);
@@ -41,6 +45,7 @@ function secret(name: string): string | null {
 }
 const AZURE_KEY = secret("santralio-azure-speech-key");
 const ANTHROPIC_KEY = secret("santralio-anthropic-api-key");
+const INTERNAL_KEY = secret("santralio-internal-key");
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
@@ -177,8 +182,17 @@ async function handle(sock: Socket) {
     greeting = fillName(greeting, callerName);
     session = new CallSession({ stt, tts, llm, send, voice: flow.voice, languages, language: first });
     for (const f of pending.splice(0)) session.audio(f);
-    const fc: FlowContext = { company: t.name, instructions, routes, defaultTarget: flow.default_target, model: flow.model, languages };
-    const result = await session.run(fc, greeting, flow.max_turns);
+    const fc: FlowContext = { company: t.name, instructions, routes, defaultTarget: flow.default_target, model: flow.model, languages, channel: "phone" };
+    // Rezervasyon: akışta açıksa ve işletmede rezervasyon bağlantısı varsa asistan fiyat sorup rezervasyon alabilir.
+    let tools = null;
+    if (flow.booking && !callbackJob) {
+      const services = await bookingServices(db, t.id);
+      if (services.length && INTERNAL_KEY) {
+        fc.booking = { services, nonce: randomBytes(6).toString("hex"), today: istanbulToday() };
+        tools = { exec: httpExec(INTERNAL_KEY, { prefix: t.prefix, phone: ctx.caller || null, callId: ctx.callid || null, aiSessionId: sessionId }), state: newState() };
+      } else if (services.length) log("rezervasyon açık ama iç anahtar yok (santralio-internal-key); rezervasyonsuz devam");
+    }
+    const result = await session.run(fc, greeting, flow.max_turns, tools);
     // Model listede olmayan bir hedef seçerse varsayılan kullanılır.
     const target = result.target === "hangup" ? "hangup" : routes.some((r) => r.target === result.target) ? result.target! : "default";
     await save(db, sessionId, result, target, tts, stt);
@@ -208,6 +222,17 @@ async function handle(sock: Socket) {
     sock.end();
   }
 }
+
+// Hizmet tanımları gizli değildir; doğrudan okunur (bağlantı adresi ve imza anahtarı API sürecinde kalır).
+async function bookingServices(db: pg.PoolClient, tenantId: number): Promise<BookingService[]> {
+  const r = (await db.query("SELECT services FROM booking_settings WHERE tenant_id = $1 AND mode <> 'off'", [tenantId])).rows[0];
+  return ((r?.services ?? []) as any[]).map((s) => ({ key: s.key, label: s.label, description: s.description ?? "", fields: s.fields, payment: s.payment }));
+}
+const istanbulToday = () => {
+  const d = new Date(Date.now() + 3 * 3600_000);
+  const days = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
+  return `${d.toISOString().slice(0, 10)} ${days[d.getUTCDay()]}`;
+};
 
 async function save(db: pg.PoolClient, id: number | null, r: Result, target: string, tts: TextToSpeech, stt: SpeechToText) {
   if (!id) return;

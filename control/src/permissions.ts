@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   "staff.manage": "Personel ve roller",
   "payments.request": "Arayandan ödeme isteme (bağlantı veya tuşlama)",
   "payments.manage": "Ödeme ayarları: banka / ödeme kuruluşu, profiller, tüm ödemeler",
+  "bookings.manage": "Rezervasyonlar: görme, onaylama, iptal",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -27,7 +28,7 @@ export const DEFAULT_ROLES: { name: string; permissions: Permission[] }[] = [
   { name: "Müdür", permissions: ALL_PERMISSIONS },
   {
     name: "Süpervizör",
-    permissions: ["agent.desk", "agent.outbound", "calls.own", "calls.all", "recordings.listen", "reports.view", "crm.use", "payments.request"],
+    permissions: ["agent.desk", "agent.outbound", "calls.own", "calls.all", "recordings.listen", "reports.view", "crm.use", "payments.request", "bookings.manage"],
   },
   { name: "Temsilci", permissions: ["agent.desk", "calls.own", "crm.use", "payments.request"] },
 ];
@@ -35,7 +36,7 @@ export const DEFAULT_ROLES: { name: string; permissions: Permission[] }[] = [
 // Üç adres ve açılmaları için gereken yetkiler (herhangi biri yeterli).
 export const APPS = {
   panel: ["settings.manage", "staff.manage", "payments.manage"],
-  crm: ["calls.own", "calls.all", "reports.view", "audit.view", "crm.use"],
+  crm: ["calls.own", "calls.all", "reports.view", "audit.view", "crm.use", "bookings.manage"],
   agent: ["agent.desk"],
 } as const satisfies Record<string, readonly Permission[]>;
 export type App = keyof typeof APPS;
