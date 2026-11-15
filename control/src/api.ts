@@ -33,6 +33,7 @@ import * as webhooks from "./webhooks.ts";
 import * as queuecb from "./queuecb.ts";
 import * as analysis from "./analysis.ts";
 import * as payIvr from "./payments/ivr.ts";
+import * as live from "./live.ts";
 import { publicCatalog } from "./payments/catalog.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
@@ -1595,6 +1596,56 @@ route("GET", "/api/tenants/:prefix/prompts/:name", async (ctx) => {
 });
 
 // Canlı durum: operatör kaydı ve hangi dahililerin bağlı olduğu (Asterisk'ten).
+// --- Canlı durum ---
+// Kiracı başına 2 sn önbellek: aynı anda çok ekran (TV, yöneticiler) açık olsa da santrale tek sorgu gider.
+const liveCache = new Map<string, { at: number; value: Promise<live.Live> }>();
+
+async function liveSnapshot(db: Db, t: { id: number; prefix: string }): Promise<live.Live> {
+  const hit = liveCache.get(t.prefix);
+  if (hit && Date.now() - hit.at < 2000) return hit.value;
+  const value = (async () => {
+    const queues = (await db.query("SELECT name FROM queues WHERE tenant_id = $1 ORDER BY name", [t.id])).rows.map((r) => r.name as string);
+    const extensions = (await db.query("SELECT number, display_name AS name FROM extensions WHERE tenant_id = $1 AND enabled ORDER BY number", [t.id])).rows;
+    const settings = await live.getSettings(db, t.id);
+    const ami = await Ami.open();
+    try {
+      const channels = live.parseConcise(await ami.command("core show channels concise"));
+      const snaps: live.QueueSnapshot[] = [];
+      for (const q of queues) {
+        const s = live.parseQueue(q, await ami.command(`queue show ${t.prefix}_${q}`));
+        if (s) snaps.push(s);
+      }
+      const online = new Set<string>();
+      for (const l of await ami.command("pjsip show contacts")) {
+        const m = new RegExp(`Contact:\\s+${t.prefix}_(\\d{2,6})/\\S+\\s+\\S+\\s+(Avail|NonQual)`).exec(l);
+        if (m) online.add(m[1]);
+      }
+      return live.buildLive(t.prefix, channels, snaps, extensions, online, settings);
+    } finally {
+      await ami.close();
+    }
+  })();
+  liveCache.set(t.prefix, { at: Date.now(), value });
+  value.catch(() => liveCache.delete(t.prefix));
+  return value;
+}
+
+route("GET", "/api/tenants/:prefix/live", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "reports.view");
+  return liveSnapshot(ctx.db, t);
+});
+
+route("GET", "/api/tenants/:prefix/live/settings", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "reports.view");
+  return live.getSettings(ctx.db, t.id);
+});
+
+route("PUT", "/api/tenants/:prefix/live/settings", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  return live.saveSettings(ctx.db, t.id, { waitAlertS: b.waitAlertS, waitingAlertN: b.waitingAlertN }, actor(ctx));
+});
+
 route("GET", "/api/tenants/:prefix/status", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const ami = await Ami.open();

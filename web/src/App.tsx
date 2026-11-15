@@ -19,6 +19,7 @@ import { Overview } from "./Overview";
 import { PaymentsPage } from "./Payments";
 import { CallbacksPage } from "./Callbacks";
 import { WebhooksPage } from "./Webhooks";
+import { LivePage, LiveTv } from "./Live";
 import { QueueCallbackBox, QueueCallbackJobs } from "./QueueCallback";
 import { AnalysisReport, AnalysisSettingsCard, WeeklyReportCard } from "./Analysis";
 import { operatorName, regLabel } from "./labels";
@@ -73,6 +74,7 @@ export function App() {
 
 const TAB_ICON: Record<string, IconName> = {
   ozet: "dashboard",
+  canli: "activity",
   genel: "settings",
   menuler: "menu",
   anonslar: "megaphone",
@@ -211,6 +213,10 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
             ? "Müşteriler"
             : "";
 
+  // Duvar ekranı (TV): menüsüz, tam ekran.
+  const tv = /^#\/tv\/([a-z0-9]{1,8})$/.exec(hash);
+  if (tv && allowed && app === "panel" && can(me, "reports.view")) return <LiveTv prefix={tv[1]} name={names[tv[1]] ?? me.tenant?.name ?? ""} />;
+
   return (
     <Layout app={app} me={me} sections={sections} context={context} title={title} chips={chips} action={action} onLogout={onLogout}>
       {!allowed ? (
@@ -240,6 +246,8 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
           <CrmPage me={me} prefix={prefix} tab={tab} id={m?.[3] ? Number(m[3]) : null} />
         ) : tab === "ozet" ? (
           <Overview me={me} prefix={prefix} info={info} />
+        ) : tab === "canli" ? (
+          <LivePage prefix={prefix} canManage={can(me, "settings.manage")} />
         ) : tab === "odeme" ? (
           <PaymentsPage prefix={prefix} />
         ) : tab === "kacan" ? (
@@ -317,6 +325,7 @@ const can = (me: Me, ...perms: string[]) => perms.some((p) => me.permissions.inc
 // Panel sekmeleri ve gereken yetki.
 const PANEL_TABS: [string, string, string[]][] = [
   ["ozet", "Özet", ["settings.manage", "staff.manage", "reports.view"]],
+  ["canli", "Canlı", ["reports.view"]],
   ["genel", "Genel", ["settings.manage"]],
   ["menuler", "Menüler", ["settings.manage"]],
   ["anonslar", "Anonslar", ["settings.manage"]],

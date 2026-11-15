@@ -265,6 +265,27 @@ export type AnalysisItem = {
   followUp: string | null;
   startedAt: string;
 };
+export type LiveSettings = { waitAlertS: number; waitingAlertN: number };
+export type Live = {
+  at: string;
+  waiting: number;
+  longestWaitS: number;
+  talking: number;
+  ai: number;
+  queues: { name: string; waiting: number; longestWaitS: number; available: number; busy: number; paused: number; members: number }[];
+  agents: { number: string; name: string; state: "available" | "busy" | "ringing" | "paused" | "offline"; pauseReason: string | null; queues: string[]; online: boolean }[];
+  calls: {
+    id: string;
+    caller: string;
+    direction: "in" | "out" | "internal";
+    stage: "queue" | "ai" | "menu" | "ringing" | "talking" | "other";
+    queue: string | null;
+    agent: string | null;
+    durationS: number;
+    waitS: number | null;
+  }[];
+  alerts: { kind: "wait" | "waiting" | "no_agent"; queue: string; message: string }[];
+};
 export type AiLanguage = { code: string; label: string; flag: string; defaultGreeting: string };
 export type AiInfo = {
   enabled: boolean;
@@ -425,6 +446,9 @@ export const api = {
       "GET",
       `${t(p)}/analysis?days=${q.days}${q.outcome ? `&outcome=${q.outcome}` : ""}${q.sentiment ? `&sentiment=${q.sentiment}` : ""}${q.followUp ? "&followUp=1" : ""}`,
     ),
+  live: (p: string) => call<Live>("GET", `${t(p)}/live`),
+  liveSettings: (p: string) => call<LiveSettings>("GET", `${t(p)}/live/settings`),
+  liveSave: (p: string, b: LiveSettings) => call<LiveSettings>("PUT", `${t(p)}/live/settings`, b),
   qcbGet: (p: string, queue: string) => call<QueueCallbackSettings>("GET", `${t(p)}/queues/${seg(queue)}/callback`),
   qcbSave: (p: string, queue: string, b: QueueCallbackSettings) => call<QueueCallbackSettings>("PUT", `${t(p)}/queues/${seg(queue)}/callback`, b),
   qcbJobs: (p: string) => call<QueueCallbackJob[]>("GET", `${t(p)}/queue-callbacks`),
