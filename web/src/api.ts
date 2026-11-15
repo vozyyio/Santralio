@@ -333,6 +333,9 @@ export type ChatSessionDetail = {
   createdAt: string;
 };
 
+export type SetupStep = { id: string; title: string; detail: string; done: boolean; required: boolean; tab: string; app: "panel" | "crm" };
+export type ApiKeyRow = { id: number; name: string; prefix: string; permissions: string[]; createdBy: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
+
 export type LiveSettings = { waitAlertS: number; waitingAlertN: number };
 export type Live = {
   at: string;
@@ -525,6 +528,10 @@ export const api = {
   chatSave: (p: string, b: Partial<ChatWidget>) => call<ChatWidget>("PUT", `${t(p)}/chat`, b),
   chatSessions: (p: string) => call<ChatSessionRow[]>("GET", `${t(p)}/chat/sessions`),
   chatSession: (p: string, id: number) => call<ChatSessionDetail>("GET", `${t(p)}/chat/sessions/${id}`),
+  setup: (p: string) => call<SetupStep[]>("GET", `${t(p)}/setup`),
+  apiKeys: (p: string) => call<{ keys: ApiKeyRow[]; permissions: { id: string; label: string }[]; base: string }>("GET", `${t(p)}/api-keys`),
+  apiKeyCreate: (p: string, b: { name: string; permissions: string[] }) => call<{ id: number; key: string }>("POST", `${t(p)}/api-keys`, b),
+  apiKeyRevoke: (p: string, id: number) => call<{ ok: true }>("POST", `${t(p)}/api-keys/${id}/revoke`, {}),
   live: (p: string) => call<Live>("GET", `${t(p)}/live`),
   liveSettings: (p: string) => call<LiveSettings>("GET", `${t(p)}/live/settings`),
   liveSave: (p: string, b: LiveSettings) => call<LiveSettings>("PUT", `${t(p)}/live/settings`, b),

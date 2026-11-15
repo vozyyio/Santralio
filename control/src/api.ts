@@ -37,6 +37,8 @@ import * as live from "./live.ts";
 import * as booking from "./booking.ts";
 import { directExec } from "./bookingexec.ts";
 import * as chat from "./chat.ts";
+import * as apikeys from "./apikeys.ts";
+import * as setup from "./setup.ts";
 import { ClaudeModel } from "./ai/claude.ts";
 import { FakeModel } from "./ai/local.ts";
 import type { LanguageModel } from "./ai/providers.ts";
@@ -989,7 +991,7 @@ route("POST", "/api/tenants/:prefix/payments/requests", async (ctx) => {
     callId: typeof b.callId === "string" ? b.callId.slice(0, 64) : null,
     contactId: Number.isInteger(b.contactId) ? b.contactId : null,
     method: typeof b.method === "string" ? b.method : "link",
-    createdBy: "agent",
+    createdBy: ctx.user!.email.startsWith("apikey:") ? "api" : "agent",
     user: ctx.user!.email,
     sendSms: b.sendSms !== false,
     locale: b.locale === "en" ? "en" : "tr",
@@ -1815,6 +1817,40 @@ route("GET", "/api/tenants/:prefix/chat/sessions/:id", async (ctx) => {
   return chat.getSession(ctx.db, t.id, idParam(ctx.params[1]));
 });
 
+// --- API anahtarları (işletmenin kendi sistemleri için) ---
+route("GET", "/api/tenants/:prefix/api-keys", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return { keys: await apikeys.listKeys(ctx.db, t.id), permissions: apikeys.KEY_PERMISSIONS.map((id) => ({ id, label: PERMISSIONS[id] })), base: PAYMENTS_API_BASE };
+});
+route("POST", "/api/tenants/:prefix/api-keys", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  if (ctx.user!.email.startsWith("apikey:")) throw new UserError("bulunamadı", 404);
+  return apikeys.createKey(ctx.db, t.id, ctx.user!, ctx.body ?? {});
+});
+route("POST", "/api/tenants/:prefix/api-keys/:id/revoke", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  await apikeys.revokeKey(ctx.db, t.id, idParam(ctx.params[1]), actor(ctx));
+  return { ok: true };
+});
+
+// Kurulum adımları (Özet ekranı). Hat kaydı Asterisk'ten okunamazsa bilinmiyor sayılır.
+route("GET", "/api/tenants/:prefix/setup", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  let registered: boolean | null = null;
+  try {
+    const ami = await Ami.open();
+    try {
+      const reg = (await ami.command("pjsip show registrations")).find((l) => l.includes(`${t.prefix}_trunk_reg/`));
+      registered = reg ? /Registered/.test(reg) : null;
+    } finally {
+      await ami.close();
+    }
+  } catch {
+    registered = null;
+  }
+  return setup.steps(ctx.db, t.id, registered);
+});
+
 route("GET", "/api/tenants/:prefix/status", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   const ami = await Ami.open();
@@ -1979,7 +2015,9 @@ const server = createServer(async (req, res) => {
     // CSRF: çerezle gelen değişiklik istekleri (ve web girişi) yalnızca panelin kaynağından kabul edilir.
     const fromWeb = !bearer && (cookie !== null || req.headers["x-santralio-client"] === "web");
     if (fromWeb && req.method !== "GET" && !ALLOWED_ORIGINS.has(String(req.headers.origin ?? ""))) return send(res, 403, { error: "geçersiz kaynak" });
-    const user = token ? await userBySession(db, token) : null;
+    // API anahtarı yalnızca Authorization başlığıyla (çerezle değil); hız sınırı anahtar başına.
+    const user = bearer?.startsWith("sk_") ? await apikeys.userByApiKey(db, bearer) : token ? await userBySession(db, token) : null;
+    if (user && "apiKeyId" in user && apikeys.rateLimited(user.apiKeyId as number)) return send(res, 429, { error: "çok fazla istek; dakikada en fazla 300" });
     if (r.auth && !user) return send(res, 401, { error: "oturum gerekli" });
     const params = (r.pattern.exec(url.pathname) ?? []).slice(1).map(decodeURIComponent);
     const body = await readBody(req, r.raw);

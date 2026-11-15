@@ -370,3 +370,18 @@ a.button { display: inline-flex; align-items: center; text-decoration: none; pad
 .chat-turn p { margin: 2px 0 0; white-space: pre-wrap; }
 .chat-turn.caller p { font-weight: 600; }
 .chat-turn.tool p { font-family: var(--mono, ui-monospace, monospace); font-size: 0.85rem; color: var(--muted); }
+
+/* Kurulum adımları */
+.setup-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.setup-head h3 { margin: 0 0 2px; }
+.setup-bar { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 10px 0 6px; }
+.setup-bar span { display: block; height: 100%; background: var(--ok); border-radius: inherit; transition: width 0.3s; }
+.setup-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.setup-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 8px; border-radius: 10px; }
+.setup-steps li.next { background: var(--card-2); }
+.setup-mark { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; color: #fff; }
+.setup-steps li.done .setup-mark { background: var(--ok); border-color: var(--ok); }
+.setup-steps li.next .setup-mark { border-color: var(--accent); }
+.setup-text { display: grid; gap: 1px; min-width: 0; }
+.setup-steps li.done .setup-text strong { color: var(--muted); font-weight: 500; }
+.setup-go { white-space: nowrap; }

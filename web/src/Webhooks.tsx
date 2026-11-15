@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, type Webhook, type WebhookDelivery, type WebhookEvent } from "./api";
+import { ApiKeysCard } from "./ApiKeys";
 
 const err = (e: unknown) => (e instanceof ApiError ? e.message : "Bir hata oluştu");
 const STATUS: Record<WebhookDelivery["status"], [string, "ok" | "off" | ""]> = {
@@ -113,6 +114,7 @@ export function WebhooksPage({ prefix }: { prefix: string }) {
         <Deliveries prefix={prefix} hook={data.webhooks.find((w) => w.id === open)!} onClose={() => setOpen(null)} />
       )}
       <VerifyCard events={data.events} />
+      <ApiKeysCard prefix={prefix} />
     </>
   );
 }

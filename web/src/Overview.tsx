@@ -7,7 +7,7 @@ import { Icon, type IconName } from "./Icons";
 import type { TenantInfo } from "./App";
 import { operatorName, regLabel } from "./labels";
 import { mmss, queueLabel } from "./Reports";
-import { api, type CallRow, type Me, type Outcome, type Summary, type Tenant } from "./api";
+import { api, type CallRow, type Me, type Outcome, type SetupStep, type Summary, type Tenant } from "./api";
 
 const TZ = "Europe/Istanbul";
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
@@ -19,6 +19,7 @@ const dayName = (d: string) => new Date(d + "T12:00:00Z").toLocaleDateString("tr
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
 
 function dur(s: number) {
+  if (!Number.isFinite(s)) return "—";
   s = Math.round(s);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -158,6 +159,8 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
           {lic?.valid_until && <span className="ov-banner-tag">Lisans bitiş: {new Date(lic.valid_until).toLocaleDateString("tr-TR")}</span>}
         </div>
       )}
+
+      {showSettings && <SetupCard prefix={prefix} />}
 
       {(showReports || showSettings) && (
         <div className="kpis">
@@ -443,5 +446,76 @@ export function Overview({ me, prefix, info }: { me: Me; prefix: string; info: T
         </div>
       </div>
     </div>
+  );
+}
+
+// Kurulum adımları: zorunlular bitene kadar her zaman; sonra isteğe bağlılar gizlenebilir.
+function SetupCard({ prefix }: { prefix: string }) {
+  const [steps, setSteps] = useState<SetupStep[] | null>(null);
+  const hideKey = `santralio-setup-hidden-${prefix}`;
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(hideKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    api.setup(prefix).then(setSteps, () => setSteps(null));
+  }, [prefix]);
+  if (!steps) return null;
+  const required = steps.filter((s) => s.required);
+  const reqDone = required.every((s) => s.done);
+  const done = steps.filter((s) => s.done).length;
+  if (done === steps.length || (reqDone && hidden)) return null;
+  const next = steps.find((s) => !s.done && s.required) ?? steps.find((s) => !s.done);
+  return (
+    <section className="card setup">
+      <div className="setup-head">
+        <div>
+          <h3>{reqDone ? "Santraliniz çalışıyor — isterseniz devam edin" : "Kurulum"}</h3>
+          <p className="muted small">
+            {done} / {steps.length} adım tamam{!reqDone ? ` · aramaların ulaşması için ${required.filter((s) => !s.done).length} zorunlu adım kaldı` : ""}
+          </p>
+        </div>
+        {reqDone && (
+          <button
+            className="ghost"
+            onClick={() => {
+              setHidden(true);
+              try {
+                localStorage.setItem(hideKey, "1");
+              } catch {
+                /* yok */
+              }
+            }}
+          >
+            Gizle
+          </button>
+        )}
+      </div>
+      <div className="setup-bar" role="progressbar" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={done}>
+        <span style={{ width: `${(done / steps.length) * 100}%` }} />
+      </div>
+      <ol className="setup-steps">
+        {steps.map((s) => (
+          <li key={s.id} className={`${s.done ? "done" : ""} ${s === next ? "next" : ""}`}>
+            <span className="setup-mark">{s.done ? <Icon name="check" size={14} /> : null}</span>
+            <div className="setup-text">
+              <strong>
+                {s.title}
+                {!s.required && !s.done && <span className="muted small"> · isteğe bağlı</span>}
+              </strong>
+              <span className="small muted">{s.detail}</span>
+            </div>
+            {!s.done && (
+              <a className={s === next ? "btn-primary setup-go" : "button setup-go"} href={`#/t/${prefix}/${s.tab}`}>
+                {s === next ? "Başla" : "Aç"}
+              </a>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

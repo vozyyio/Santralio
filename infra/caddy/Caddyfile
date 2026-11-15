@@ -156,6 +156,20 @@ api.@SANTRALIO_BASE_DOMAIN@ {
 				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@
 			}
 		}
+		# İşletmenin kendi sistemleri: API anahtarıyla (Bearer sk_...) panel API'si. Çerezle erişim yok.
+		@apikey {
+			header Authorization "Bearer sk_*"
+			path /api/me /api/tenants/*
+		}
+		handle @apikey {
+			request_body {
+				max_size 64KB
+			}
+			reverse_proxy 127.0.0.1:8090 {
+				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@
+				header_up -Cookie
+			}
+		}
 		# Web sitesi sohbet aracı: gömme betiği, sohbet penceresi ve mesajlar (sınırlar uygulamada).
 		@chat {
 			method GET POST
