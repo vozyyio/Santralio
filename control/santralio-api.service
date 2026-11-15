@@ -13,6 +13,8 @@ UMask=0027
 LoadCredentialEncrypted=santralio-master-key-k1
 LoadCredentialEncrypted=santralio-ami-secret
 LoadCredentialEncrypted=santralio-internal-key
+# Web sohbeti asistanı (anahtar yoksa sohbet "kullanılamıyor" der)
+ImportCredential=santralio-anthropic-api-key
 # Vozyy entegrasyonu (isteğe bağlı; yoksa /api/vozyy/events 503 döner): sudo infra/set-secret.sh vozyy-signing | vozyy-inbound
 ImportCredential=santralio-vozyy-signing-secret
 ImportCredential=santralio-vozyy-inbound-key

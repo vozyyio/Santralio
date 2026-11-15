@@ -132,7 +132,7 @@ agent.@SANTRALIO_BASE_DOMAIN@ {
 	}
 }
 
-# Dış servislerin çağırdığı API: Vozyy lisans olayları, ödeme sağlayıcısı bildirimleri ve test ödeme sayfası. Gerisi 404.
+# Dış servislerin çağırdığı API: Vozyy lisans olayları, ödeme sağlayıcısı bildirimleri, test ödeme sayfası ve web sohbeti. Gerisi 404.
 api.@SANTRALIO_BASE_DOMAIN@ {
 	import cloudflare
 
@@ -151,6 +151,19 @@ api.@SANTRALIO_BASE_DOMAIN@ {
 		handle @vozyy_events {
 			request_body {
 				max_size 64KB
+			}
+			reverse_proxy 127.0.0.1:8090 {
+				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@
+			}
+		}
+		# Web sitesi sohbet aracı: gömme betiği, sohbet penceresi ve mesajlar (sınırlar uygulamada).
+		@chat {
+			method GET POST
+			path_regexp ^/api/chat/(embed\.js|frame\.js|frame\.css|w/wk_[a-z0-9]{24}(/start|/message)?)$
+		}
+		handle @chat {
+			request_body {
+				max_size 16KB
 			}
 			reverse_proxy 127.0.0.1:8090 {
 				header_up X-Forwarded-For @SANTRALIO_CADDY_CLIENT_IP@

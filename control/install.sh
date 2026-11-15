@@ -75,7 +75,7 @@ umask 022
 
 # 5. Kod
 install -d -m 0755 /opt/santralio "$APP"
-cp -r "$REPO/control/src" "$REPO/control/migrations" "$REPO/control/package.json" "$REPO/control/package-lock.json" "$APP/"
+cp -r "$REPO/control/src" "$REPO/control/migrations" "$REPO/control/chat" "$REPO/control/package.json" "$REPO/control/package-lock.json" "$APP/"
 (cd "$APP" && npm ci --omit=dev --no-fund --no-audit --silent)
 chown -R root:root "$APP"
 chmod -R go-w "$APP"

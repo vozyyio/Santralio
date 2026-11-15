@@ -21,13 +21,15 @@ export function directExec(deps: ExecDeps, tenant: { id: number; name: string },
   return {
     quote: (req: BookingRequest): Promise<QuoteResult> => booking.quote(deps.booking, tenant.id, { service: req.service, fields: req.fields }, { phone: ctx.phone }),
     async create(req: BookingRequest): Promise<CreateResult> {
-      const c = await booking.create(deps.booking, tenant.id, { service: req.service, fields: req.fields }, { ...ctx, customerName: req.customerName });
+      // Web sohbetinde numara bilinmez: kullanıcının yazdığı telefon alanı kullanılır.
+      const contact = ctx.phone ?? Object.values(req.fields).map((v) => payments.normalizePhone(v)).find(Boolean) ?? null;
+      const c = await booking.create(deps.booking, tenant.id, { service: req.service, fields: req.fields }, { ...ctx, phone: contact, customerName: req.customerName });
       let payment: CreateResult["payment"] = null;
       const wants = c.payment === "required" || (c.payment === "optional" && req.payNow);
       if (wants) {
-        const phone = mobile(ctx.phone) ?? Object.values(req.fields).map(mobile).find(Boolean) ?? null;
+        const phone = mobile(contact) ?? Object.values(req.fields).map(mobile).find(Boolean) ?? null;
         if (!c.price) payment = { sent: false, reason: "tutar belli değil" };
-        else if (!phone) payment = { sent: false, reason: "cep telefonu numarası yok" };
+        else if (!phone && ctx.source !== "chat") payment = { sent: false, reason: "cep telefonu numarası yok" };
         else {
           try {
             const p = await payments.createRequest(deps.pay, tenant, {
@@ -37,11 +39,17 @@ export function directExec(deps: ExecDeps, tenant: { id: number; name: string },
               phone,
               callId: ctx.callId,
               createdBy: "booking",
-              sendSms: true,
+              sendSms: !!phone,
             });
             await deps.booking.db.query("UPDATE bookings SET payment_ref = $2, updated_at = now() WHERE id = $1", [c.bookingId, p.id]);
             const failed = (p as { failed?: boolean }).failed;
-            payment = failed || p.smsStatus !== "sent" ? { sent: false, reason: failed ? "ödeme sağlayıcısı bağlantı oluşturamadı" : "SMS gönderilemedi" } : { sent: true, reason: null };
+            const url = !failed && ctx.source === "chat" ? (p.linkUrl ?? null) : null;
+            const shown = url ? { url } : {};
+            payment = failed
+              ? { sent: false, reason: "ödeme sağlayıcısı bağlantı oluşturamadı" }
+              : p.smsStatus === "sent"
+                ? { sent: true, reason: null, ...shown }
+                : { sent: false, reason: url ? null : "SMS gönderilemedi", ...shown };
           } catch (e) {
             payment = { sent: false, reason: e instanceof Error ? e.message.slice(0, 100) : "ödeme hatası" };
           }

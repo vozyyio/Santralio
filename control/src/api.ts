@@ -36,6 +36,10 @@ import * as payIvr from "./payments/ivr.ts";
 import * as live from "./live.ts";
 import * as booking from "./booking.ts";
 import { directExec } from "./bookingexec.ts";
+import * as chat from "./chat.ts";
+import { ClaudeModel } from "./ai/claude.ts";
+import { FakeModel } from "./ai/local.ts";
+import type { LanguageModel } from "./ai/providers.ts";
 import { timingSafeEqual } from "node:crypto";
 import { publicCatalog } from "./payments/catalog.ts";
 import { aad, open } from "./crypto.ts";
@@ -1721,6 +1725,95 @@ route(
   },
   false,
 );
+
+// --- Web sitesi sohbeti ---
+// Herkese açık uçlar api alan adında (Caddy: /api/chat/*). Oturum çerezi kullanılmaz (pencere credentials: "omit").
+const CHAT_DIR = join(import.meta.dirname, "..", "chat");
+const chatAsset = (name: string) => readFile(join(CHAT_DIR, name));
+let chatLlm: LanguageModel | null | undefined;
+function chatModel(): LanguageModel | null {
+  if (chatLlm !== undefined) return chatLlm;
+  if (process.env.SANTRALIO_CHAT_FAKE === "1") return (chatLlm = new FakeModel());
+  const key = optionalCredential("santralio-anthropic-api-key");
+  return (chatLlm = key ? new ClaudeModel(key) : null);
+}
+const chatDeps = (ctx: Ctx): chat.ChatDeps => ({
+  db: ctx.db,
+  llm: chatModel(),
+  exec: (t) => directExec({ booking: { ...bookingDeps(ctx), actor: "chat" }, pay: { ...payDeps(ctx), actor: "chat" } }, t, { source: "chat", phone: null, callId: null, aiSessionId: null }),
+  services: async (tenantId) => {
+    const s = await booking.getSettings(ctx.db, tenantId);
+    return s.mode === "off" ? [] : s.services.map((x) => ({ key: x.key, label: x.label, description: x.description, fields: x.fields, payment: x.payment }));
+  },
+});
+const ASSET_TYPES: Record<string, string> = { "embed.js": "text/javascript; charset=utf-8", "frame.js": "text/javascript; charset=utf-8", "frame.css": "text/css; charset=utf-8" };
+route(
+  "GET",
+  "/api/chat/:file",
+  async (ctx) => {
+    const type = ASSET_TYPES[ctx.params[0]];
+    if (!type) throw new UserError("bulunamadı", 404);
+    return new Raw(type, await chatAsset(ctx.params[0]), 200, { "cache-control": "public, max-age=600", "cross-origin-resource-policy": "cross-origin" });
+  },
+  false,
+);
+const attr = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+route(
+  "GET",
+  "/api/chat/w/:key",
+  async (ctx) => {
+    const l = await chat.loadByKey(ctx.db, ctx.params[0]);
+    // Kapalı ya da bilinmeyen pencere: boş, şeffaf sayfa (sitede hiçbir şey görünmez).
+    if (!l) return new Raw("text/html; charset=utf-8", Buffer.from('<!doctype html><meta charset="utf-8"><title>-</title>'), 200, { "content-security-policy": "default-src 'none'" });
+    const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${attr(l.widget.title)}</title><link rel="stylesheet" href="/api/chat/frame.css"></head>
+<body data-key="${attr(l.widget.publicKey)}" data-config="${attr(JSON.stringify(chat.publicConfig(l)))}">
+<button class="launcher" type="button" aria-label="Sohbeti aç"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></button>
+<section class="panel" role="dialog" aria-label="Sohbet">
+<header class="head"><div class="t"><strong></strong><span></span></div><button type="button" aria-label="Kapat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></header>
+<div class="log" aria-live="polite"></div>
+<form><textarea rows="1" maxlength="${chat.MAX_TEXT}" placeholder="Mesajınızı yazın…" aria-label="Mesaj"></textarea><button type="submit" disabled aria-label="Gönder"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></button></form>
+<div class="foot">Yapay zekâ asistanı yanılabilir. Mesajlarınız hizmet kalitesi için kaydedilir.</div>
+</section><script src="/api/chat/frame.js"></script></body></html>`;
+    return new Raw("text/html; charset=utf-8", Buffer.from(html), 200, chat.frameHeaders(l.widget.origins));
+  },
+  false,
+);
+async function chatLoaded(ctx: Ctx) {
+  const l = await chat.loadByKey(ctx.db, ctx.params[0]);
+  if (!l) throw new UserError("sohbet şu an kullanılamıyor", 404);
+  return l;
+}
+route(
+  "POST",
+  "/api/chat/w/:key/start",
+  async (ctx) => chat.start(ctx.db, await chatLoaded(ctx), ctx.ip, typeof ctx.body?.page === "string" ? ctx.body.page : null),
+  false,
+);
+route(
+  "POST",
+  "/api/chat/w/:key/message",
+  async (ctx) => chat.message(chatDeps(ctx), await chatLoaded(ctx), ctx.body?.token, ctx.body?.text),
+  false,
+);
+
+// Panel: ayarlar ve geçmiş sohbetler.
+route("GET", "/api/tenants/:prefix/chat", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return { widget: await chat.getWidget(ctx.db, t.id), embedBase: PAYMENTS_API_BASE, assistant: !!chatModel() };
+});
+route("PUT", "/api/tenants/:prefix/chat", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  return chat.saveWidget(ctx.db, t, ctx.body ?? {}, actor(ctx));
+});
+route("GET", "/api/tenants/:prefix/chat/sessions", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "bookings.manage");
+  return chat.listSessions(ctx.db, t.id);
+});
+route("GET", "/api/tenants/:prefix/chat/sessions/:id", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage", "bookings.manage");
+  return chat.getSession(ctx.db, t.id, idParam(ctx.params[1]));
+});
 
 route("GET", "/api/tenants/:prefix/status", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "settings.manage");

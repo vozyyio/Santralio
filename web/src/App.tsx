@@ -21,6 +21,7 @@ import { CallbacksPage } from "./Callbacks";
 import { WebhooksPage } from "./Webhooks";
 import { LivePage, LiveTv } from "./Live";
 import { BookingSettingsPage, BookingsPage } from "./Booking";
+import { ChatPage } from "./Chat";
 import { QueueCallbackBox, QueueCallbackJobs } from "./QueueCallback";
 import { AnalysisReport, AnalysisSettingsCard, WeeklyReportCard } from "./Analysis";
 import { operatorName, regLabel } from "./labels";
@@ -94,6 +95,7 @@ const TAB_ICON: Record<string, IconName> = {
   kacan: "callback",
   entegrasyon: "plug",
   rezervasyon: "calendar",
+  websohbet: "chat",
   rezervasyonlar: "calendar",
 };
 
@@ -259,6 +261,8 @@ function Shell({ app, me, onLogout }: { app: AppName; me: Me; onLogout: () => vo
           <WebhooksPage prefix={prefix} />
         ) : tab === "rezervasyon" ? (
           <BookingSettingsPage prefix={prefix} />
+        ) : tab === "websohbet" ? (
+          <ChatPage prefix={prefix} />
         ) : (
           <TenantPage me={me} prefix={prefix} tab={tab} />
         )
@@ -335,15 +339,16 @@ const PANEL_TABS: [string, string, string[]][] = [
   ["menuler", "Menüler", ["settings.manage"]],
   ["anonslar", "Anonslar", ["settings.manage"]],
   ["yapayzeka", "Yapay zekâ", ["settings.manage"]],
-  ["saatler", "Çalışma saatleri", ["settings.manage"]],
+  ["saatler", "Saatler", ["settings.manage"]],
   ["kuyruklar", "Kuyruklar", ["settings.manage"]],
   ["dahililer", "Dahililer", ["settings.manage"]],
   ["personel", "Personel", ["staff.manage"]],
   ["roller", "Roller", ["staff.manage"]],
-  ["kacan", "Kaçan çağrılar", ["settings.manage"]],
+  ["kacan", "Kaçan çağrı", ["settings.manage"]],
   ["rezervasyon", "Rezervasyon", ["settings.manage"]],
+  ["websohbet", "Web sohbeti", ["settings.manage"]],
   ["odeme", "Ödeme", ["payments.manage"]],
-  ["entegrasyon", "Entegrasyonlar", ["settings.manage"]],
+  ["entegrasyon", "Entegrasyon", ["settings.manage"]],
 ];
 
 function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; tab: string }) {

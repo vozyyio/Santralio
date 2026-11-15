@@ -299,6 +299,40 @@ export type BookingRow = {
 };
 export type BookingQuote = { available: boolean; price: { amount: string; currency: string } | null; message: string | null };
 
+// --- Web sohbeti ---
+export type ChatWidget = {
+  enabled: boolean;
+  publicKey: string;
+  flow: string;
+  title: string;
+  greeting: string;
+  color: string;
+  origins: string[];
+  contactPhone: string | null;
+  whatsapp: string | null;
+  dailyLimit: number;
+};
+export type ChatSessionRow = {
+  id: number;
+  status: "open" | "handoff" | "ended" | "limit";
+  messages: number;
+  language: string | null;
+  summary: string | null;
+  bookingRef: string | null;
+  page: string | null;
+  createdAt: string;
+  firstMessage: string | null;
+};
+export type ChatSessionDetail = {
+  id: number;
+  status: ChatSessionRow["status"];
+  summary: string | null;
+  bookingRef: string | null;
+  page: string | null;
+  history: { role: "caller" | "assistant" | "tool"; text: string }[];
+  createdAt: string;
+};
+
 export type LiveSettings = { waitAlertS: number; waitingAlertN: number };
 export type Live = {
   at: string;
@@ -487,6 +521,10 @@ export const api = {
   bookingQuote: (p: string, b: { service: string; fields: Record<string, string> }) => call<BookingQuote>("POST", `${t(p)}/booking/quote`, b),
   bookings: (p: string, status = "") => call<BookingRow[]>("GET", `${t(p)}/bookings${status ? `?status=${status}` : ""}`),
   bookingSet: (p: string, id: number, action: "confirm" | "cancel", note?: string) => call<{ ok: true }>("POST", `${t(p)}/bookings/${id}/${action}`, { note }),
+  chatGet: (p: string) => call<{ widget: ChatWidget | null; embedBase: string; assistant: boolean }>("GET", `${t(p)}/chat`),
+  chatSave: (p: string, b: Partial<ChatWidget>) => call<ChatWidget>("PUT", `${t(p)}/chat`, b),
+  chatSessions: (p: string) => call<ChatSessionRow[]>("GET", `${t(p)}/chat/sessions`),
+  chatSession: (p: string, id: number) => call<ChatSessionDetail>("GET", `${t(p)}/chat/sessions/${id}`),
   live: (p: string) => call<Live>("GET", `${t(p)}/live`),
   liveSettings: (p: string) => call<LiveSettings>("GET", `${t(p)}/live/settings`),
   liveSave: (p: string, b: LiveSettings) => call<LiveSettings>("PUT", `${t(p)}/live/settings`, b),

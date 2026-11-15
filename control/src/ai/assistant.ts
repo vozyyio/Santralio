@@ -13,7 +13,8 @@ export type CreateResult = {
   reference: string;
   status: "pending" | "confirmed";
   price: { amount: string; currency: string } | null;
-  payment: { sent: boolean; reason: string | null } | null;
+  // url: yalnızca web sohbetinde ekranda düğme olarak gösterilir (modele verilmez).
+  payment: { sent: boolean; reason: string | null; url?: string | null } | null;
 };
 export type FoundBooking = { reference: string; service: string; summary: string; date: string | null; status: string };
 
@@ -24,8 +25,15 @@ export interface ToolExec {
   lookup(): Promise<FoundBooking[]>;
 }
 
-export type ToolState = { quotes: number; booked: boolean; lastQuote: { key: string; result: QuoteResult } | null };
-export const newState = (): ToolState => ({ quotes: 0, booked: false, lastQuote: null });
+export type ToolState = {
+  quotes: number;
+  booked: boolean;
+  lastQuote: { key: string; result: QuoteResult } | null;
+  channel?: "phone" | "chat";
+  // Web sohbeti: oluşan rezervasyon ve ödeme bağlantısı ekranda gösterilir.
+  created?: { reference: string; paymentUrl: string | null } | null;
+};
+export const newState = (channel: "phone" | "chat" = "phone"): ToolState => ({ quotes: 0, booked: false, lastQuote: null, channel, created: null });
 
 const MAX_QUOTES = 4;
 const keyOf = (r: BookingRequest) =>
@@ -58,12 +66,16 @@ export async function runTool(exec: ToolExec, state: ToolState, d: Decision): Pr
     if (!state.lastQuote.result.available) return "Hata: seçilen seçenek müsait değil; rezervasyon oluşturulamaz.";
     state.booked = true;
     const r = await exec.create(d.booking);
+    const chat = state.channel === "chat";
+    state.created = { reference: r.reference, paymentUrl: r.payment?.url ?? null };
     const pay = r.payment
-      ? r.payment.sent
-        ? " Ödeme bağlantısı arayanın cep telefonuna kısa mesajla gönderildi."
-        : ` Ödeme bağlantısı gönderilemedi (${r.payment.reason ?? "bilinmiyor"}); ekibin ileteceğini söyle.`
+      ? chat && r.payment.url
+        ? ` Ödeme bağlantısı ekranda "Ödeme yap" düğmesi olarak gösterildi${r.payment.sent ? " ve cep telefonuna kısa mesajla da gönderildi" : ""}.`
+        : r.payment.sent
+          ? " Ödeme bağlantısı cep telefonuna kısa mesajla gönderildi."
+          : ` Ödeme bağlantısı gönderilemedi (${r.payment.reason ?? "bilinmiyor"}); ekibin ileteceğini söyle.`
       : "";
-    return `Rezervasyon ${r.status === "confirmed" ? "onaylandı" : "alındı, ekip teyit edecek"}. Numara: ${spell(r.reference)}.${r.price ? ` Tutar: ${money(r.price)}.` : ""}${pay}`;
+    return `Rezervasyon ${r.status === "confirmed" ? "onaylandı" : "alındı, ekip teyit edecek"}. Numara: ${chat ? r.reference : spell(r.reference)}.${r.price ? ` Tutar: ${money(r.price)}.` : ""}${pay}`;
   } catch (e) {
     return `Sistem şu an yanıt veremedi (${e instanceof Error ? e.message.slice(0, 120) : "hata"}). Arayandan özür dile ve temsilciye aktar.`;
   }
