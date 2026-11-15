@@ -372,10 +372,11 @@ function TenantPage({ me, prefix, tab: requested }: { me: Me; prefix: string; ta
       {tab === "yapayzeka" && <AiTab t={t} reload={reload} />}
       {tab === "yapayzeka" && <AnalysisSettingsCard prefix={t.prefix} />}
       {tab === "menuler" && t.menus.map((m) => <MenuEditor key={m.name} t={t} menu={m} reload={reload} />)}
-      {tab === "menuler" && t.menus.length === 0 && <p className="muted">Bu müşteride henüz menü yok.</p>}
+      {tab === "menuler" && <NewMenu t={t} reload={reload} />}
       {tab === "saatler" && t.schedules.map((s) => <ScheduleEditor key={s.name} t={t} sc={s} reload={reload} />)}
-      {tab === "saatler" && t.schedules.length === 0 && <p className="muted">Bu müşteride henüz çalışma saati tanımı yok.</p>}
+      {tab === "saatler" && <NewSchedule t={t} reload={reload} />}
       {tab === "kuyruklar" && t.queues.map((q) => <QueueEditor key={q.name} t={t} q={q} reload={reload} />)}
+      {tab === "kuyruklar" && <NewQueue t={t} reload={reload} />}
       {tab === "kuyruklar" && <QueueCallbackJobs prefix={t.prefix} />}
       {tab === "dahililer" && <Extensions t={t} reload={reload} />}
       {tab === "personel" && <Staff t={t} me={me} reload={reload} />}
@@ -512,32 +513,17 @@ function General({ t, reload }: { t: Tenant; reload: () => void }) {
           <p className="muted">Lisans kaydı yok.</p>
         )}
       </div>
-      <div className="card">
-        <h3>Operatör hattı</h3>
-        {t.trunk ? (
-          <dl>
-            <dt>Operatör</dt>
-            <dd>{t.trunk.operator}</dd>
-            <dt>Kullanıcı</dt>
-            <dd className="mono">{t.trunk.username}</dd>
-            <dt>Kayıt</dt>
-            <dd>{status ? <Badge ok={status.registration === "Registered"}>{status.registration}</Badge> : "…"}</dd>
-            <dt>Bağlı dahililer</dt>
-            <dd>{status ? (status.onlineExtensions.length ? status.onlineExtensions.join(", ") : "Yok") : "…"}</dd>
-          </dl>
-        ) : (
-          <p className="muted">Operatör hattı tanımlı değil.</p>
-        )}
-      </div>
+      <TrunkCard t={t} status={status} reload={reload} />
       <RecordingSettings t={t} reload={reload} />
       <OutboundPolicyCard prefix={t.prefix} />
       <DispositionsCard prefix={t.prefix} />
       <div className="card wide">
         <h3>Numaralar</h3>
-        {t.entryPoints.length === 0 && <p className="muted">Numara yok.</p>}
+        {t.entryPoints.length === 0 && <p className="muted small">Henüz numara yok. Operatörünüzden aldığınız numarayı ekleyip aramaların nereye gideceğini seçin.</p>}
         {t.entryPoints.map((e) => (
           <EntryPoint key={e.address} t={t} address={e.address} flow={e.flow} reload={reload} />
         ))}
+        <NewEntryPoint t={t} reload={reload} />
       </div>
     </div>
   );
@@ -900,6 +886,327 @@ function Extensions({ t, reload }: { t: Tenant; reload: () => void }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Panelden kurulum: operatör hattı, numara, kuyruk, menü, çalışma saati ---
+
+const OPERATOR_PRESETS: { id: string; label: string; server: string }[] = [
+  { id: "netgsm", label: "Netgsm", server: "sip.netgsm.com.tr" },
+  { id: "verimor", label: "Verimor", server: "sip.verimor.com.tr" },
+  { id: "turktelekom", label: "Türk Telekom", server: "" },
+  { id: "turkcell", label: "Turkcell", server: "" },
+  { id: "vodafone", label: "Vodafone", server: "" },
+  { id: "diger", label: "Diğer", server: "" },
+];
+
+function TrunkCard({ t, status, reload }: { t: Tenant; status: Status | null; reload: () => void }) {
+  const tr = t.trunk;
+  const [edit, setEdit] = useState(!tr);
+  const [f, setF] = useState({ operator: tr?.operator ?? "netgsm", server: tr?.server ?? "sip.netgsm.com.tr", port: tr?.port ?? 5060, transport: tr?.transport ?? "udp", username: tr?.username ?? "", password: "" });
+  const save = useSave(() => {
+    setEdit(false);
+    reload();
+  });
+  const preset = (id: string) => {
+    const p = OPERATOR_PRESETS.find((x) => x.id === id);
+    setF({ ...f, operator: id, server: p?.server || (f.server && !OPERATOR_PRESETS.some((x) => x.server === f.server) ? f.server : "") });
+  };
+  return (
+    <div className="card">
+      <div className="row spread">
+        <h3>Operatör hattı</h3>
+        {tr && !edit && (
+          <button className="ghost" onClick={() => setEdit(true)}>
+            Düzenle
+          </button>
+        )}
+      </div>
+      {tr && !edit ? (
+        <dl>
+          <dt>Operatör</dt>
+          <dd>{operatorName(tr.operator)}</dd>
+          <dt>Kullanıcı</dt>
+          <dd className="mono">{tr.username}</dd>
+          <dt>Sunucu</dt>
+          <dd className="mono">
+            {tr.server}:{tr.port} ({tr.transport})
+          </dd>
+          <dt>Kayıt</dt>
+          <dd>{status ? <Badge ok={status.registration === "Registered"}>{regLabel(status.registration)[0]}</Badge> : "…"}</dd>
+          <dt>Bağlı dahililer</dt>
+          <dd>{status ? (status.onlineExtensions.length ? status.onlineExtensions.join(", ") : "Yok") : "…"}</dd>
+        </dl>
+      ) : (
+        <>
+          <p className="muted small">Operatörünüzün (Netgsm, Verimor…) size verdiği SIP hesabı. Şifre şifreli saklanır, bir daha gösterilmez.</p>
+          <div className="form-grid">
+            <label>
+              Operatör
+              <select value={f.operator} onChange={(e) => preset(e.target.value)}>
+                {OPERATOR_PRESETS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+                {!OPERATOR_PRESETS.some((o) => o.id === f.operator) && <option value={f.operator}>{operatorName(f.operator)}</option>}
+              </select>
+            </label>
+            <label>
+              Sunucu
+              <input className="mono" value={f.server} placeholder="sip.operator.com.tr" onChange={(e) => setF({ ...f, server: e.target.value.trim() })} />
+            </label>
+            <label>
+              Kullanıcı adı (genelde numara)
+              <input className="mono" value={f.username} placeholder="8508401234" autoComplete="off" onChange={(e) => setF({ ...f, username: e.target.value.trim() })} />
+            </label>
+            <label>
+              Şifre{tr ? " (değiştirmeyecekseniz boş bırakın)" : ""}
+              <input type="password" value={f.password} autoComplete="new-password" onChange={(e) => setF({ ...f, password: e.target.value })} />
+            </label>
+            <label>
+              Port
+              <input type="number" min={1024} max={65535} value={f.port} onChange={(e) => setF({ ...f, port: Number(e.target.value) })} />
+            </label>
+            <label>
+              Bağlantı
+              <select value={f.transport} onChange={(e) => setF({ ...f, transport: e.target.value })}>
+                <option value="udp">UDP</option>
+                <option value="tcp">TCP</option>
+              </select>
+            </label>
+          </div>
+          <div className="actions">
+            <button
+              disabled={save.busy || !f.server || !f.username || (!tr && !f.password)}
+              onClick={() => save.run(() => api.setTrunk(t.prefix, { ...f, password: f.password || null }), "Kaydedildi; hat birkaç saniye içinde kaydolur.")}
+            >
+              Kaydet
+            </button>
+            {tr && (
+              <button className="ghost" onClick={() => setEdit(false)}>
+                Vazgeç
+              </button>
+            )}
+            {save.view}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function NewEntryPoint({ t, reload }: { t: Tenant; reload: () => void }) {
+  const first = t.queues[0] ? `queue:${t.queues[0].name}` : t.menus[0] ? `menu:${t.menus[0].name}` : t.aiFlows[0] ? `ai:${t.aiFlows[0]}` : null;
+  const [address, setAddress] = useState("");
+  const [flow, setFlow] = useState<string | null>(first);
+  const save = useSave(() => {
+    setAddress("");
+    reload();
+  });
+  if (!first) return <p className="small muted">Numara eklemek için önce bir kuyruk, menü ya da yapay zekâ akışı oluşturun.</p>;
+  return (
+    <div className="row new-row">
+      <input className="mono" value={address} placeholder="0850 123 45 67" inputMode="tel" aria-label="Yeni numara" onChange={(e) => setAddress(e.target.value)} />
+      <span className="muted">→</span>
+      <TargetSelect t={t} value={flow} onChange={(v) => setFlow(v)} />
+      <button disabled={save.busy || !address.trim() || !flow} onClick={() => save.run(() => api.addEntryPoint(t.prefix, address, flow!))}>
+        Numara ekle
+      </button>
+      {save.view}
+    </div>
+  );
+}
+
+const slugName = (s: string) =>
+  s
+    .toLocaleLowerCase("tr")
+    .replace(/[çğıöşü]/g, (c) => ({ ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u" })[c]!)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32);
+
+function NewQueue({ t, reload }: { t: Tenant; reload: () => void }) {
+  const [open, setOpen] = useState(t.queues.length === 0);
+  const [f, setF] = useState({ name: "", number: "", strategy: "rrmemory", ringS: 20, maxWaitS: 300 });
+  const save = useSave(() => {
+    setOpen(false);
+    setF({ name: "", number: "", strategy: "rrmemory", ringS: 20, maxWaitS: 300 });
+    reload();
+  });
+  if (!open)
+    return (
+      <div className="actions">
+        <button onClick={() => setOpen(true)}>+ Yeni kuyruk</button>
+      </div>
+    );
+  return (
+    <div className="card">
+      <h3>Yeni kuyruk</h3>
+      <p className="muted small">Kuyruk, aramaların çaldığı ekiptir (ör. rezervasyon, resepsiyon). Oluşturduktan sonra üyelerini (dahilileri) seçin.</p>
+      <div className="form-grid">
+        <label>
+          Ad
+          <input value={f.name} placeholder="rezervasyon" onChange={(e) => setF({ ...f, name: slugName(e.target.value) })} />
+        </label>
+        <label>
+          İç numara (isteğe bağlı)
+          <input inputMode="numeric" value={f.number} placeholder="8001" onChange={(e) => setF({ ...f, number: e.target.value.replace(/\D/g, "").slice(0, 6) })} />
+        </label>
+        <label>
+          Dağıtım
+          <select value={f.strategy} onChange={(e) => setF({ ...f, strategy: e.target.value })}>
+            <option value="rrmemory">Sırayla (en adil)</option>
+            <option value="ringall">Hepsi birden çalsın</option>
+            <option value="leastrecent">En uzun süredir boşta olana</option>
+            <option value="fewestcalls">En az arama alana</option>
+            <option value="linear">Hep aynı sırayla</option>
+          </select>
+        </label>
+        <label>
+          Temsilci başına çalma (sn)
+          <input type="number" min={5} max={120} value={f.ringS} onChange={(e) => setF({ ...f, ringS: Number(e.target.value) })} />
+        </label>
+        <label>
+          En uzun bekleme (sn)
+          <input type="number" min={10} max={3600} value={f.maxWaitS} onChange={(e) => setF({ ...f, maxWaitS: Number(e.target.value) })} />
+        </label>
+      </div>
+      <div className="actions">
+        <button disabled={save.busy || !f.name} onClick={() => save.run(() => api.addQueue(t.prefix, { ...f, number: f.number || null }))}>
+          Oluştur
+        </button>
+        {t.queues.length > 0 && (
+          <button className="ghost" onClick={() => setOpen(false)}>
+            Vazgeç
+          </button>
+        )}
+        {save.view}
+      </div>
+    </div>
+  );
+}
+
+function NewMenu({ t, reload }: { t: Tenant; reload: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [text, setText] = useState("");
+  const save = useSave(() => {
+    setOpen(false);
+    setName("");
+    setText("");
+    reload();
+  });
+  if (!open)
+    return (
+      <div className={t.menus.length ? "actions" : "empty-state"}>
+        {!t.menus.length && (
+          <>
+            <p>Henüz menü yok.</p>
+            <p className="small muted">“Rezervasyon için 1'e, resepsiyon için 2'ye basın” gibi tuşlamalı karşılama.</p>
+          </>
+        )}
+        <button onClick={() => setOpen(true)}>+ Yeni menü</button>
+      </div>
+    );
+  return (
+    <div className="card">
+      <h3>Yeni menü</h3>
+      <div className="form-grid">
+        <label>
+          Ad
+          <input value={name} placeholder="karsilama" onChange={(e) => setName(slugName(e.target.value))} />
+        </label>
+        <label className="span2">
+          Karşılama anonsu
+          <textarea rows={2} value={text} maxLength={1000} placeholder="Rezervasyon için 1'e, resepsiyon için 2'ye basınız." onChange={(e) => setText(e.target.value)} />
+        </label>
+      </div>
+      <p className="muted small">Oluşturduktan sonra tuşları ve tuşlanmazsa ne olacağını seçersiniz.</p>
+      <div className="actions">
+        <button disabled={save.busy || !name || !text.trim()} onClick={() => save.run(() => api.saveMenu(t.prefix, name, { text }))}>
+          Oluştur
+        </button>
+        <button className="ghost" onClick={() => setOpen(false)}>
+          Vazgeç
+        </button>
+        {save.view}
+      </div>
+    </div>
+  );
+}
+
+function NewSchedule({ t, reload }: { t: Tenant; reload: () => void }) {
+  const first = t.queues[0] ? `queue:${t.queues[0].name}` : t.menus[0] ? `menu:${t.menus[0].name}` : null;
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ name: "mesai", openTarget: first, closedText: "Şu an mesai saatleri dışındayız. Hafta içi 09.00 ile 18.00 arasında size yardımcı olmaktan memnuniyet duyarız.", opens: "09:00", closes: "18:00", days: "mon-fri" });
+  const save = useSave(() => {
+    setOpen(false);
+    reload();
+  });
+  if (!open)
+    return (
+      <div className={t.schedules.length ? "actions" : "empty-state"}>
+        {!t.schedules.length && (
+          <>
+            <p>Henüz çalışma saati yok.</p>
+            <p className="small muted">Mesai içinde aramalar ekibe, mesai dışında anonsa ya da yapay zekâya gitsin.</p>
+          </>
+        )}
+        {first ? <button onClick={() => setOpen(true)}>+ Yeni çalışma saati</button> : <p className="small muted">Önce bir kuyruk ya da menü oluşturun.</p>}
+      </div>
+    );
+  return (
+    <div className="card">
+      <h3>Yeni çalışma saati</h3>
+      <div className="form-grid">
+        <label>
+          Ad
+          <input value={f.name} onChange={(e) => setF({ ...f, name: slugName(e.target.value) })} />
+        </label>
+        <label>
+          Günler
+          <select value={f.days} onChange={(e) => setF({ ...f, days: e.target.value })}>
+            {DAYS.slice(0, 3).map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Açılış
+          <input type="time" value={f.opens} onChange={(e) => setF({ ...f, opens: e.target.value })} />
+        </label>
+        <label>
+          Kapanış
+          <input type="time" value={f.closes} onChange={(e) => setF({ ...f, closes: e.target.value })} />
+        </label>
+        <label>
+          Mesai içinde
+          <TargetSelect t={t} value={f.openTarget} onChange={(v) => setF({ ...f, openTarget: v })} />
+        </label>
+        <label className="span2">
+          Mesai dışı anonsu
+          <textarea rows={2} maxLength={1000} value={f.closedText} onChange={(e) => setF({ ...f, closedText: e.target.value })} />
+        </label>
+      </div>
+      <p className="muted small">Oluşturduktan sonra başka gün/saat aralıkları, tatiller ve mesai dışı hedefi (ör. yapay zekâ) ekleyebilirsiniz.</p>
+      <div className="actions">
+        <button
+          disabled={save.busy || !f.name || !f.openTarget || !f.closedText.trim()}
+          onClick={() =>
+            save.run(() => api.saveSchedule(t.prefix, f.name, { openTarget: f.openTarget, closedText: f.closedText, hours: [{ weekdays: f.days, opens: f.opens, closes: f.closes }] }))
+          }
+        >
+          Oluştur
+        </button>
+        <button className="ghost" onClick={() => setOpen(false)}>
+          Vazgeç
+        </button>
+        {save.view}
+      </div>
     </div>
   );
 }

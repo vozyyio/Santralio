@@ -28,6 +28,7 @@ function useLive(prefix: string) {
   const [error, setError] = useState("");
   const [, tick] = useState(0);
   const lastOk = useRef(Date.now());
+  const loaded = useRef(false);
   useEffect(() => {
     let stop = false;
     const load = () =>
@@ -35,14 +36,16 @@ function useLive(prefix: string) {
         (d) => {
           if (stop) return;
           setData(d);
+          loaded.current = true;
           setFetchedAt(Date.now());
           setError("");
           lastOk.current = Date.now();
         },
         (e) => {
           if (stop) return;
-          // Kısa kopmalarda eski veri kalır; 10 sn'yi geçerse uyarı gösterilir.
-          if (Date.now() - lastOk.current > 10_000 || !(e instanceof ApiError && e.status >= 500)) setError(e instanceof ApiError ? e.message : "bağlantı yok");
+          // Kısa kopmalarda eski veri kalır; 10 sn'yi geçerse (ya da hiç veri gelmediyse) uyarı gösterilir.
+          if (!loaded.current || Date.now() - lastOk.current > 10_000 || !(e instanceof ApiError && e.status >= 500))
+            setError(e instanceof ApiError && e.status >= 500 ? "santrale ulaşılamıyor" : e instanceof ApiError ? e.message : "bağlantı yok");
         },
       );
     void load();
@@ -179,7 +182,7 @@ export function LivePage({ prefix, canManage }: { prefix: string; canManage: boo
     <>
       <div className="row spread live-head">
         <p className="muted small">
-          {d ? `Canlı · ${new Date(d.at).toLocaleTimeString("tr-TR")}` : "Yükleniyor…"}
+          {d ? `Canlı · ${new Date(d.at).toLocaleTimeString("tr-TR")}` : error ? "Canlı durum alınamadı" : "Yükleniyor…"}
           {error && <span className="error"> · {error}</span>}
         </p>
         <div className="row wrap-actions">

@@ -1944,6 +1944,32 @@ route("PUT", "/api/tenants/:prefix/queues/:name/unavailable-text", async (ctx) =
   return { ok: true };
 });
 
+route("PUT", "/api/tenants/:prefix/trunk", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  await ops.setTrunk(
+    ctx.db,
+    t,
+    { operator: str(b.operator, "operatör"), server: str(b.server, "sunucu"), port: optInt(b.port, "port"), transport: optStr(b.transport, "bağlantı") ?? undefined, username: str(b.username, "kullanıcı"), password: optStr(b.password, "şifre") },
+    actor(ctx),
+  );
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+route("POST", "/api/tenants/:prefix/queues", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const b = ctx.body ?? {};
+  await ops.addQueue(ctx.db, t, { name: str(b.name, "ad"), number: optStr(b.number, "numara"), strategy: optStr(b.strategy, "dağıtım") ?? undefined, ringS: optInt(b.ringS, "çalma"), maxWaitS: optInt(b.maxWaitS, "bekleme") }, actor(ctx));
+  applyChanges(ctx.db);
+  return { ok: true };
+});
+route("POST", "/api/tenants/:prefix/entry-points", async (ctx) => {
+  const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
+  const address = await ops.addEntryPoint(ctx.db, t, str(ctx.body?.address, "numara"), str(ctx.body?.flow, "hedef"), actor(ctx));
+  applyChanges(ctx.db);
+  return { address };
+});
+
 route("PUT", "/api/tenants/:prefix/entry-points/:address", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "settings.manage");
   await ops.setEntryFlow(ctx.db, t, ctx.params[1], str(ctx.body?.flow, "flow"), actor(ctx));

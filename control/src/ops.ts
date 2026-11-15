@@ -466,3 +466,87 @@ export async function setPolicy(db: Db, t: Tenant, input: Policy, actor?: string
   );
   await audit(db, "outbound.policy", t.id, p, actor);
 }
+
+// --- Panelden kurulum: operatör hattı, kuyruk, numara ---
+
+export type TrunkInput = { operator: string; server: string; port?: number; transport?: string; username: string; password?: string | null };
+type Lookup = (host: string) => Promise<string[]>;
+const defaultLookup: Lookup = async (h) => (await import("node:dns/promises")).lookup(h, { all: true }).then((a) => a.map((x) => x.address));
+
+// İşletmenin kendi SIP hesabı. Şifre şifreli saklanır; boş bırakılırsa eskisi korunur.
+// Sunucu adresi iç ağa çözülemez (Asterisk'in iç servislere istek atmasını önler).
+export async function setTrunk(db: Db, t: Tenant, i: TrunkInput, actor?: string, lookup: Lookup = defaultLookup) {
+  const { privateAddress } = await import("./netguard.ts");
+  const operator = String(i.operator ?? "").toLowerCase();
+  if (!/^[a-z0-9_-]{1,32}$/.test(operator)) throw new UserError("operatör adı geçersiz");
+  const server = String(i.server ?? "").trim().toLowerCase();
+  if (!/^[a-z0-9.-]{1,253}$/.test(server) || !server.includes(".") || server === "localhost") throw new UserError("sunucu adresi geçersiz (ör. sip.netgsm.com.tr)");
+  const port = i.port ?? 5060;
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new UserError("port 1024–65535 olmalı");
+  const transport = i.transport ?? "udp";
+  if (!["udp", "tcp"].includes(transport)) throw new UserError("bağlantı udp ya da tcp olmalı");
+  const username = String(i.username ?? "").trim();
+  if (!/^[A-Za-z0-9._+-]{1,64}$/.test(username)) throw new UserError("kullanıcı adı geçersiz");
+  const addrs = await lookup(server).catch(() => [] as string[]);
+  if (!addrs.length) throw new UserError(`sunucu adresi çözülemedi: ${server}`);
+  if (addrs.some(privateAddress)) throw new UserError("sunucu adresi iç ağa çözülüyor");
+  const cur = (await db.query("SELECT id FROM trunks WHERE tenant_id = $1", [t.id])).rows[0];
+  const password = i.password ?? "";
+  if (!cur && !password) throw new UserError("şifre gerekli");
+  if (password && (password.length > 128 || /[;\r\n\[\]]/.test(password))) throw new UserError("şifre ; [ ] ya da satır sonu içeremez, en fazla 128 karakter");
+  const sealed = password ? seal(password, aad.trunk(t.id), masterKey(CURRENT_KEY_ID), CURRENT_KEY_ID) : null;
+  if (cur) {
+    await db.query(
+      `UPDATE trunks SET operator = $2, server = $3, port = $4, transport = $5, username = $6,
+              secret_enc = COALESCE($7, secret_enc), key_id = COALESCE($8, key_id), enabled = true, updated_at = now() WHERE tenant_id = $1`,
+      [t.id, operator, server, port, transport, username, sealed?.enc ?? null, sealed?.keyId ?? null],
+    );
+  } else {
+    await db.query(
+      `INSERT INTO trunks (tenant_id, operator, server, port, transport, username, secret_enc, key_id, contact_token) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [t.id, operator, server, port, transport, username, sealed!.enc, sealed!.keyId, randomToken(24)],
+    );
+    // Önceden eklenmiş numaralar hatta bağlanır.
+    await db.query("UPDATE entry_points SET trunk_id = (SELECT id FROM trunks WHERE tenant_id = $1) WHERE tenant_id = $1 AND trunk_id IS NULL", [t.id]);
+  }
+  await audit(db, "trunk.set", t.id, { operator, server, port, transport, username, password: password ? "değişti" : "aynı" }, actor);
+}
+
+export type QueueInput = { name: string; number?: string | null; strategy?: string; ringS?: number; maxWaitS?: number };
+export async function addQueue(db: Db, t: Tenant, q: QueueInput, actor?: string) {
+  if (!NAME.test(q.name ?? "")) throw new UserError("kuyruk adı küçük harf, rakam ve _ olmalı (ör. rezervasyon)");
+  if (q.number != null && q.number !== "" && !/^[0-9]{2,6}$/.test(q.number)) throw new UserError("kuyruk numarası 2–6 rakam olmalı");
+  const strategy = q.strategy ?? "rrmemory";
+  if (!["ringall", "rrmemory", "leastrecent", "fewestcalls", "random", "linear"].includes(strategy)) throw new UserError("dağıtım şekli geçersiz");
+  const ring = q.ringS ?? 20;
+  const wait = q.maxWaitS ?? 300;
+  if (!Number.isInteger(ring) || ring < 5 || ring > 120) throw new UserError("çalma süresi 5–120 saniye");
+  if (!Number.isInteger(wait) || wait < 10 || wait > 3600) throw new UserError("en uzun bekleme 10–3600 saniye");
+  if ((await db.query("SELECT count(*)::int AS n FROM queues WHERE tenant_id = $1", [t.id])).rows[0].n >= 30) throw new UserError("en fazla 30 kuyruk");
+  if (q.number && (await db.query("SELECT 1 FROM extensions WHERE tenant_id = $1 AND number = $2", [t.id, q.number])).rowCount)
+    throw new UserError(`${q.number} bir dahilinin numarası`);
+  await db
+    .query("INSERT INTO queues (tenant_id, name, number, strategy, ring_s, max_wait_s) VALUES ($1, $2, $3, $4, $5, $6)", [t.id, q.name, q.number || null, strategy, ring, wait])
+    .catch((e) => {
+      if (e.code === "23505") throw new UserError("bu ad ya da numarayla bir kuyruk zaten var");
+      throw e;
+    });
+  await audit(db, "queue.add", t.id, { name: q.name, number: q.number || null, strategy }, actor);
+}
+
+export async function addEntryPoint(db: Db, t: Tenant, address: string, flow: string, actor?: string) {
+  const a = String(address ?? "").replace(/[\s()+-]/g, "").replace(/^0(?=[2-9]\d{9}$)/, "90");
+  if (!/^[1-9][0-9]{7,14}$/.test(a)) throw new UserError("numara ülke koduyla yazılmalı (ör. 0850 123 45 67 ya da 908501234567)");
+  await assertTarget(db, t, flow);
+  if ((await db.query("SELECT count(*)::int AS n FROM entry_points WHERE tenant_id = $1", [t.id])).rows[0].n >= 20) throw new UserError("en fazla 20 numara");
+  const trunk = (await db.query("SELECT id FROM trunks WHERE tenant_id = $1", [t.id])).rows[0];
+  await db
+    .query("INSERT INTO entry_points (tenant_id, channel, address, trunk_id, flow) VALUES ($1, 'voice', $2, $3, $4)", [t.id, a, trunk?.id ?? null, flow])
+    .catch((e) => {
+      // Başka bir işletmede kayıtlıysa bunu söylemeden reddedilir.
+      if (e.code === "23505") throw new UserError("bu numara eklenemiyor; numara size aitse destek ile iletişime geçin");
+      throw e;
+    });
+  await audit(db, "entry.add", t.id, { address: a, flow }, actor);
+  return a;
+}

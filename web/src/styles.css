@@ -385,3 +385,8 @@ a.button { display: inline-flex; align-items: center; text-decoration: none; pad
 .setup-text { display: grid; gap: 1px; min-width: 0; }
 .setup-steps li.done .setup-text strong { color: var(--muted); font-weight: 500; }
 .setup-go { white-space: nowrap; }
+.new-row { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); flex-wrap: wrap; }
+.new-row input { width: auto; flex: 1 1 160px; margin-top: 0; }
+/* Dar ekranda satır içi alanlar taşmasın */
+.row input, .row select, label.inline, label.inline input, label.inline select { max-width: 100%; min-width: 0; }
+.row input[type="file"] { flex: 1 1 200px; }

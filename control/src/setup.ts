@@ -20,11 +20,21 @@ export async function steps(db: Db, tenantId: number, registered: boolean | null
          (SELECT count(*) FROM ai_flows WHERE tenant_id = $1 AND enabled)::int AS flows,
          (SELECT count(*) FROM booking_settings WHERE tenant_id = $1 AND mode <> 'off')::int AS booking,
          (SELECT count(*) FROM chat_widgets WHERE tenant_id = $1 AND enabled)::int AS chat,
-         (SELECT count(*) FROM payment_providers WHERE tenant_id = $1 AND enabled)::int AS payments`,
+         (SELECT count(*) FROM payment_providers WHERE tenant_id = $1 AND enabled)::int AS payments,
+         (SELECT count(*) FROM licenses WHERE tenant_id = $1 AND active AND (valid_until IS NULL OR valid_until > now()))::int AS license`,
       [tenantId],
     )
   ).rows[0];
   const list: Step[] = [
+    {
+      id: "license",
+      title: "Lisansı etkinleştirin",
+      detail: r.license ? "Lisans etkin." : "Dahili açmak ve santralin çalışması için lisans gerekir (Vozyy üzerinden).",
+      done: r.license > 0,
+      required: true,
+      tab: "genel",
+      app: "panel",
+    },
     {
       id: "trunk",
       title: "Operatör hattını bağlayın",
