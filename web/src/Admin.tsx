@@ -396,6 +396,47 @@ function bytes(n: number) {
   return `${(n / 1024 ** 3).toFixed(1)} GB`;
 }
 
+function BackupCard({ b }: { b?: SystemStatus["backup"] }) {
+  const bad = !b || !b.configured || !b.ok || b.stale;
+  const when = b?.at ? new Date(b.at).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }) : null;
+  return (
+    <div className={`card ${bad ? "warn-card" : ""}`}>
+      <h3>Yedek</h3>
+      {!b || !b.configured ? (
+        <>
+          <p>
+            <span className="badge off">Kurulmadı</span>
+          </p>
+          <p className="small muted">
+            Veritabanı, anahtarlar ve kayıtların otomatik yedeği kapalı. Sunucuda bir kez: <span className="mono">sudo infra/backup.sh init</span>
+          </p>
+        </>
+      ) : (
+        <dl>
+          <dt>Son yedek</dt>
+          <dd>
+            {when ?? "—"} <span className={`badge ${bad ? "off" : "ok"}`}>{!b.ok ? "Başarısız" : b.stale ? "Eski (36 saatten fazla)" : "Tamam"}</span>
+          </dd>
+          {b.snapshot && (
+            <>
+              <dt>Görüntü</dt>
+              <dd className="mono">
+                {b.snapshot} · {(b.bytes / 1024 ** 2).toFixed(0)} MB
+              </dd>
+            </>
+          )}
+          {b.message && (
+            <>
+              <dt>Hata</dt>
+              <dd className="small">{b.message}</dd>
+            </>
+          )}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 export function SystemPage() {
   const [s, setS] = useState<SystemStatus | null>(null);
   const [error, setError] = useState("");
@@ -439,6 +480,7 @@ export function SystemPage() {
               {s.asterisk.registrations.length === 0 && <li className="muted">Hat yok.</li>}
             </ul>
           </div>
+          <BackupCard b={s.backup} />
           <VozyyLicenses />
           <div className="card wide">
             <h3>Son santral uyarıları</h3>

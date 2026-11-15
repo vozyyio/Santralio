@@ -109,4 +109,15 @@ systemctl enable --quiet --now santralio-recordings-purge.timer
 install -m 0644 "$REPO/control/santralio-vozyy-sync.service" "$REPO/control/santralio-vozyy-sync.timer" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --quiet --now santralio-vozyy-sync.timer
+# 11. Yedek: betik ve zamanlayıcı. Depo ve şifre "sudo infra/backup.sh init" ile bir kez ayarlanır;
+#     ayarlanmışsa zamanlayıcı burada da açık tutulur.
+command -v restic >/dev/null || apt-get install -y -qq restic >/dev/null
+install -m 0755 "$REPO/infra/backup.sh" /opt/santralio/backup.sh
+install -m 0644 "$REPO/control/santralio-backup.service" "$REPO/control/santralio-backup.timer" /etc/systemd/system/
+systemctl daemon-reload
+if [ -f /etc/santralio/backup.env ]; then
+  systemctl enable --quiet --now santralio-backup.timer
+else
+  echo "UYARI: otomatik yedek kapalı. Kurmak için: sudo infra/backup.sh init"
+fi
 echo "Kontrol servisi kuruldu."

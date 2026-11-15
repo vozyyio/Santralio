@@ -333,6 +333,7 @@ export type SystemStatus = {
   tenants: number;
   users: number;
   recentProblems: string[];
+  backup?: { configured: boolean; ok: boolean; stale: boolean; at: string | null; snapshot: string | null; bytes: number; message: string | null };
 };
 export type Outcome = "answered" | "callback_requested" | "abandoned" | "timeout" | "no_agent" | "open";
 export type Contact = { id: number; name: string; company: string; email: string; tags: string[]; phones: string[] };

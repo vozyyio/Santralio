@@ -1,0 +1,11 @@
+# Santralio: şifreli yedek (infra/backup.sh run). infra/backup.sh init kurar.
+[Unit]
+Description=Santralio yedek
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/santralio/backup.sh run
+Nice=10
+IOSchedulingClass=idle

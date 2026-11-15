@@ -840,8 +840,23 @@ route("GET", "/api/system", async (ctx) => {
     tenants: Number((await ctx.db.query("SELECT count(*) FROM tenants")).rows[0].count),
     users: Number((await ctx.db.query("SELECT count(*) FROM users WHERE NOT disabled")).rows[0].count),
     recentProblems: problems,
+    backup: await backupStatus(),
   };
 });
+
+// Son yedeğin durumu (infra/backup.sh yazar). 36 saatten eski ya da başarısızsa panel uyarır.
+async function backupStatus() {
+  const file = process.env.SANTRALIO_BACKUP_STATUS ?? "/var/lib/santralio/backup-status.json";
+  const raw = await readFile(file, "utf8").catch(() => null);
+  if (!raw) return { configured: false, ok: false, stale: true, at: null, snapshot: null, bytes: 0, message: null };
+  try {
+    const j = JSON.parse(raw);
+    const age = Date.now() - Date.parse(j.at);
+    return { configured: true, ok: !!j.ok, stale: !(age < 36 * 3600_000), at: j.at ?? null, snapshot: j.snapshot ?? null, bytes: Number(j.bytes ?? 0), message: j.message ?? null };
+  } catch {
+    return { configured: true, ok: false, stale: true, at: null, snapshot: null, bytes: 0, message: "durum dosyası okunamadı" };
+  }
+}
 
 // --- Vozyy lisans entegrasyonu ---
 // Vozyy -> Santralio olayları (api.santralio.site). İmza ham gövde üzerinde, ayrıştırmadan önce doğrulanır.

@@ -1,0 +1,11 @@
+# Santralio: yedek her gece 02:15 (UTC), kayıt temizliğinden önce. Kaçırılırsa açılışta çalışır.
+[Unit]
+Description=Santralio yedek (her gece)
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
