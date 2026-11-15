@@ -74,9 +74,10 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 2. **Tutar sunucuda belirlenir.** İstemciden gelen tutara güvenilmez; yapay zekâ ve IVR tutar belirleyemez.
 3. **"Ödendi" yalnızca doğrulanmış bildirim** (imza/hash) ya da sağlayıcıya sunucudan yapılan durum sorgusuyla yazılır. Aynı bildirim iki kez işlenmez.
 4. **Kimlik bilgileri şifreli** (AES-256-GCM, systemd credential anahtarı); API yanıtında asla dönmez.
-5. **Dış adrese istek** (işletme sistemi sorgusu, webhook) yalnızca genel https adrese; iç ağ/özel IP engellenir (SSRF). Ortak kod `control/src/netguard.ts`: kayıtta DNS denetimi, gönderimde bağlantının kendi DNS çözümlemesinde tekrar denetim, yönlendirme izlenmez.
-6. **Kiracı izolasyonu:** her sorgu `tenant_id` ile; yetki `tenantFor(ctx, prefix, izin)` ile.
-7. **KVKK:** arayan verilerinin veri sorumlusu kiracı firmadır, Santralio veri işleyendir. Yurt dışı servisler (Azure, Anthropic, Cloudflare) aydınlatma metninde listelenir.
+5. **Yapay zekâ servisi ana anahtar taşımaz.** Rezervasyon işlemleri iç uçtan (`/api/internal/booking`, ortak `santralio-internal-key`, yalnızca localhost, Caddy'de kapalı) API sürecinde yapılır. Model fiyat/tutar belirleyemez; sistem sonuçları tek kullanımlık etiketle (`<sonuc id>`) verilir.
+6. **Dış adrese istek** (işletme sistemi sorgusu, webhook) yalnızca genel https adrese; iç ağ/özel IP engellenir (SSRF). Ortak kod `control/src/netguard.ts`: kayıtta DNS denetimi, gönderimde bağlantının kendi DNS çözümlemesinde tekrar denetim, yönlendirme izlenmez.
+7. **Kiracı izolasyonu:** her sorgu `tenant_id` ile; yetki `tenantFor(ctx, prefix, izin)` ile.
+8. **KVKK:** arayan verilerinin veri sorumlusu kiracı firmadır, Santralio veri işleyendir. Yurt dışı servisler (Azure, Anthropic, Cloudflare) aydınlatma metninde listelenir.
 
 ## 7. Vozyy entegrasyonu
 
@@ -101,20 +102,27 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 | Görüşme sonrası yapay zekâ analizi (`control/src/analysis.ts`, `ai/analyzer.ts`; Panel → Yapay zekâ, CRM → Yapay zekâ) | Var; varsayılan kapalı, gerçek API ile test edilmedi |
 | Santral/yapay zekâ ödeme adımı (`payment:<profil>`, `control/src/payments/ivr.ts`) | Var; dialplan Asterisk 20.6'da çalıştırıldı; gerçek sağlayıcı ve SMS ile test edilmedi; tuşlama yok |
 | Haftalık yapay zekâ raporu (`analysis.runWeekly`) | Var; varsayılan kapalı, gerçek API ile test edilmedi |
+| Otomatik şifreli yedek (`infra/backup.sh`, restic, her gece 02:15 UTC) | Var; sunucuda `init` bekliyor |
+| Canlı durum ve TV ekranı (`control/src/live.ts`, Panel → Canlı, `#/tv/<önek>`) | Var; çıktılar Asterisk 20.6'da doğrulandı |
+| Yapay zekâ ile rezervasyon (`booking.ts`, `bookingexec.ts`, `ai/assistant.ts`; Panel → Rezervasyon, CRM → Rezervasyonlar) | Var; yerleşik mod ve işletme sistemi sözleşmesi (`docs/booking-contract.md`); gerçek aramayla test edilmedi |
+| Web sitesi sohbeti (`chat.ts`, `control/chat/`; Panel → Web sohbeti) | Var; sahte modelle uçtan uca, gerçek API ile test edilmedi |
+| API anahtarları (`apikeys.ts`, `docs/api.md`; Panel → Entegrasyon) ve kurulum adımları (`setup.ts`, Özet) | Var |
+| Panelden kurulum: operatör hattı, numara, kuyruk, menü, çalışma saati | Var; gerçek hatla test edilmedi |
 | Tanıtım sitesi | Bakımda; KVKK ve koşullar taslak (hukuk kontrolü bekliyor) |
 
 ## 9. Yol haritası (öncelik sırası)
 
-1. **Canlı durum ucu:** bekleyen çağrı, aktif görüşme, temsilci durumu (AMI/ARI, olay akışı). Gerçek santralde test edilir.
-2. **Tuşlayarak ödeme:** sağlayıcının güvenli tuşlama hizmeti (ilk aday: hangi sağlayıcı sunuyorsa) + MOTO; ödeme adımına "2" seçeneği.
-3. Kurulum sihirbazında işletme belgelerinden (fiyat listesi, SSS, web sitesi) yapay zekâ akışı talimatı ve konu listesi üretme.
-4. Temsilci görüşmelerinin (kayıt) yazıya dökülüp analiz edilmesi (Azure toplu yazıya dökme). Kuyrukta geri aranma, kaçan çağrıya geri arama, arayanı tanıma ve yapay zekâ görüşme analizi tamamlandı.
-5. Randevu/rezervasyonu konuşmadan oluşturma (takvim, otel sistemi), otomatik hatırlatma araması.
+1. **Gerçek ortam testleri:** test planı (Docs: "Santralio — Kalan İşler ve Test Planı") sırayla; rezervasyon, sohbet, ödeme, geri aramalar gerçek hat ve anahtarlarla.
+2. **Octopus entegrasyonu** (beklemede): Octopus rezervasyon sözleşmesini (`docs/booking-contract.md`) doğrudan uygular; otomasyonu olmayan işletmeye Octopus, olana entegrasyon.
+3. **Tuşlayarak ödeme:** sağlayıcının güvenli tuşlama hizmeti (ilk aday: hangi sağlayıcı sunuyorsa) + MOTO; ödeme adımına "2" seçeneği.
+4. Kurulum sihirbazında işletme belgelerinden (fiyat listesi, SSS, web sitesi) yapay zekâ akışı talimatı ve konu listesi üretme.
+5. Temsilci görüşmelerinin (kayıt) yazıya dökülüp analiz edilmesi (Azure toplu yazıya dökme). Kuyrukta geri aranma, kaçan çağrıya geri arama, arayanı tanıma ve yapay zekâ görüşme analizi tamamlandı.
+6. Rezervasyon hatırlatma araması ve kapora (rezervasyon altyapısı hazır).
    - Gelmeme riskine göre kapora isteme (ödeme modülüyle). Risk puanı somut geçmişten (önceki gelmeme, ilk kez mi, ne kadar önceden); ses tonu yalnızca destekleyici sinyal (KVKK: profilleme, aydınlatma metninde yer almalı).
    - Çok dilli sağlık/turizm yönlendirmesi: kiracı bazlı terim sözlüğü (STT kelime listesi), niyete göre kuyruk. Sağlık soruları özel nitelikli veri: önce açık rıza, "değerlendirme" değil "bilgi toplama".
-6. Açık API (kiracı API anahtarı), TV ekranı, anlık uyarılar, KVKK maskeleme.
-7. Bayiler için beyaz etiket, kurulum sihirbazı, mobil uygulama altyapısı.
-8. Kanallar: WhatsApp araması, web sitesi arama butonu.
+7. KVKK maskeleme; giden yapay zekâ aramaları (acenteler için kampanya/teyit).
+8. Bayiler için beyaz etiket, mobil uygulama altyapısı.
+9. Kanallar: WhatsApp araması, web sitesi arama butonu.
 
 ## 10. Ödeme: Vozyy ödeme merkezi kararı (beklemede)
 
