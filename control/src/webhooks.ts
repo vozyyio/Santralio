@@ -25,6 +25,7 @@ export const EVENTS: { type: string; label: string; group: string }[] = [
   { type: "queue_callback.failed", label: "Kuyruk geri aramasında ulaşılamadı / süresi doldu", group: "Görüşmeler" },
   { type: "ai.session.ended", label: "Yapay zekâ görüşmesi bitti (özetiyle)", group: "Yapay zekâ" },
   { type: "call.analyzed", label: "Görüşme analizi hazır (özet, konu, sonuç, takip)", group: "Yapay zekâ" },
+  { type: "report.weekly", label: "Haftalık yapay zekâ raporu hazır", group: "Yapay zekâ" },
   { type: "callback.answered", label: "Otomatik geri arama açıldı", group: "Yapay zekâ" },
   { type: "callback.failed", label: "Otomatik geri aramada ulaşılamadı", group: "Yapay zekâ" },
   { type: "payment.paid", label: "Ödeme alındı", group: "Ödeme" },

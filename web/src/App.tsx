@@ -20,7 +20,7 @@ import { PaymentsPage } from "./Payments";
 import { CallbacksPage } from "./Callbacks";
 import { WebhooksPage } from "./Webhooks";
 import { QueueCallbackBox, QueueCallbackJobs } from "./QueueCallback";
-import { AnalysisReport, AnalysisSettingsCard } from "./Analysis";
+import { AnalysisReport, AnalysisSettingsCard, WeeklyReportCard } from "./Analysis";
 import { operatorName, regLabel } from "./labels";
 import type { IconName } from "./Icons";
 import { PbxCard, PromptsTab } from "./Prompts";
@@ -383,6 +383,7 @@ function CrmPage({ me, prefix, tab: requested, id }: { me: Me; prefix: string; t
       {tab === "geriarama" && <FollowUps prefix={prefix} />}
       {tab === "gorusmeler" && <Calls prefix={prefix} own={!can(me, "calls.all")} />}
       {tab === "raporlar" && <Reports prefix={prefix} />}
+      {tab === "yapayzeka" && <WeeklyReportCard prefix={prefix} />}
       {tab === "yapayzeka" && <AnalysisReport prefix={prefix} />}
       {tab === "yapayzeka" && <AiSessions prefix={prefix} />}
       {tab === "gunluk" && <Audit prefix={prefix} />}
@@ -418,6 +419,7 @@ function targetLabel(t: Tenant, target: string | null): string {
   if (!target) return "Kapat";
   const [kind, name] = target.split(":");
   if (kind === "ai") return `Yapay zekâ: ${name}`;
+  if (kind === "payment") return `Ödeme bağlantısı: ${t.payProfiles?.find((p) => p.name === name)?.title ?? name}`;
   if (kind === "ext") {
     const e = t.extensions.find((x) => x.number === name);
     return `Dahili: ${name}${e?.display_name ? ` · ${e.display_name}` : ""}`;
@@ -432,6 +434,7 @@ function TargetSelect({ t, value, onChange, allowNone }: { t: Tenant; value: str
     ...t.schedules.map((s) => `schedule:${s.name}`),
     ...t.extensions.filter((e) => e.enabled).map((e) => `ext:${e.number}`),
     ...t.aiFlows.map((f) => `ai:${f}`),
+    ...(t.payProfiles ?? []).map((p) => `payment:${p.name}`),
   ];
   return (
     <select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>

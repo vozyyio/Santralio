@@ -1,7 +1,7 @@
 // Görüşme sonrası yapay zekâ analizi: ayar (Panel → Yapay zekâ) ve rapor (CRM → Yapay zekâ).
 
 import { useEffect, useState } from "react";
-import { api, ApiError, type AnalysisItem, type AnalysisOverview, type AnalysisSettings } from "./api";
+import { api, ApiError, type AnalysisItem, type AnalysisOverview, type AnalysisSettings, type WeeklyReport } from "./api";
 
 const err = (e: unknown) => (e instanceof ApiError ? e.message : "Bir hata oluştu");
 const pct = (a: number, b: number) => (b ? `%${Math.round((a / b) * 100)}` : "–");
@@ -65,6 +65,22 @@ export function AnalysisSettingsCard({ prefix }: { prefix: string }) {
           <textarea rows={5} value={topics} onChange={(e) => setTopics(e.target.value)} placeholder={"Rezervasyon\nFiyat bilgisi\nŞikâyet\nİptal / değişiklik"} />
         </label>
       </div>
+      <label className="check">
+        <input type="checkbox" checked={s.weeklyReport} onChange={(e) => setS({ ...s, weeklyReport: e.target.checked })} />
+        Haftalık yapay zekâ raporu (her Pazartesi, geçen haftanın analizlerinden; en az 5 görüşme gerekir)
+      </label>
+      {s.weeklyReport && (
+        <label>
+          Rapor modeli (haftada bir çalışır; en güçlü model burada mantıklı)
+          <select value={s.reportModel} onChange={(e) => setS({ ...s, reportModel: e.target.value })}>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="actions">
         <button disabled={busy} onClick={save}>
           Kaydet
@@ -166,6 +182,52 @@ export function AnalysisReport({ prefix }: { prefix: string }) {
         ))}
         {data.items.length === 0 && <li className="muted small">Bu filtrede görüşme yok.</li>}
       </ul>
+    </div>
+  );
+}
+
+export function WeeklyReportCard({ prefix }: { prefix: string }) {
+  const [rows, setRows] = useState<WeeklyReport[] | null>(null);
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    api.anReports(prefix).then(setRows, () => setRows([]));
+  }, [prefix]);
+  if (!rows || rows.length === 0) return null;
+  const r = rows[i];
+  const st = r.stats;
+  const section = (title: string, items: string[]) =>
+    items.length > 0 && (
+      <>
+        <h4>{title}</h4>
+        <ul className="report-list">
+          {items.map((x, k) => (
+            <li key={k}>{x}</li>
+          ))}
+        </ul>
+      </>
+    );
+  return (
+    <div className="card">
+      <div className="row spread">
+        <h3>Haftalık rapor</h3>
+        <select value={i} onChange={(e) => setI(Number(e.target.value))}>
+          {rows.map((x, k) => (
+            <option key={x.id} value={k}>
+              {x.periodStart} – {x.periodEnd}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="report-headline">{r.report.headline}</p>
+      <p className="small muted">
+        {st.total} görüşme (önceki hafta {st.previousTotal}) · asistan çözdü {pct(st.aiResolved, st.total)} · aktarıldı {pct(st.transferred, st.total)} · çözülmedi{" "}
+        {pct(st.unresolved, st.total)} · {st.negative} olumsuz · {st.followUps} takip
+      </p>
+      <div className="report-cols">
+        <div>{section("Öne çıkanlar", r.report.highlights)}</div>
+        <div>{section("Sorunlar", r.report.problems)}</div>
+        <div>{section("Bu hafta yapılabilecekler", r.report.suggestions)}</div>
+      </div>
     </div>
   );
 }

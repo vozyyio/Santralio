@@ -99,18 +99,20 @@ sudo infra/site-deploy.sh     # tanıtım sitesi
 | Arayanı tanıma (`crm.callerHistory`): yapay zekâ talimatına kart/kaçıncı arama/son özet; karşılamada `{ad}`; temsilci ekranında "N. araması" | Var; yapay zekâ akışında açılıp kapanır (varsayılan açık) |
 | "Sıranız gelince sizi arayalım" (`control/src/queuecb.ts`, Panel → Kuyruklar) | Var; dialplan Asterisk 20.6'da Local kanalla çalıştırıldı, gerçek hatla test edilmedi |
 | Görüşme sonrası yapay zekâ analizi (`control/src/analysis.ts`, `ai/analyzer.ts`; Panel → Yapay zekâ, CRM → Yapay zekâ) | Var; varsayılan kapalı, gerçek API ile test edilmedi |
+| Santral/yapay zekâ ödeme adımı (`payment:<profil>`, `control/src/payments/ivr.ts`) | Var; dialplan Asterisk 20.6'da çalıştırıldı; gerçek sağlayıcı ve SMS ile test edilmedi; tuşlama yok |
+| Haftalık yapay zekâ raporu (`analysis.runWeekly`) | Var; varsayılan kapalı, gerçek API ile test edilmedi |
 | Tanıtım sitesi | Bakımda; KVKK ve koşullar taslak (hukuk kontrolü bekliyor) |
 
 ## 9. Yol haritası (öncelik sırası)
 
 1. **Canlı durum ucu:** bekleyen çağrı, aktif görüşme, temsilci durumu (AMI/ARI, olay akışı). Gerçek santralde test edilir.
-2. **Ödeme: sesli menü ve yapay zekâ adımı.** Arayana "SMS ile bağlantı 1, tuşlama 2" sorusu; yapay zekânın sesli onayla bağlantı göndermesi. Akışta yeni hedef türü `payment:<profil>`.
-3. **Haftalık yapay zekâ raporu** (analizlerden; Fable 5.2 seçeneğiyle) ve kurulum sihirbazında işletme belgelerinden akış talimatı üretme.
+2. **Tuşlayarak ödeme:** sağlayıcının güvenli tuşlama hizmeti (ilk aday: hangi sağlayıcı sunuyorsa) + MOTO; ödeme adımına "2" seçeneği.
+3. Kurulum sihirbazında işletme belgelerinden (fiyat listesi, SSS, web sitesi) yapay zekâ akışı talimatı ve konu listesi üretme.
 4. Temsilci görüşmelerinin (kayıt) yazıya dökülüp analiz edilmesi (Azure toplu yazıya dökme). Kuyrukta geri aranma, kaçan çağrıya geri arama, arayanı tanıma ve yapay zekâ görüşme analizi tamamlandı.
 5. Randevu/rezervasyonu konuşmadan oluşturma (takvim, otel sistemi), otomatik hatırlatma araması.
    - Gelmeme riskine göre kapora isteme (ödeme modülüyle). Risk puanı somut geçmişten (önceki gelmeme, ilk kez mi, ne kadar önceden); ses tonu yalnızca destekleyici sinyal (KVKK: profilleme, aydınlatma metninde yer almalı).
    - Çok dilli sağlık/turizm yönlendirmesi: kiracı bazlı terim sözlüğü (STT kelime listesi), niyete göre kuyruk. Sağlık soruları özel nitelikli veri: önce açık rıza, "değerlendirme" değil "bilgi toplama".
-6. Açık API (kiracı API anahtarı), TV ekranı, anlık uyarılar, haftalık yapay zekâ raporu, KVKK maskeleme.
+6. Açık API (kiracı API anahtarı), TV ekranı, anlık uyarılar, KVKK maskeleme.
 7. Bayiler için beyaz etiket, kurulum sihirbazı, mobil uygulama altyapısı.
 8. Kanallar: WhatsApp araması, web sitesi arama butonu.
 

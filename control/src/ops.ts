@@ -21,7 +21,7 @@ export class UserError extends Error {
 export type Tenant = { id: number; prefix: string; name: string; status: string; reseller_id: number };
 
 const NAME = /^[a-z0-9_]{1,32}$/;
-const TARGET = /^(queue|menu|schedule|ai):([a-z0-9_]{1,32})$/;
+const TARGET = /^(queue|menu|schedule|ai|payment):([a-z0-9_]{1,32})$/;
 const WEEKDAYS = /^(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?$/;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -42,7 +42,15 @@ export async function assertTarget(db: Db, t: Tenant, target: string) {
     return;
   }
   const m = TARGET.exec(target);
-  if (!m) throw new UserError(`geçersiz hedef: ${target} (queue:<ad>, menu:<ad>, schedule:<ad>, ai:<akış> ya da ext:<dahili>)`);
+  if (!m) throw new UserError(`geçersiz hedef: ${target} (queue:<ad>, menu:<ad>, schedule:<ad>, ai:<akış>, payment:<profil> ya da ext:<dahili>)`);
+  if (m[1] === "payment") {
+    // Arayan ödeme adımı: tutarı santral belirleyemez; yalnızca sabit ya da işletme sisteminden sorgulanan tutarlı açık profil.
+    const pr = (await db.query("SELECT amount_source, enabled FROM payment_profiles WHERE tenant_id = $1 AND name = $2", [t.id, m[2]])).rows[0];
+    if (!pr) throw new UserError(`${t.prefix}: ödeme profili yok: ${m[2]}`);
+    if (!pr.enabled) throw new UserError(`${t.prefix}: ödeme profili kapalı: ${m[2]}`);
+    if (pr.amount_source === "agent") throw new UserError(`${t.prefix}: ${m[2]} profilinde tutarı temsilci giriyor; santral adımı için sabit ya da sorgulu tutar gerekli`);
+    return;
+  }
   const kinds = { queue: ["queues", "kuyruk"], menu: ["menus", "menü"], schedule: ["schedules", "zamanlama"], ai: ["ai_flows", "yapay zekâ akışı"] } as const;
   const [table, label] = kinds[m[1] as keyof typeof kinds];
   const row = (await db.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND name = $2`, [t.id, m[2]])).rows[0];

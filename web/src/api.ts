@@ -230,7 +230,15 @@ export type QueueCallbackJob = {
   connectedAt: string | null;
   waitS: number | null;
 };
-export type AnalysisSettings = { enabled: boolean; model: string; topics: string[] };
+export type AnalysisSettings = { enabled: boolean; model: string; topics: string[]; weeklyReport: boolean; reportModel: string };
+export type WeeklyReport = {
+  id: number;
+  periodStart: string;
+  periodEnd: string;
+  report: { headline: string; highlights: string[]; problems: string[]; suggestions: string[] };
+  stats: { total: number; aiResolved: number; transferred: number; unresolved: number; negative: number; followUps: number; previousTotal: number };
+  model: string;
+};
 export type AnalysisOverview = {
   days: number;
   total: number;
@@ -282,6 +290,7 @@ export type Tenant = {
   pbxOpen: boolean;
   pbxClosedText: string;
   aiFlows: string[];
+  payProfiles?: { name: string; title: string }[];
   recording: { enabled: boolean; retentionDays: number; noticeText: string };
   license: { source: string; active: boolean; valid_until: string | null; max_extensions: number; max_channels: number } | null;
   trunk: { operator: string; server: string; port: number; transport: string; username: string; enabled: boolean } | null;
@@ -408,6 +417,7 @@ export const api = {
   addHoliday: (p: string, name: string, day: string, note: string) =>
     call("POST", `${t(p)}/schedules/${seg(name)}/holidays`, { day, note: note || null }),
   anSettings: (p: string) => call<{ settings: AnalysisSettings; models: { id: string; label: string }[] }>("GET", `${t(p)}/analysis/settings`),
+  anReports: (p: string) => call<WeeklyReport[]>("GET", `${t(p)}/analysis/reports`),
   anSave: (p: string, b: AnalysisSettings) => call<AnalysisSettings>("PUT", `${t(p)}/analysis/settings`, b),
   anReport: (p: string, q: { days: number; outcome?: string; sentiment?: string; followUp?: boolean }) =>
     call<{ overview: AnalysisOverview; items: AnalysisItem[] }>(

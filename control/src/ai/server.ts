@@ -17,7 +17,7 @@ import { DEFAULT_LANG, greetingLanguage, lang, LANGUAGES } from "./languages.ts"
 import { CallSession, type Result } from "./session.ts";
 import { callerBrief, callerHistory, fillName } from "../crm.ts";
 import { emit } from "../webhooks.ts";
-import { runPending } from "../analysis.ts";
+import { runPending, runWeekly } from "../analysis.ts";
 import { ClaudeAnalyzer } from "./analyzer.ts";
 import { CALLBACK_INSTRUCTIONS, getSettings as callbackSettings, greetingFor, markAnswered } from "../callbacks.ts";
 
@@ -240,6 +240,7 @@ writeFileSync(
 if (ANTHROPIC_KEY && !FAKE && process.env.SANTRALIO_ANALYSIS !== "off") {
   const analyzer = new ClaudeAnalyzer(ANTHROPIC_KEY);
   let running = false;
+  let lastWeekly = 0;
   setInterval(async () => {
     if (running) return;
     running = true;
@@ -248,6 +249,12 @@ if (ANTHROPIC_KEY && !FAKE && process.env.SANTRALIO_ANALYSIS !== "off") {
       if (db) {
         const r = await runPending(db, analyzer);
         if (r.done || r.failed) log(`görüşme analizi: ${r.done} tamam, ${r.failed} hata`);
+        // Haftalık rapor: 10 dakikada bir bakılır (yazılmış rapor tekrar yazılmaz).
+        if (Date.now() - lastWeekly > 600_000) {
+          lastWeekly = Date.now();
+          const w = await runWeekly(db, analyzer);
+          if (w.done || w.failed) log(`haftalık rapor: ${w.done} tamam, ${w.failed} hata`);
+        }
       }
     } catch (e) {
       log("görüşme analizi:", e);

@@ -32,6 +32,7 @@ import * as callbacks from "./callbacks.ts";
 import * as webhooks from "./webhooks.ts";
 import * as queuecb from "./queuecb.ts";
 import * as analysis from "./analysis.ts";
+import * as payIvr from "./payments/ivr.ts";
 import { publicCatalog } from "./payments/catalog.ts";
 import { aad, open } from "./crypto.ts";
 import { recordingDir } from "./render.ts";
@@ -317,6 +318,10 @@ route("GET", "/api/tenants/:prefix", async (ctx) => {
     recording: rec,
     ...(await q(`SELECT tts_voice AS voice, pbx_open AS "pbxOpen", pbx_closed_text AS "pbxClosedText" FROM tenants WHERE id = $1`))[0],
     aiFlows: (await q("SELECT name FROM ai_flows WHERE tenant_id = $1 ORDER BY name")).map((r) => r.name),
+    // Santral/yapay zekâ adımı olarak seçilebilen ödeme profilleri (payment:<ad>).
+    payProfiles: (await q(
+      `SELECT name, title FROM payment_profiles WHERE tenant_id = $1 AND enabled AND amount_source IN ('fixed', 'lookup') AND methods IN ('link', 'both') ORDER BY name`,
+    )).map((r) => ({ name: r.name, title: r.title })),
     license: license ?? null,
     trunk: trunk ?? null,
     entryPoints: await q("SELECT channel, address, flow, enabled FROM entry_points WHERE tenant_id = $1 ORDER BY address"),
@@ -888,12 +893,16 @@ route("GET", "/api/tenants/:prefix/payments/settings", async (ctx) => {
 route("POST", "/api/tenants/:prefix/payments/providers", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
   const b = ctx.body ?? {};
-  return { id: await payments.saveProvider(payDeps(ctx), t.id, { provider: b.provider, label: b.label, mode: b.mode, credentials: b.credentials, enabled: b.enabled, isDefault: b.isDefault }) };
+  const id = await payments.saveProvider(payDeps(ctx), t.id, { provider: b.provider, label: b.label, mode: b.mode, credentials: b.credentials, enabled: b.enabled, isDefault: b.isDefault });
+  applyChanges(ctx.db); // santraldeki ödeme adımları sağlayıcıya bağlı
+  return { id };
 });
 route("PUT", "/api/tenants/:prefix/payments/providers/:id", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
   const b = ctx.body ?? {};
-  return { id: await payments.saveProvider(payDeps(ctx), t.id, { id: idParam(ctx.params[1]), label: b.label, mode: b.mode, credentials: b.credentials, enabled: b.enabled, isDefault: b.isDefault }) };
+  const id = await payments.saveProvider(payDeps(ctx), t.id, { id: idParam(ctx.params[1]), label: b.label, mode: b.mode, credentials: b.credentials, enabled: b.enabled, isDefault: b.isDefault });
+  applyChanges(ctx.db);
+  return { id };
 });
 route("POST", "/api/tenants/:prefix/payments/providers/:id/test", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
@@ -907,6 +916,7 @@ route("POST", "/api/tenants/:prefix/payments/providers/:id/moto", async (ctx) =>
 route("DELETE", "/api/tenants/:prefix/payments/providers/:id", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
   await payments.deleteProvider(payDeps(ctx), t.id, idParam(ctx.params[1]));
+  applyChanges(ctx.db);
   return { ok: true };
 });
 route("PUT", "/api/tenants/:prefix/payments/sms", async (ctx) => {
@@ -917,11 +927,13 @@ route("PUT", "/api/tenants/:prefix/payments/sms", async (ctx) => {
 route("PUT", "/api/tenants/:prefix/payments/profiles/:name", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
   await payments.saveProfile(payDeps(ctx), t.id, { ...(ctx.body ?? {}), name: ctx.params[1] });
+  applyChanges(ctx.db);
   return { ok: true };
 });
 route("DELETE", "/api/tenants/:prefix/payments/profiles/:name", async (ctx) => {
   const t = await tenantFor(ctx, ctx.params[0], "payments.manage");
   await payments.deleteProfile(payDeps(ctx), t.id, ctx.params[1]);
+  applyChanges(ctx.db);
   return { ok: true };
 });
 // Temsilci için: etkin profiller (yalnızca ödeme istemek için gerekenler).
@@ -1171,7 +1183,7 @@ route("GET", "/api/tenants/:prefix/analysis/settings", async (ctx) => {
 route("PUT", "/api/tenants/:prefix/analysis/settings", async (ctx) => {
   const t = await analysisTenant(ctx, "settings.manage");
   const b = ctx.body ?? {};
-  return analysis.saveSettings(ctx.db, t.id, { enabled: b.enabled, model: b.model, topics: b.topics }, actor(ctx));
+  return analysis.saveSettings(ctx.db, t.id, { enabled: b.enabled, model: b.model, topics: b.topics, weeklyReport: b.weeklyReport, reportModel: b.reportModel }, actor(ctx));
 });
 
 route("GET", "/api/tenants/:prefix/analysis", async (ctx) => {
@@ -1182,6 +1194,11 @@ route("GET", "/api/tenants/:prefix/analysis", async (ctx) => {
     overview: await analysis.overview(ctx.db, t.id, Number.isFinite(days) ? days : 30),
     items: await analysis.list(ctx.db, t.id, { outcome: qs.get("outcome"), sentiment: qs.get("sentiment"), followUp: qs.get("followUp") === "1" }),
   };
+});
+
+route("GET", "/api/tenants/:prefix/analysis/reports", async (ctx) => {
+  const t = await analysisTenant(ctx, "reports.view");
+  return analysis.listReports(ctx.db, t.id);
 });
 
 // --- "Sıranız gelince sizi arayalım" ---
@@ -1255,6 +1272,7 @@ if (process.env.SANTRALIO_CALLBACKS !== "off") {
       if (db) {
         await queuecb.scan(db);
         await queuecb.tick(db, qDialer);
+        await payIvr.scan({ db, keys: payKeys, fetch, apiBase: PAYMENTS_API_BASE, actor: "payments" });
       }
     } catch (err) {
       console.error(new Date().toISOString(), "kuyruk geri arama zamanlayıcısı:", err);

@@ -39,6 +39,8 @@ function targetOptions(t: Tenant) {
     ...t.queues.map((q) => [`queue:${q.name}`, `Kuyruk: ${q.name}`]),
     ...t.menus.map((m) => [`menu:${m.name}`, `Menü: ${m.name}`]),
     ...t.extensions.filter((e) => e.enabled).map((e) => [`ext:${e.number}`, `Dahili: ${e.number}${e.display_name ? ` · ${e.display_name}` : ""}`]),
+    // Ödeme adımı: arayan 1'e basınca bağlantı SMS ile gider; tutarı profil belirler, yapay zekâ değil.
+    ...(t.payProfiles ?? []).map((p) => [`payment:${p.name}`, `Ödeme bağlantısı: ${p.title}`]),
   ] as [string, string][];
 }
 

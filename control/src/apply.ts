@@ -134,6 +134,8 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
     recording: { enabled: t.recording_enabled && hasModule(t.modules, "recording") },
     outbound: pol,
     pbxOpen: t.pbx_open,
+    // Ödeme adımı: kullanılabilir sağlayıcısı olan, tutarı sabit/sorgulu açık profiller. Tuşlayarak ödeme henüz yok.
+    payments: (await payableProfiles(db, tenantId)).map((name) => ({ name, dtmf: false })),
     // Kaçan çağrıya geri arama: yapay zekâ ve dış arama modülleri gerekir.
     callback: cb?.enabled && hasModule(t.modules, "ai") && hasModule(t.modules, "outbound") ? { flow: cb.ai_flow } : null,
     ai: {
@@ -147,6 +149,23 @@ export async function loadTenant(db: Db, tenantId: number): Promise<TenantModel>
     },
   };
 }
+
+// Santral adımı olarak kullanılabilecek ödeme profilleri (tutarı arayan ya da santral belirleyemez).
+export async function payableProfiles(db: Db, tenantId: number): Promise<string[]> {
+  return (
+    await db.query(
+      `SELECT p.name FROM payment_profiles p
+        WHERE p.tenant_id = $1 AND p.enabled AND p.amount_source IN ('fixed', 'lookup') AND p.methods IN ('link', 'both')
+          AND EXISTS (SELECT 1 FROM payment_providers v WHERE v.tenant_id = p.tenant_id AND v.enabled
+                       AND (v.id = p.provider_id OR (p.provider_id IS NULL AND v.is_default)))
+        ORDER BY p.name`,
+      [tenantId],
+    )
+  ).rows.map((r) => r.name as string);
+}
+
+export const PAY_SENT_TEXT = "Ödeme bağlantınız birkaç saniye içinde kısa mesajla gönderilecek. Bağlantıya tıklayıp ödemenizi güvenle yapabilirsiniz. Teşekkür ederiz.";
+export const PAY_NONUM_TEXT = "Kısa mesaj gönderebileceğimiz bir cep telefonu numarası göremiyoruz. Lütfen cep telefonunuzdan, numaranızı gizlemeden tekrar arayın.";
 
 // Anons metninden 8 kHz, tek kanallı, 16 bit WAV üretir (Asterisk'in yerel biçimi).
 // Metin ya da ses değişmedikçe dosya yeniden üretilmez; ikisi yanındaki .txt dosyasında tutulur.
@@ -207,6 +226,18 @@ export async function tenantPrompts(db: Db, tenantId: number): Promise<{ name: s
   for (const m of (await db.query("SELECT name, prompt_text, invalid_text FROM menus WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows) {
     out.push({ name: `menu-${m.name}`, label: `Menü ${m.name}: karşılama`, text: m.prompt_text });
     out.push({ name: `menu-${m.name}-invalid`, label: `Menü ${m.name}: geçersiz tuş`, text: m.invalid_text });
+  }
+  const payable = new Set(await payableProfiles(db, tenantId));
+  if (payable.size) {
+    for (const pr of (await db.query("SELECT name, title, ask_text FROM payment_profiles WHERE tenant_id = $1 AND name = ANY ($2) ORDER BY name", [tenantId, [...payable]])).rows) {
+      out.push({
+        name: `pay-${pr.name}-ask`,
+        label: `Ödeme ${pr.name}: soru`,
+        text: pr.ask_text?.trim() || `${pr.title} için ödeme bağlantısını cep telefonunuza kısa mesajla göndermemizi isterseniz 1'e basın.`,
+      });
+    }
+    out.push({ name: "pay-sent", label: "Ödeme: bağlantı gönderiliyor", text: PAY_SENT_TEXT });
+    out.push({ name: "pay-nonum", label: "Ödeme: cep numarası görünmüyor", text: PAY_NONUM_TEXT });
   }
   for (const q of (await db.query("SELECT * FROM queues WHERE tenant_id = $1 ORDER BY name", [tenantId])).rows) {
     out.push({ name: `queue-${q.name}-unavailable`, label: `Kuyruk ${q.name}: müsait temsilci yok`, text: q.unavailable_text });

@@ -40,6 +40,7 @@ Kurallar:
 - Arayan derdini söyledi ve listedeki bir yere uyuyorsa uzatmadan aktar. Uymuyorsa ve sen de yanıtlayamıyorsan varsayılan yere aktar.
 - Arayan vedalaşırsa ya da işi bittiyse "end" seç ve kısa bir veda cümlesi yaz.
 - "say" seçtiğinde "target" ve "summary" null olsun.
+- "payment:" ile başlayan yerler ödeme adımıdır: arayan isterse oraya aktar ve "say" alanında bir sonraki adımda tuşa basarak ödeme bağlantısını kısa mesajla alacağını söyle. Tutar söyleme, tutar uydurma, kart bilgisi isteme; tutarı sistem belirler.
 
 Aktarılabilecek yerler (target: ne zaman):
 ${routes || "- (tanımlı yer yok)"}

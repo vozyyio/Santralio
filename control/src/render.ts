@@ -55,6 +55,9 @@ export type TenantModel = {
   ai?: { enabled: boolean; flows: { name: string; enabled: boolean; routes: string[]; defaultTarget: string | null }[] };
   // Kaçan çağrıya otomatik geri arama (callbacks.ts). Açıksa tN-callback context'i üretilir.
   callback?: { flow: string } | null;
+  // Ödeme adımı (payment:<profil>): açık, tutarı sabit ya da sorgulu profiller. dtmf: tuşlayarak ödeme hazır mı
+  // (sağlayıcının güvenli tuşlama hizmeti + MOTO onayı; henüz hiçbir sağlayıcıda açık değil).
+  payments?: { name: string; dtmf: boolean }[];
 };
 
 // Yapay zekâ karşılama servisi (santralio-ai), AudioSocket ile.
@@ -360,17 +363,19 @@ exten => i,1,Goto(reject,s,1)
   const menus = new Set(t.menus.map((m) => m.name));
   const schedules = new Set(t.schedules.map((x) => x.name));
   const aiFlows = new Set((t.ai?.flows ?? []).map((f) => f.name));
+  const payProfiles = new Set((t.payments ?? []).map((x) => x.name));
   const extensions = new Set(t.extensions.filter((e) => e.enabled).map((e) => e.number));
   const target = (flow: string): string | null => {
     const ext = /^ext:([0-9]{2,6})$/.exec(flow);
     if (ext) return extensions.has(ext[1]) ? `${p}-ext,${ext[1]},1` : null;
-    const m = /^(queue|menu|schedule|ai):([a-z0-9_]{1,32})$/.exec(flow);
+    const m = /^(queue|menu|schedule|ai|payment):([a-z0-9_]{1,32})$/.exec(flow);
     if (!m) return null;
     const [, kind, name] = m;
     if (kind === "queue" && queues.has(name)) return `${p}-queue-${name},s,1`;
     if (kind === "menu" && menus.has(name)) return `${p}-menu-${name},s,1`;
     if (kind === "schedule" && schedules.has(name)) return `${p}-schedule-${name},s,1`;
     if (kind === "ai" && aiFlows.has(name)) return `${p}-ai-${name},s,1`;
+    if (kind === "payment" && payProfiles.has(name)) return `${p}-pay-${name},s,1`;
     return null;
   };
 
@@ -449,11 +454,50 @@ exten => s,1,Set(TODAY=${v(`STRFTIME(${v("EPOCH")},${sc.timezone},%F)`)})
  same => n,GotoIf($["${v("ROUTE")}" = "hangup"]?bye)
 `);
     for (const r of f.routes) {
-      if (r.startsWith("ai:") || !/^((queue|menu|schedule):[a-z0-9_]{1,32}|ext:[0-9]{2,6})$/.test(r)) continue;
+      if (r.startsWith("ai:") || !/^((queue|menu|schedule|payment):[a-z0-9_]{1,32}|ext:[0-9]{2,6})$/.test(r)) continue;
       const dest = target(r);
       if (dest) out.push(` same => n,GotoIf($["${v("ROUTE")}" = "${r}"]?${dest})\n`);
     }
     out.push(` same => n,${end}\n same => n(bye),Hangup(16)\n`);
+  }
+
+  // Ödeme adımı: "SMS ile ödeme bağlantısı için 1" (tuşlama hazırsa "kartla tuşlayarak ödemek için 2").
+  // 1: arayanın cep numarası görünüyorsa talep queue_log'a yazılır (SANTRALIO_PAY_REQUEST); kontrol servisi tutarı kendisi
+  // belirler (profildeki sabit tutar ya da işletme sistemi), bağlantıyı oluşturur ve SMS ile gönderir. Santral tutar taşımaz.
+  for (const pay of t.payments ?? []) {
+    assertId(pay.name, "ödeme profili");
+    const ask = promptPath(p, `pay-${pay.name}-ask`);
+    out.push(`
+[${p}-pay-${pay.name}]
+exten => s,1,Answer()
+ same => n,Set(TRIES=0)
+ same => n(prompt),Set(TRIES=$[${v("TRIES")} + 1])
+ same => n,Background(${ask})
+ same => n,WaitExten(6)
+exten => 1,1,Set(PAYD=${v("FILTER(0-9,${CALLERID(num)})")})
+ same => n,GotoIf($[${v("LEN(${PAYD})")} < 10]?nonum)
+ same => n,GotoIf($["${v("PAYD:-10:1")}" != "5"]?nonum)
+ same => n,Set(PAYCALL=${v("SANTRALIO_CALLID")})
+ same => n,ExecIf($["${v("PAYCALL")}" = ""]?Set(PAYCALL=${v("UNIQUEID")}))
+ same => n,Set(PAYBY=ivr)
+ same => n,ExecIf($["${v("SANTRALIO_AI")}" != ""]?Set(PAYBY=ai))
+ same => n,QueueLog(${p}_pay,${v("PAYCALL")},NONE,SANTRALIO_PAY_REQUEST,${pay.name}|${v("PAYD")}|${v("PAYBY")})
+ same => n,Playback(${promptPath(p, "pay-sent")})
+ same => n,Hangup(16)
+ same => n(nonum),Playback(${promptPath(p, "pay-nonum")})
+ same => n,Hangup(16)
+`);
+    if (pay.dtmf) {
+      // Tuşlamalı ödeme sağlayıcının güvenli tuşlama hizmetiyle bağlanacak; kart numarası santrale hiç gelmeyecek.
+      out.push(`exten => 2,1,Playback(${promptPath(p, "pay-dtmf-soon")})
+ same => n,Goto(s,prompt)
+`);
+    }
+    out.push(`exten => t,1,GotoIf($[${v("TRIES")} < 2]?s,prompt)
+ same => n,Hangup(16)
+exten => i,1,GotoIf($[${v("TRIES")} < 2]?s,prompt)
+ same => n,Hangup(16)
+`);
   }
 
   // Tuşlamalı menü: anons çalar, tuşa göre hedefe gider.
